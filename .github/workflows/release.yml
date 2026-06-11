@@ -1,0 +1,49 @@
+name: release
+# Builds the Windows installer, signs it for the auto-updater, creates a GitHub
+# Release, and uploads latest.json automatically — every time you push a version tag.
+#
+# Before this works you must add three repository secrets
+#   (GitHub → your repo → Settings → Secrets and variables → Actions → New repository secret):
+#     TAURI_SIGNING_PRIVATE_KEY            -> the contents of the private key file you generated
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   -> the password you set for that key (blank is allowed)
+#
+# To publish a new version: bump the version numbers, commit, then run in a terminal:
+#     git tag v2.2.1
+#     git push origin v2.2.1
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build, sign, and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "WIM ${{ github.ref_name }}"
+          releaseBody: "Download the installer below. Existing installs will auto-update."
+          releaseDraft: false
+          prerelease: false

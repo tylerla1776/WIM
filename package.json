@@ -1,0 +1,14 @@
+{
+  "name": "wim",
+  "version": "2.2.0",
+  "private": true,
+  "description": "WIM — Warehouse Inventory Management (desktop build)",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
