@@ -1,0 +1,11 @@
+{
+  "version": "2.2.1",
+  "notes": "Describe what changed in this release.",
+  "pub_date": "2026-06-10T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "PASTE_THE_CONTENTS_OF_THE_.sig_FILE_HERE",
+      "url": "https://github.com/GITHUB_USER/GITHUB_REPO/releases/download/v2.2.1/WIM_2.2.1_x64-setup.exe"
+    }
+  }
+}
