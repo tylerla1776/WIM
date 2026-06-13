@@ -11,7 +11,7 @@
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
   body{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;font-size:13px;color:#1b1b1b;overflow:hidden;
-    background:linear-gradient(#1b4f86 0%,#3f7fb5 38%,#79a7c9 60%,#2c5775 100%);-webkit-user-select:none;user-select:none;}
+    background:#f0f0f0;-webkit-user-select:none;user-select:none;}
   #desktop{position:fixed;inset:0;overflow:hidden;}
   #desktop::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 80% 20%,rgba(255,255,255,.18),transparent 55%),radial-gradient(90% 60% at 10% 90%,rgba(0,0,0,.20),transparent 60%);pointer-events:none;}
   .window{position:absolute;background:var(--chrome);border:1px solid #6f6f6f;box-shadow:0 14px 40px rgba(0,0,0,.45);display:flex;flex-direction:column;min-width:240px;max-width:100vw;max-height:calc(100vh - 42px);}
@@ -140,11 +140,7 @@
 <div id="desktop">
   <div id="screen"></div>
   <div id="modals"></div>
-  <div class="taskbar">
-    <div class="tb-item start"><div class="tb-logo"></div> WIM</div>
-    <div id="tb-windows" style="display:flex;gap:4px;"></div>
-    <div class="clock" id="clock"></div>
-  </div>
+  <div id="tb-windows" class="hidden"></div>
 </div>
 
 <script>
@@ -155,11 +151,12 @@
 /* ---- desktop (Tauri) bridge: present only in the standalone build ---- */
 const wimDesktop = (window.__TAURI__ && window.__TAURI__.core) ? { invoke:(c,a)=>window.__TAURI__.core.invoke(c,a) } : null;
 const WIM_IS_DESKTOP = !!wimDesktop;
-const APP_VERSION="2.2.0", BUILD_DATE="2026-06-10", SCHEMA_VERSION=9, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.2.1", BUILD_DATE="2026-06-11", SCHEMA_VERSION=9, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.2.1","Window-style interface: WIM now looks like a normal Windows program — flat native workspace, no painted desktop background or fake taskbar. The launcher fills the app window (tool windows open in front of it, RPM-style), and minimize/maximize/full screen come from the real window title bar. Log out moved to a button in the launcher header."],
   ["2.2.0","Standalone desktop build (Tauri): real application window, no browser, unlimited local storage, GitHub auto-update, and direct live eBay connectivity (Test Connection + Create/Update eBay Inventory Item)."],
   ["2.1.7","Backup reminder for System Administrators on the launcher when no backup has been taken in 7+ days. Prepared for the standalone (Tauri) build with direct eBay connectivity."],
   ["2.1.6","No more browser pop-ups — all confirmations are now in-app. Delete is a trash-can icon that lets you pick which SKU(s) to remove and is fully reversible from Records. Bulk Add: created rows are clickable (double-click to open) with a + to add more before printing labels. New Print Configuration to design your label template, and a printer menu on the item page to choose which SKUs to print. Conditions are now per-Category. New Active Summary report (movement by type over a date range). Barcode-scanner friendly entry. First-iteration eBay connection settings."],
@@ -372,11 +369,11 @@ function userLabel(id){ const u=DB.users.find(x=>x.id===id); return u?(u.longNam
 function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top}){
   const win=document.createElement("div"); win.className="window"; win.dataset.wid=id;
   // fit requested size to the available screen (leave room for the taskbar)
-  const availW=window.innerWidth-24, availH=window.innerHeight-42-16;
+  const availW=window.innerWidth-16, availH=window.innerHeight-16;
   const w=Math.min(width||availW, availW), h=Math.min(height||availH, availH);
   win.style.width=w+"px"; win.style.height=h+"px";
-  if(center){ win.style.left=Math.max(8,(window.innerWidth-w)/2)+"px"; win.style.top=Math.max(8,(window.innerHeight-42-h)/2)+"px"; }
-  else { win.style.left=Math.max(8,Math.min(left||120, window.innerWidth-w-8))+"px"; win.style.top=Math.max(8,Math.min(top||80, window.innerHeight-42-h-8))+"px"; }
+  if(center){ win.style.left=Math.max(8,(window.innerWidth-w)/2)+"px"; win.style.top=Math.max(8,(window.innerHeight-h)/2)+"px"; }
+  else { win.style.left=Math.max(8,Math.min(left||120, window.innerWidth-w-8))+"px"; win.style.top=Math.max(8,Math.min(top||80, window.innerHeight-h-8))+"px"; }
   win.style.transform="none"; win.style.zIndex=++zTop;
   const tb=document.createElement("div"); tb.className="titlebar"; tb.innerHTML=`<span class="appicon"></span><span class="ttl">${title}</span>`;
   const ctr=document.createElement("div"); ctr.className="winbtns"; ctr.innerHTML=`<button class="winbtn" title="Minimize">&#8211;</button><button class="winbtn" title="Maximize">&#9633;</button><button class="winbtn close" title="Close">&#10005;</button>`;
@@ -535,8 +532,9 @@ function showLauncher(){
   closeAllModals(); clearScreen();
   const wrap=document.createElement("div"); wrap.className="center-screen";
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
-  win.innerHTML=`<div class="titlebar"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>
-      <div class="winbtns"><button class="winbtn">&#8211;</button><button class="winbtn">&#9633;</button><button class="winbtn close" title="Log out">&#10005;</button></div></div>
+  win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
+  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>
+      <div class="winbtns"><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
     <div class="body"><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
       <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; desktop edition</span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
