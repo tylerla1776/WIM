@@ -158,11 +158,12 @@ async function setDesktopWindow(kind){
     else { try{ await win.setResizable(true); }catch(e){} await win.maximize(); }
   }catch(e){}
 }
-const APP_VERSION="2.2.4", BUILD_DATE="2026-06-13", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.2.5", BUILD_DATE="2026-06-13", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.2.5","eBay verbiage now says User Token; Live indicator shows Offline (gray) until a live eBay connection is confirmed, then Live Mode (green). Find on eBay starts fresh each time, the change link resets the search, picking an eBay category creates/assigns a matching sub category, and the listing title flows into the description. Item page drops Unit Cost/Retail, validates required eBay fields with a red * before adding, and scrolls as one page. Bulk Add leads with a search (magnifying glass) column and shows Sub Category instead of Group. Warehouse uses Send to Listing into a new Ready to List view in Live mode."],
   ["2.2.4","Live eBay read features: a 🔍 Find on eBay button on the item page pulls eBay's category and listing fields and auto-fills them into the sub category (tagged *NEW); and Pull Active Listings (in Manage Listings and Live Inventory) refreshes your listings from eBay and matches them to WIM by SKU."],
   ["2.2.3","Live mode: Add Items now offers Bulk Add Items, and Manage Listings has a View Live Inventory list of all active listings. The app now opens as just the login window (it grows to full size after sign-in) instead of a small login over a large empty window."],
   ["2.2.2","Two modes: choose Warehouse or Live at login; the launcher shows the current mode (Live has a green dot). New Live shell with Manage Listings, Add Items, Communication (opens eBay messaging), Reports, and a Discrepancies view that lists active SKUs not yet listed. Categories are now eBay-aware with Sub Categories (each can map to an eBay category and carry its own listing fields); a new NONE category is the default. New Description Manager under Configuration for reusable, category-filtered listing descriptions, with a prompt to push edits through to affected live listings. Items now hold listing details, a featured photo, and subsidiary photos. (Live eBay calls — catalog field auto-fill, photo upload, publishing — arrive in the next updates.)"],
@@ -245,6 +246,18 @@ function migrate(d){
   d.sections.forEach(cat=>{ if(!Array.isArray(d.subcats[cat])) d.subcats[cat]=[]; 
     if(!d.subcats[cat].some(s=>s.name===cat)) d.subcats[cat].unshift({name:cat,ebayId:"",ebayName:"",aspects:[]}); });
   if(!Array.isArray(d.descriptions)) d.descriptions=[];
+  // ---- V2.2.5: collapse to three categories (General, NONE, Bulk); items & slots default to General ----
+  if(!d.meta.v225Cats){
+    const keep=["General","NONE","Bulk"];
+    keep.forEach(c=>{ if(!d.sections.includes(c)) d.sections.push(c); if(!Array.isArray(d.subcats[c])) d.subcats[c]=[]; if(!d.subcats[c].some(s=>s.name===c)) d.subcats[c].unshift({name:c,ebayId:"",ebayName:"",aspects:[]}); });
+    d.sections = d.sections.filter(c=>keep.includes(c));
+    d.sections = ["General","NONE","Bulk"].filter(c=>d.sections.includes(c));
+    Object.keys(d.subcats).forEach(c=>{ if(!keep.includes(c)) delete d.subcats[c]; });
+    (d.items||[]).forEach(it=>{ if(!keep.includes(it.section)) it.section="General"; if(!d.subcats[it.section]||!d.subcats[it.section].some(s=>s.name===it.subCategory)) it.subCategory=it.section; });
+    (d.slots||[]).forEach(s=>{ s.section="General"; });
+    if(d.conditionsByCat){ keep.forEach(c=>{ if(!d.conditionsByCat[c]) d.conditionsByCat[c]=(d.conditions||STATIC.conditions).slice(); }); Object.keys(d.conditionsByCat).forEach(c=>{ if(!keep.includes(c)) delete d.conditionsByCat[c]; }); }
+    d.meta.v225Cats=true;
+  }
   (d.items||[]).forEach(it=>{
     if(it.subCategory==null||it.subCategory==="") it.subCategory = (d.subcats[it.section] ? it.section : "NONE");
     if(!Array.isArray(it.images)) it.images = it.image ? [it.image] : [];
@@ -572,7 +585,7 @@ function nodeActions(node){
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","View Live Inventory"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items"];
-  if(node.key==="discrepancies") return ["Discrepancies"];
+  if(node.key==="discrepancies") return ["Discrepancies","Ready to List"];
   if(node.key==="comm") return ["Communication"];
   if(node.key==="livereports") return ["Listing Report"];
   return [];
@@ -583,7 +596,7 @@ function showLauncher(){
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
   win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
   const modeBadge = isLive()
-    ? `<span style="display:inline-flex;align-items:center;gap:6px;background:#e7f6ec;color:#1f7244;border:1px solid #b6e0c4;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span style="width:9px;height:9px;border-radius:50%;background:#1f9d55;display:inline-block;"></span>Live Mode</span>`
+    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">Live Mode — checking…</span></span>`
     : `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#33506e;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;">Warehouse Mode</span>`;
   win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;"><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
@@ -595,8 +608,18 @@ function showLauncher(){
   win.querySelector("#foot-about").onclick=openAbout;
   renderBackupReminder();
   renderTree();
+  if(isLive()) checkLiveStatus();
 }
-function backupAgeDays(){ const t=DB.meta&&DB.meta.lastBackupAt?new Date(DB.meta.lastBackupAt).getTime():null; if(!t) return null; return Math.floor((Date.now()-t)/86400000); }
+async function checkLiveStatus(){
+  const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
+  if(!badge) return;
+  const green=()=>{ badge.style.background="#e7f6ec"; badge.style.color="#1f7244"; badge.style.borderColor="#b6e0c4"; dot.style.background="#1f9d55"; txt.textContent="Live Mode"; };
+  const gray=(t)=>{ badge.style.background="#eef1f4"; badge.style.color="#7a8694"; badge.style.borderColor="#cdd6df"; dot.style.background="#9aa3ad"; txt.textContent=t; };
+  if(!WIM_IS_DESKTOP || !EBAY.ready()){ gray("Live Mode — Offline"); return; }
+  try{ const r=await wimDesktop.invoke("ebay_test",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken });
+    if(r&&r.ok) green(); else gray("Live Mode — Offline"); }
+  catch(e){ gray("Live Mode — Offline"); }
+}
 function renderBackupReminder(){
   const host=document.getElementById("backup-reminder"); if(!host) return; host.innerHTML="";
   if(role()!=="admin") return;                       // only System Administrators see this
@@ -652,6 +675,7 @@ function handleAction(k,a){
   if(k==="additems"&&a==="Add Item") return openItemDetail(null,"new");
   if(k==="additems"&&a==="Bulk Add Items") return openBulkAdd();
   if(k==="discrepancies"&&a==="Discrepancies") return openDiscrepancies();
+  if(k==="discrepancies"&&a==="Ready to List") return openReadyToList();
   if(k==="comm"&&a==="Communication") return openCommunication();
   if(k==="livereports"&&a==="Listing Report") return openListingReport();
 }
@@ -999,7 +1023,7 @@ function openEbayConfig(){
       <fieldset class="gb" style="margin-top:10px;"><legend>Keys from developer.ebay.com</legend>
         <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">App ID (Client ID)</label><input class="txt" id="eb-app" value="${esc(e.appId||'')}"></div>
         <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">Cert ID (Secret)</label><input class="txt" id="eb-cert" value="${esc(e.certId||'')}"></div>
-        <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">Refresh Token</label><input class="txt" id="eb-tok" value="${esc(e.refreshToken||'')}"></div>
+        <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">User Token</label><input class="txt" id="eb-tok" value="${esc(e.refreshToken||'')}"></div>
         <div class="ff" style="grid-template-columns:120px 1fr;"><label class="fld">Marketplace</label><input class="txt" id="eb-mkt" value="${esc(e.marketplace||'EBAY_US')}"></div></fieldset>
       <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn primary" id="eb-save">Save</button><button class="btn" id="eb-test">Test (preview only)</button><span class="err" id="eb-msg" style="align-self:center;"></span></div>
       <fieldset class="gb" style="margin-top:14px;"><legend>How to set this up (plain-English)</legend>
@@ -1007,13 +1031,13 @@ function openEbayConfig(){
           <li>Go to <b>developer.ebay.com</b> and sign in with your normal eBay account, then click <b>Join</b> to create a free developer account.</li>
           <li>Open <b>My Account → Application Keysets</b>. Create a <b>Sandbox</b> keyset first (for testing). You'll see an <b>App ID</b>, <b>Dev ID</b>, and <b>Cert ID</b>.</li>
           <li>Paste the <b>App ID</b> and <b>Cert ID</b> above. Choose <b>Sandbox</b> while testing.</li>
-          <li>Click <b>User Tokens → Get a Token from eBay via Your Application</b>, sign in, and accept. Copy the <b>Refresh Token</b> it gives you and paste it above.</li>
+          <li>Click <b>User Tokens → Get a Token from eBay via Your Application</b>, sign in, and accept. Copy the <b>User Token</b> (eBay also calls it the OAuth user/refresh token) and paste it above.</li>
           <li>Press <b>Save</b>, then <b>Test</b> — WIM will refresh a token directly with eBay and confirm the connection.</li>
         </ol></fieldset></div>`;
   const msg=body.querySelector("#eb-msg");
   body.querySelector("#eb-save").onclick=()=>{ DB.ebay={ env:body.querySelector("#eb-env").value, appId:body.querySelector("#eb-app").value.trim(), certId:body.querySelector("#eb-cert").value.trim(), refreshToken:body.querySelector("#eb-tok").value.trim(), marketplace:body.querySelector("#eb-mkt").value.trim()||"EBAY_US", connected:!!(body.querySelector("#eb-app").value.trim()&&body.querySelector("#eb-tok").value.trim()) }; save(); msg.style.color="#1f7244"; msg.textContent="Saved."; };
   body.querySelector("#eb-test").onclick=async ()=>{
-    if(!(body.querySelector("#eb-app").value.trim()&&body.querySelector("#eb-tok").value.trim())){ msg.style.color="#c0392b"; msg.textContent="Enter App ID and Refresh Token, then Save."; return; }
+    if(!(body.querySelector("#eb-app").value.trim()&&body.querySelector("#eb-tok").value.trim())){ msg.style.color="#c0392b"; msg.textContent="Enter App ID and User Token, then Save."; return; }
     if(!WIM_IS_DESKTOP){ msg.style.color=DB.ebay.connected?"#1f7244":"#c0392b"; msg.textContent=DB.ebay.connected?"Keys present. Live calls run in the desktop app build.":"Enter App ID and Refresh Token, then Save."; return; }
     msg.style.color="#444"; msg.textContent="Contacting eBay…";
     try{ const r=await wimDesktop.invoke("ebay_test",{ env:body.querySelector("#eb-env").value, appId:body.querySelector("#eb-app").value.trim(), certId:body.querySelector("#eb-cert").value.trim(), refreshToken:body.querySelector("#eb-tok").value.trim() });
@@ -1349,8 +1373,7 @@ function openItemDetail(item,mode){
         <div class="ff"><label style="text-align:left;">Condition</label><input class="txt" id="d-condition" list="con-${it.id}" value="${esc(it.condition||"")}" ${dis}></div>
       </div>
       <div style="display:grid;gap:10px;">
-        <div class="ff sm"><label style="text-align:left;">Unit Cost</label><input class="txt" id="d-unitcost" value="${esc(it.unitCost)}" ${dis}></div>
-        <div class="ff sm"><label style="text-align:left;">Retail</label><input class="txt" id="d-retail" value="${esc(it.retail)}" ${dis}></div>
+        <input type="hidden" id="d-unitcost" value="${esc(it.unitCost)}"><input type="hidden" id="d-retail" value="${esc(it.retail)}">
         <div class="ff sm"><label style="text-align:left;">On Hand</label><input class="txt" id="d-onhand" value="${isNew?'1':(isCat?'0':groupQty(it))}" readonly title="Quantity of this Item Number — change it only through Add or Sell"></div>
         ${isNew?`<div class="ff sm"><label style="text-align:left;">Quantity</label><input class="txt" id="d-qty" value="1" inputmode="numeric" title="How many units to add — each gets its own Warehouse SKU"></div>`:''}
         <label class="chkrow" style="margin-top:2px;${ro?'opacity:.6;pointer-events:none;':''}"><span class="chk ${it.manualSlot?'on':''}" id="d-manual"></span> Manually slot</label>
@@ -1366,7 +1389,7 @@ function openItemDetail(item,mode){
     <div class="lastsold">${isCat?`Added: <b>${fmtDate(it.createdAt)}</b> &nbsp;|&nbsp; Sold: <b>${fmtDate(it.soldAt)}</b> &nbsp;|&nbsp; Sold by <b>${esc(userLabel(it.soldBy))}</b>`:(it.createdAt?`Added to system: ${fmtDate(it.createdAt)}`:'New item — not yet saved')}</div>
     <div class="tabs"><div class="tab sel" id="d-tab-groups">Groups</div><div class="tab" id="d-tab-history">Item History</div></div>
     <div class="pane-tabbody" id="d-tabbody"></div>
-    <div class="statusbar"><span id="d-status"></span><span>${ro?'<button class="btn" id="d-close">Close</button>':`<button class="btn primary" id="d-save">${isNew?'Add Item':'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
+    <div class="statusbar"><span id="d-status"></span><span>${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'List Inventory':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
 
   if(!ro){ const file=body.querySelector("#d-imgfile");
     body.querySelector("#d-imgbtn").onclick=()=>file.click();
@@ -1492,6 +1515,12 @@ function openItemDetail(item,mode){
     if(!desc){ status.textContent="Description is required."; return; }
     const cat=body.querySelector("#d-section").value;
     if(!cat){ status.textContent="Category is required (it determines which slot the item goes in)."; return; }
+    if(isNew){ const req=aspectsFor(it).filter(a=>a.required);
+      const missing=req.filter(a=>!(it.aspects&&it.aspects[a.name]&&String(it.aspects[a.name]).trim()));
+      body.querySelectorAll(".af-asp").forEach(inp=>{ inp.style.borderColor=""; });
+      if(missing.length){ body.querySelectorAll(".af-asp").forEach(inp=>{ if(missing.some(a=>a.name===inp.dataset.asp)){ inp.style.borderColor="#c0392b";
+          const ff=inp.closest(".ff"), lab=ff&&ff.querySelector("label"); if(lab && !lab.querySelector(".reqx")){ const s=document.createElement("span"); s.className="reqx"; s.style.color="#c0392b"; s.textContent=" *"; lab.appendChild(s); } } });
+        status.textContent="Fill the required eBay field(s) marked *: "+missing.map(a=>a.name).join(", "); return; } }
     const condition=(body.querySelector("#d-condition")?body.querySelector("#d-condition").value.trim():(it.condition||""));
     const base={ upc, desc, condition, vendor:body.querySelector("#d-vendor").value, section:cat,
       unitCost:body.querySelector("#d-unitcost").value.trim()||"0.000", retail:body.querySelector("#d-retail").value.trim()||"0.00",
@@ -1544,7 +1573,8 @@ function openItemDetail(item,mode){
   }
   let dirty=false;
   const bottomBtn=body.querySelector("#d-save");
-  function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?"Add Item":(dirty?"Save":"Okay"); }
+  function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"List Inventory":"Add Item"):(dirty?"Save":"Okay"); }
+  const s2l=body.querySelector("#d-send2list"); if(s2l) s2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
   function markDirty(){ if(!dirty){ dirty=true; updateBtn(); } }
   body.addEventListener("input",markDirty); body.addEventListener("change",markDirty);
   const origManualClick=manual.onclick; manual.onclick=()=>{ origManualClick(); markDirty(); };
@@ -1618,15 +1648,16 @@ function openBulkAdd(){
   if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
   const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:980,height:580,
     toolbar:`${tbtn(I.plus,'Add Record','plus')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Type rows, then Create to assign Warehouse SKUs</span>`});
-  const blank=()=>({upc:"",desc:"",section:"",group:"",condition:"",qty:"1",slot:"",skus:[],created:false,error:""});
+  const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",qty:"1",slot:"",skus:[],created:false,error:""});
   let rows=[blank()], createdItems=[], phase="edit";
   const dlSec=`<datalist id="ba-sec">`+DB.sections.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
-  const dlGrp=`<datalist id="ba-grp"><option value="None"></option>`+DB.groups.map(g=>`<option value="${esc(g)}"></option>`).join("")+`</datalist>`;
+  const allSubs=[...new Set(Object.values(DB.subcats||{}).flat().map(s=>s.name))];
+  const dlSub=`<datalist id="ba-sub">`+allSubs.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
   const dlCon=`<datalist id="ba-con">`+allConditions().map(c=>`<option value="${esc(c)}"></option>`).join("")+`</datalist>`;
   const dlSlot=`<datalist id="ba-slot">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}"></option>`).join("")+`</datalist>`;
-  body.innerHTML=`${dlSec}${dlGrp}${dlCon}${dlSlot}
+  body.innerHTML=`${dlSec}${dlSub}${dlCon}${dlSlot}
     <div style="padding:10px 14px 4px;font-size:12.5px;color:#333;">Fill a row and press <b>Enter</b> to start the next one (or use +). Item Number is optional. <b>Quantity</b> defaults to 1 — each unit gets its own Warehouse SKU, kept together in a slot. Leave <b>Manual Slot</b> blank to auto-slot.</div>
-    <div class="resultwrap" style="margin:6px 14px;"><table class="res"><thead><tr><th style="width:140px;">Item Number <span class="smallhint">(opt)</span></th><th>Description</th><th style="width:130px;">Category</th><th style="width:110px;">Group</th><th style="width:110px;">Condition</th><th style="width:60px;">Qty</th><th style="width:80px;">Manual Slot</th><th style="width:150px;">Warehouse SKU</th><th style="width:34px;"></th></tr></thead><tbody id="ba-tb"></tbody></table></div>
+    <div class="resultwrap" style="margin:6px 14px;"><table class="res"><thead><tr><th style="width:34px;"></th><th style="width:140px;">Item Number <span class="smallhint">(opt)</span></th><th>Description</th><th style="width:130px;">Category</th><th style="width:120px;">Sub Category</th><th style="width:110px;">Condition</th><th style="width:60px;">Qty</th><th style="width:80px;">Manual Slot</th><th style="width:150px;">Warehouse SKU</th><th style="width:34px;"></th></tr></thead><tbody id="ba-tb"></tbody></table></div>
     <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn sm" id="ba-addrow">+ Add Record</button>
       <span style="flex:1;"></span>
@@ -1638,10 +1669,10 @@ function openBulkAdd(){
   function render(){ tb.innerHTML="";
     rows.forEach((r,i)=>{ const tr=document.createElement("tr");
       if(r.created){
-        tr.innerHTML=`<td>${esc(r.upc)||'<span class="smallhint">—</span>'}</td><td>${esc(r.desc)}</td><td>${esc(r.section)||'<span class="smallhint">—</span>'}</td><td>${esc(r.group)||'<span class="smallhint">—</span>'}</td><td>${esc(r.condition)||'<span class="smallhint">—</span>'}</td><td class="cc">${esc(r.qty)}</td><td>${esc(r.slot)||'<span class="smallhint">auto</span>'}</td><td><b>${esc(r.skus.join(", "))}</b></td><td class="cc"><span class="badge ok">✓</span></td>`;
+        tr.innerHTML=`<td></td><td>${esc(r.upc)||'<span class="smallhint">—</span>'}</td><td>${esc(r.desc)}</td><td>${esc(r.section)||'<span class="smallhint">—</span>'}</td><td>${esc(r.subcat)||'<span class="smallhint">—</span>'}</td><td>${esc(r.condition)||'<span class="smallhint">—</span>'}</td><td class="cc">${esc(r.qty)}</td><td>${esc(r.slot)||'<span class="smallhint">auto</span>'}</td><td><b>${esc(r.skus.join(", "))}</b></td><td class="cc"><span class="badge ok">✓</span></td>`;
         tr.style.cursor="pointer"; tr.title="Double-click to open this item"; tr.ondblclick=()=>{ if(r._items&&r._items[0]) openItemDetail(r._items[0],"edit"); };
       } else {
-        tr.innerHTML=`<td>${inputCell(r.upc,'upc')}</td><td>${inputCell(r.desc,'desc','',' placeholder="required"')}</td><td>${inputCell(r.section,'section','ba-sec')}</td><td>${inputCell(r.group,'group','ba-grp')}</td><td>${inputCell(r.condition,'condition','ba-con')}</td><td>${inputCell(r.qty,'qty','',' inputmode="numeric"')}</td><td>${inputCell(r.slot,'slot','ba-slot',' placeholder="auto"')}</td><td>${r.error?`<span class="smallhint" style="color:#c0392b;">${esc(r.error)}</span>`:'<span class="smallhint">—</span>'}</td>`;
+        tr.innerHTML=`<td class="cc"><button class="btn sm ba-find" title="Search eBay to set sub category">🔍</button></td><td>${inputCell(r.upc,'upc')}</td><td>${inputCell(r.desc,'desc','',' placeholder="required"')}</td><td>${inputCell(r.section,'section','ba-sec')}</td><td>${inputCell(r.subcat,'subcat','ba-sub')}</td><td>${inputCell(r.condition,'condition','ba-con')}</td><td>${inputCell(r.qty,'qty','',' inputmode="numeric"')}</td><td>${inputCell(r.slot,'slot','ba-slot',' placeholder="auto"')}</td><td>${r.error?`<span class="smallhint" style="color:#c0392b;">${esc(r.error)}</span>`:'<span class="smallhint">—</span>'}</td>`;
         const del=document.createElement("td"); del.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕";
         x.onclick=()=>{ rows.splice(i,1); if(!rows.length) rows.push(blank()); render(); };
         tr.appendChild(del); del.appendChild(x);
@@ -1649,7 +1680,8 @@ function openBulkAdd(){
           inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addRow(true); } });
         });
         const secInp=tr.querySelector('input[data-f="section"]'); if(secInp) attachAutofill(secInp, ()=>DB.sections);
-        const grpInp=tr.querySelector('input[data-f="group"]'); if(grpInp) attachAutofill(grpInp, ()=>["None",...DB.groups]);
+        const subInp=tr.querySelector('input[data-f="subcat"]'); if(subInp) attachAutofill(subInp, ()=>allSubs);
+        const mg=tr.querySelector('.ba-find'); if(mg) mg.onclick=()=>{ if(!r.desc.trim()){ msg.style.color="#c0392b"; msg.textContent="Type a description first, then search eBay."; return; } let sec=r.section.trim(); if(!DB.sections.includes(sec)) sec="General"; const tmp={ id:"ba-tmp", section:sec, subCategory:r.subcat||"", desc:r.desc.trim(), aspects:{}, listing:{} }; openEbayFind(tmp, ()=>{ r.section=tmp.section; r.subcat=tmp.subCategory; if(tmp.desc) r.desc=tmp.desc; render(); }); };
         const conInp=tr.querySelector('input[data-f="condition"]'); if(conInp) attachAutofill(conInp, ()=>allConditions());
       }
       tb.appendChild(tr); });
@@ -1662,10 +1694,11 @@ function openBulkAdd(){
   function doCreate(){
     let made=0, errors=0; const batch=[];
     rows.forEach(r=>{ if(r.created) return; r.error=""; r.skus=[]; r._items=[];
-      if(!r.desc.trim() && !r.upc.trim() && !r.section.trim() && !r.group.trim() && !r.slot.trim()) return; // skip empty rows
+      if(!r.desc.trim() && !r.upc.trim() && !r.section.trim() && !r.slot.trim()) return; // skip empty rows
       if(!r.desc.trim()){ r.error="needs description"; errors++; return; }
       const cat=r.section.trim(); if(!cat || cat.toLowerCase()==="none"){ r.error="needs category"; errors++; return; }
       if(!DB.sections.includes(cat)){ r.error="unknown category"; errors++; return; }
+      const sub=(r.subcat&&r.subcat.trim())||cat; if(!DB.subcats[cat]) DB.subcats[cat]=[]; if(!DB.subcats[cat].some(x=>x.name===sub)) DB.subcats[cat].push({name:sub,ebayId:"",ebayName:"",aspects:[]});
       const qty=Math.max(1,parseInt(r.qty,10)||1); r.qty=String(qty);
       const manual=r.slot.trim(); let alloc;
       if(manual){ const slotV=normSlot(manual); if(!slotV||!slotById(slotV)){ r.error="bad slot"; errors++; return; }
@@ -2079,6 +2112,26 @@ function openDescriptionManager(){
   render();
 }
 
+/* ============================================================ LIVE: READY TO LIST ============================================================ */
+function openReadyToList(){
+  if(openWindows["ready-list"]){ focusWin(openWindows["ready-list"].el); return; }
+  const {body}=buildWindow({id:"ready-list",title:"Ready to List",width:900,height:560,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sent from Warehouse mode to be listed here</span>`});
+  function render(){
+    const rows=activeItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed").sort((a,b)=>skuCmp(a.sku,b.sku));
+    body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;">${rows.length} item(s) waiting to be listed.</div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Item Number</th><th>Description</th><th>Warehouse SKU</th><th>Category</th><th>Sub Category</th><th></th><th></th></tr></thead><tbody id="rl-tb"></tbody></table></div>`;
+    const tb=body.querySelector("#rl-tb");
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">Nothing here yet. In Warehouse mode, open an item and click “Send to Listing.”</td></tr>`; return; }
+    rows.forEach(it=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(it.upc)}</td><td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(it.section)}</td><td>${esc(it.subCategory||"")}</td>`;
+      const tdL=document.createElement("td"); tdL.className="cc"; const b=document.createElement("button"); b.className="btn sm"; b.textContent="List"; b.onclick=()=>openItemDetail(it,"edit"); tdL.appendChild(b); tr.appendChild(tdL);
+      const tdR=document.createElement("td"); tdR.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="Remove"; x.onclick=()=>{ it.listing.readyToList=false; addHistory(it,"Removed from Ready to List"); save(); render(); }; tdR.appendChild(x); tr.appendChild(tdR);
+      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+  }
+  render();
+}
+
 /* ============================================================ LIVE: DISCREPANCIES ============================================================ */
 function openDiscrepancies(){
   if(openWindows["discrep"]){ focusWin(openWindows["discrep"].el); return; }
@@ -2113,61 +2166,86 @@ const EBAY={
 };
 function openEbayFind(it, onDone){
   if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
-  const sc=subcatObj(it.section,it.subCategory);
-  if(!sc){ uiAlert("Pick a Sub Category for this item first."); return; }
-  const id="ebay-find-"+it.id; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body,close}=buildWindow({id,title:"Find on eBay — "+(it.desc||""),width:680,height:620,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Pull eBay's category &amp; listing fields, then edit / accept</span>`});
-  body.innerHTML=`<div style="padding:14px;overflow:auto;height:100%;">
-    <div class="ff" style="grid-template-columns:90px 1fr auto;gap:8px;align-items:center;">
-      <label class="fld">Search</label><input class="txt" id="ef-q" value="${esc(it.desc||"")}"><button class="btn primary" id="ef-go">Search eBay</button></div>
-    <div style="margin-top:6px;font-size:12px;color:#555;">Sub category <b>${esc(sc.name)}</b>${sc.ebayName?` &middot; eBay: <b>${esc(sc.ebayName)}</b> <a href="#" id="ef-change">change</a>`:` &middot; <span class="smallhint">no eBay category yet</span>`}</div>
-    <div id="ef-result" style="margin-top:12px;"></div>
-    <div id="ef-msg" class="err" style="margin-top:8px;"></div></div>`;
-  const result=body.querySelector("#ef-result"), msg=body.querySelector("#ef-msg");
-  const setMsg=(t,ok)=>{ msg.style.color=ok?"#1f7244":"#c0392b"; msg.textContent=t||""; };
-  async function pickCategory(q){ setMsg("Asking eBay for the best category…");
-    const tree=await EBAY.treeId();
-    const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_category_suggestions?q=`+encodeURIComponent(q));
-    if(!r.ok){ setMsg("Category lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); return; }
-    const j=JSON.parse(r.body); const sugg=(j.categorySuggestions||[]).slice(0,8);
-    if(!sugg.length){ setMsg("eBay returned no category suggestions for that text."); return; }
-    setMsg("");
-    result.innerHTML=`<div class="col-title" style="text-align:left;">Pick the eBay category</div>`;
-    sugg.forEach(s=>{ const c=s.category||{}; const path=(s.categoryTreeNodeAncestors||[]).map(a=>a.categoryName).reverse().concat(c.categoryName).join(" › ");
-      const row=document.createElement("div"); row.className="action"; row.innerHTML=`${esc(c.categoryName)} <span class="smallhint">${esc(path)}</span>`;
-      row.onclick=()=>{ sc.ebayId=c.categoryId; sc.ebayName=path; save(); loadAspects(); }; result.appendChild(row); });
+  const id="ebay-find-"+it.id; if(openWindows[id]){ openWindows[id].el.remove(); delete openWindows[id]; if(typeof renderTaskbar==="function") renderTaskbar(); }
+  const {body,close}=buildWindow({id,title:"Find on eBay — "+(it.desc||""),width:700,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Search eBay, pick the category, then edit &amp; accept</span>`});
+  let chosen=null;            // {id, leaf, path} of the picked eBay category
+  let foundTitle="";          // suggested listing title from Browse
+  function searchScreen(){
+    body.innerHTML=`<div style="padding:14px;overflow:auto;height:100%;">
+      <div class="ff" style="grid-template-columns:90px 1fr auto;gap:8px;align-items:center;">
+        <label class="fld">Search</label><input class="txt" id="ef-q" value="${esc(it.desc||"")}"><button class="btn primary" id="ef-go">Search eBay</button></div>
+      <div class="smallhint" style="margin-top:6px;">Type what the item is (e.g. its title). eBay suggests the best category and its listing fields.</div>
+      <div id="ef-result" style="margin-top:12px;"></div>
+      <div id="ef-msg" class="err" style="margin-top:8px;"></div></div>`;
+    const q=body.querySelector("#ef-q");
+    body.querySelector("#ef-go").onclick=()=>doSearch(q.value.trim());
+    q.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); doSearch(q.value.trim()); } });
+    q.focus();
   }
-  async function loadAspects(){ if(!sc.ebayId){ setMsg("No eBay category set."); return; }
+  const setMsg=(t,ok)=>{ const m=body.querySelector("#ef-msg"); if(m){ m.style.color=ok?"#1f7244":"#c0392b"; m.textContent=t||""; } };
+  async function doSearch(q){ if(!q){ setMsg("Type something to search for first."); return; }
+    setMsg("Asking eBay for the best category…");
+    try{
+      const tree=await EBAY.treeId();
+      const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_category_suggestions?q=`+encodeURIComponent(q));
+      if(!r.ok){ setMsg("Category lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); return; }
+      const j=JSON.parse(r.body); const sugg=(j.categorySuggestions||[]).slice(0,8);
+      if(!sugg.length){ setMsg("eBay returned no category suggestions for that text. Try different words."); return; }
+      // try Browse for a representative listing title (best-effort)
+      foundTitle=q;
+      try{ const b=await EBAY.app("/buy/browse/v1/item_summary/search?limit=1&q="+encodeURIComponent(q));
+        if(b.ok){ const bj=JSON.parse(b.body); const t=(bj.itemSummaries&&bj.itemSummaries[0]&&bj.itemSummaries[0].title)||""; if(t) foundTitle=t; } }catch(e){}
+      setMsg("");
+      const result=body.querySelector("#ef-result");
+      result.innerHTML=`<div class="col-title" style="text-align:left;">Pick the eBay category</div>`;
+      sugg.forEach(s=>{ const c=s.category||{}; const path=(s.categoryTreeNodeAncestors||[]).map(a=>a.categoryName).reverse().concat(c.categoryName).join(" › ");
+        const row=document.createElement("div"); row.className="action"; row.innerHTML=`${esc(c.categoryName)} <span class="smallhint">${esc(path)}</span>`;
+        row.onclick=()=>{ chosen={id:c.categoryId, leaf:c.categoryName, path}; loadAspects(); }; result.appendChild(row); });
+    }catch(e){ setMsg("Could not reach eBay: "+(e&&e.message?e.message:e)); }
+  }
+  async function loadAspects(){ if(!chosen){ searchScreen(); return; }
     setMsg("Loading eBay's fields for this category…");
-    const tree=await EBAY.treeId();
-    const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=`+encodeURIComponent(sc.ebayId));
-    if(!r.ok){ setMsg("Field lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); return; }
-    const j=JSON.parse(r.body); const aspects=(j.aspects||[]);
-    const hadAspects=(sc.aspects||[]).length>0;
-    sc.aspects = aspects.map(a=>({ name:a.localizedAspectName, required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),
-      values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,60) }));
-    if(!hadAspects) sc._new=true;   // *NEW flag for an auto-populated sub category
-    save(); setMsg(""); 
-    result.innerHTML=`<div class="col-title" style="text-align:left;">${esc(sc.ebayName||"Listing fields")} — edit and accept</div>
-      <div class="smallhint" style="margin-bottom:6px;">${aspects.length} field(s) from eBay. Required fields are marked *. These become this sub category's fields on the item page.</div>
+    let aspects=[];
+    try{ const tree=await EBAY.treeId();
+      const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=`+encodeURIComponent(chosen.id));
+      if(!r.ok){ setMsg("Field lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); return; }
+      aspects=(JSON.parse(r.body).aspects)||[];
+    }catch(e){ setMsg("Could not reach eBay: "+(e&&e.message?e.message:e)); return; }
+    body.innerHTML=`<div style="padding:14px;overflow:auto;height:100%;">
+      <div style="font-size:12.5px;color:#555;">eBay category: <b>${esc(chosen.path)}</b> <a href="#" id="ef-change">change</a></div>
+      <div class="col-title" style="text-align:left;margin-top:8px;">Listing title</div>
+      <input class="txt" id="ef-title" value="${esc(foundTitle||it.desc||"")}" style="width:100%;">
+      <div class="smallhint" style="margin:4px 0 10px;">This flows into the item's Description. ${aspects.length} eBay field(s) below; required ones are marked *.</div>
       <div id="ef-fields"></div>
-      <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn primary" id="ef-accept">Accept</button><button class="btn" id="ef-cancel">Cancel</button></div>`;
-    const fh=result.querySelector("#ef-fields");
-    sc.aspects.forEach((a,i)=>{ const dlId="efd-"+i; const wrap=document.createElement("div"); wrap.className="ff"; wrap.style.cssText="grid-template-columns:160px 1fr;margin-bottom:6px;";
-      const val=it.aspects[a.name]||"";
-      wrap.innerHTML=`<label class="fld">${esc(a.name)}${a.required?' <span class="req">*</span>':''}</label>
-        <input class="txt ef-val" data-name="${esc(a.name)}" value="${esc(val)}" list="${dlId}">
-        <datalist id="${dlId}">${(a.values||[]).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`;
+      <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn primary" id="ef-accept">Accept</button><button class="btn" id="ef-cancel">Cancel</button></div>
+      <div id="ef-msg" class="err" style="margin-top:8px;"></div></div>`;
+    const fh=body.querySelector("#ef-fields");
+    aspects.forEach((a,i)=>{ const name=a.localizedAspectName, req=!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired), vals=(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,60);
+      const dlId="efd-"+i; const wrap=document.createElement("div"); wrap.className="ff"; wrap.style.cssText="grid-template-columns:170px 1fr;margin-bottom:6px;";
+      wrap.innerHTML=`<label class="fld">${esc(name)}${req?' <span class="req">*</span>':''}</label>
+        <input class="txt ef-val" data-name="${esc(name)}" data-req="${req?1:0}" value="${esc(it.aspects[name]||"")}" list="${dlId}">
+        <datalist id="${dlId}">${vals.map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`;
       fh.appendChild(wrap); });
-    result.querySelector("#ef-accept").onclick=()=>{ result.querySelectorAll(".ef-val").forEach(inp=>{ const v=inp.value.trim(); if(v) it.aspects[inp.dataset.name]=v; else delete it.aspects[inp.dataset.name]; });
-      save(); if(onDone) onDone(); close(); uiAlert("eBay fields applied to this item and saved to sub category “"+sc.name+"”."); };
-    result.querySelector("#ef-cancel").onclick=close;
+    body.querySelector("#ef-change").onclick=(e)=>{ e.preventDefault(); chosen=null; searchScreen(); };
+    body.querySelector("#ef-cancel").onclick=close;
+    body.querySelector("#ef-accept").onclick=()=>{
+      // create / assign a sub category named after the eBay leaf, under the item's category
+      const cat=it.section; if(!DB.subcats[cat]) DB.subcats[cat]=[];
+      let sc=DB.subcats[cat].find(s=>s.name.toLowerCase()===chosen.leaf.toLowerCase());
+      if(!sc){ sc={name:chosen.leaf,ebayId:"",ebayName:"",aspects:[],_new:true}; DB.subcats[cat].push(sc); }
+      sc.ebayId=chosen.id; sc.ebayName=chosen.path;
+      sc.aspects=aspects.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,60)}));
+      it.subCategory=sc.name;
+      body.querySelectorAll(".ef-val").forEach(inp=>{ const v=inp.value.trim(); if(v) it.aspects[inp.dataset.name]=v; else delete it.aspects[inp.dataset.name]; });
+      const title=body.querySelector("#ef-title").value.trim();
+      if(title){ if(!it.listing) it.listing={}; it.listing.title=title; it.desc=it.desc||title; if(!it.listing.descBody) it.listing.descBody=title; }
+      addHistory(it,"eBay category set: "+chosen.path);
+      save(); if(onDone) onDone(); close();
+      uiAlert('Applied. Sub category "'+sc.name+'" now carries these eBay fields.');
+    };
   }
-  body.querySelector("#ef-go").onclick=()=>{ const q=body.querySelector("#ef-q").value.trim(); if(!q){ setMsg("Type something to search."); return; }
-    if(sc.ebayId) loadAspects(); else pickCategory(q); };
-  const ch=body.querySelector("#ef-change"); if(ch) ch.onclick=(e)=>{ e.preventDefault(); const q=body.querySelector("#ef-q").value.trim()||it.desc; pickCategory(q); };
-  if(sc.ebayId) loadAspects();
+  searchScreen();
 }
 
 async function pullActiveListings(after){
