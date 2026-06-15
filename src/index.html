@@ -158,11 +158,12 @@ async function setDesktopWindow(kind){
     else { try{ await win.setResizable(true); }catch(e){} await win.maximize(); }
   }catch(e){}
 }
-const APP_VERSION="2.2.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.2.7", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.2.7","Fix: restored a missing function (backupAgeDays) that caused a blank launcher after login, and wrapped the launcher render so a single error can no longer blank the screen."],
   ["2.2.6","Stability fix: removed the automatic category reset that could blank the app on startup. WIM now only ensures General, NONE, and Bulk exist (nothing is deleted or forced). Added a startup safety net so a data-load problem shows a readable message instead of a blank screen, and turned on the developer console (F12) for easier troubleshooting."],
   ["2.2.5","eBay verbiage now says User Token; Live indicator shows Offline (gray) until a live eBay connection is confirmed, then Live Mode (green). Find on eBay starts fresh each time, the change link resets the search, picking an eBay category creates/assigns a matching sub category, and the listing title flows into the description. Item page drops Unit Cost/Retail, validates required eBay fields with a red * before adding, and scrolls as one page. Bulk Add leads with a search (magnifying glass) column and shows Sub Category instead of Group. Warehouse uses Send to Listing into a new Ready to List view in Live mode."],
   ["2.2.4","Live eBay read features: a 🔍 Find on eBay button on the item page pulls eBay's category and listing fields and auto-fills them into the sub category (tagged *NEW); and Pull Active Listings (in Manage Listings and Live Inventory) refreshes your listings from eBay and matches them to WIM by SKU."],
@@ -622,9 +623,9 @@ function showLauncher(){
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
   win.querySelector("#lc-switch").onclick=()=>{ SESSION.mode=isLive()?"warehouse":"live"; treeState={expanded:{},sel:null}; showLauncher(); };
   win.querySelector("#foot-about").onclick=openAbout;
-  renderBackupReminder();
-  renderTree();
-  if(isLive()) checkLiveStatus();
+  try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
+  try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
+  if(isLive()){ try{ checkLiveStatus(); }catch(e){ console.error("checkLiveStatus failed:",e); } }
 }
 async function checkLiveStatus(){
   const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
@@ -636,6 +637,7 @@ async function checkLiveStatus(){
     if(r&&r.ok) green(); else gray("Live Mode — Offline"); }
   catch(e){ gray("Live Mode — Offline"); }
 }
+function backupAgeDays(){ const t=DB.meta&&DB.meta.lastBackupAt?new Date(DB.meta.lastBackupAt).getTime():null; if(t==null) return null; return Math.floor((Date.now()-t)/86400000); }
 function renderBackupReminder(){
   const host=document.getElementById("backup-reminder"); if(!host) return; host.innerHTML="";
   if(role()!=="admin") return;                       // only System Administrators see this
