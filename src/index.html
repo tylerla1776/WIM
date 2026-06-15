@@ -158,11 +158,12 @@ async function setDesktopWindow(kind){
     else { try{ await win.setResizable(true); }catch(e){} await win.maximize(); }
   }catch(e){}
 }
-const APP_VERSION="2.2.5", BUILD_DATE="2026-06-13", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.2.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.2.6","Stability fix: removed the automatic category reset that could blank the app on startup. WIM now only ensures General, NONE, and Bulk exist (nothing is deleted or forced). Added a startup safety net so a data-load problem shows a readable message instead of a blank screen, and turned on the developer console (F12) for easier troubleshooting."],
   ["2.2.5","eBay verbiage now says User Token; Live indicator shows Offline (gray) until a live eBay connection is confirmed, then Live Mode (green). Find on eBay starts fresh each time, the change link resets the search, picking an eBay category creates/assigns a matching sub category, and the listing title flows into the description. Item page drops Unit Cost/Retail, validates required eBay fields with a red * before adding, and scrolls as one page. Bulk Add leads with a search (magnifying glass) column and shows Sub Category instead of Group. Warehouse uses Send to Listing into a new Ready to List view in Live mode."],
   ["2.2.4","Live eBay read features: a 🔍 Find on eBay button on the item page pulls eBay's category and listing fields and auto-fills them into the sub category (tagged *NEW); and Pull Active Listings (in Manage Listings and Live Inventory) refreshes your listings from eBay and matches them to WIM by SKU."],
   ["2.2.3","Live mode: Add Items now offers Bulk Add Items, and Manage Listings has a View Live Inventory list of all active listings. The app now opens as just the login window (it grows to full size after sign-in) instead of a small login over a large empty window."],
@@ -246,18 +247,15 @@ function migrate(d){
   d.sections.forEach(cat=>{ if(!Array.isArray(d.subcats[cat])) d.subcats[cat]=[]; 
     if(!d.subcats[cat].some(s=>s.name===cat)) d.subcats[cat].unshift({name:cat,ebayId:"",ebayName:"",aspects:[]}); });
   if(!Array.isArray(d.descriptions)) d.descriptions=[];
-  // ---- V2.2.5: collapse to three categories (General, NONE, Bulk); items & slots default to General ----
-  if(!d.meta.v225Cats){
-    const keep=["General","NONE","Bulk"];
-    keep.forEach(c=>{ if(!d.sections.includes(c)) d.sections.push(c); if(!Array.isArray(d.subcats[c])) d.subcats[c]=[]; if(!d.subcats[c].some(s=>s.name===c)) d.subcats[c].unshift({name:c,ebayId:"",ebayName:"",aspects:[]}); });
-    d.sections = d.sections.filter(c=>keep.includes(c));
-    d.sections = ["General","NONE","Bulk"].filter(c=>d.sections.includes(c));
-    Object.keys(d.subcats).forEach(c=>{ if(!keep.includes(c)) delete d.subcats[c]; });
-    (d.items||[]).forEach(it=>{ if(!keep.includes(it.section)) it.section="General"; if(!d.subcats[it.section]||!d.subcats[it.section].some(s=>s.name===it.subCategory)) it.subCategory=it.section; });
-    (d.slots||[]).forEach(s=>{ s.section="General"; });
-    if(d.conditionsByCat){ keep.forEach(c=>{ if(!d.conditionsByCat[c]) d.conditionsByCat[c]=(d.conditions||STATIC.conditions).slice(); }); Object.keys(d.conditionsByCat).forEach(c=>{ if(!keep.includes(c)) delete d.conditionsByCat[c]; }); }
-    d.meta.v225Cats=true;
-  }
+  // ---- V2.2.6: make sure General, NONE, Bulk exist (additive, non-destructive) ----
+  if(!d.subcats || typeof d.subcats!=="object") d.subcats={};
+  ["General","NONE","Bulk"].forEach(c=>{
+    if(!Array.isArray(d.sections)) d.sections=[];
+    if(!d.sections.includes(c)) d.sections.push(c);
+    if(!Array.isArray(d.subcats[c])) d.subcats[c]=[];
+    if(!d.subcats[c].some(s=>s&&s.name===c)) d.subcats[c].unshift({name:c,ebayId:"",ebayName:"",aspects:[]});
+    if(d.conditionsByCat && !d.conditionsByCat[c]) d.conditionsByCat[c]=(d.conditions||STATIC.conditions).slice();
+  });
   (d.items||[]).forEach(it=>{
     if(it.subCategory==null||it.subCategory==="") it.subCategory = (d.subcats[it.section] ? it.section : "NONE");
     if(!Array.isArray(it.images)) it.images = it.image ? [it.image] : [];
@@ -280,14 +278,32 @@ function listedItems(){ return DB.items.filter(i=>i.listing && (i.listing.status
 function delistedItems(){ return DB.items.filter(i=>i.listing && i.listing.status==="delisted"); }
 function unlistedActive(){ return activeItems().filter(i=>!i.listing || i.listing.status==="none"); }
 async function boot(){
-  let stored=null;
-  try{ stored=await idbGet(); }catch(e){}
-  if(!stored){ try{ const ls=localStorage.getItem(KEY); if(ls) stored=JSON.parse(ls); }catch(e){} }
-  DB = migrate(stored || seed());
-  DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
-  if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
-  try{ await idbPut(DB); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(_){} }
-  showLogin();
+  try{
+    let stored=null;
+    try{ stored=await idbGet(); }catch(e){}
+    if(!stored){ try{ const ls=localStorage.getItem(KEY); if(ls) stored=JSON.parse(ls); }catch(e){} }
+    try{ DB = migrate(stored || seed()); }
+    catch(mErr){ // migration failed — fall back to raw stored data so the app still opens
+      console.error("WIM migrate() failed:", mErr);
+      DB = stored || seed();
+      if(!Array.isArray(DB.sections)) DB.sections=["General","NONE","Bulk"];
+      if(!DB.subcats||typeof DB.subcats!=="object") DB.subcats={};
+      if(!Array.isArray(DB.descriptions)) DB.descriptions=[];
+      if(!DB.meta) DB.meta={schemaVersion:SCHEMA_VERSION};
+      setTimeout(()=>{ try{ uiAlert("WIM loaded in recovery mode (a data-upgrade step was skipped, your data is intact). Details: "+(mErr&&mErr.message?mErr.message:mErr)); }catch(_){} }, 600);
+    }
+    DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
+    if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
+    try{ await idbPut(DB); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(_){} }
+    showLogin();
+  }catch(fatal){
+    console.error("WIM boot failed:", fatal);
+    try{ document.body.innerHTML='<div style="font-family:Segoe UI,sans-serif;padding:40px;max-width:640px;margin:auto;">'
+      +'<h2 style="color:#b1342a;">WIM couldn\'t start</h2>'
+      +'<p style="font-size:14px;line-height:1.6;">Something went wrong loading your data, but it is still saved. Please send this message to support:</p>'
+      +'<pre style="background:#f4f4f4;border:1px solid #ccc;padding:12px;white-space:pre-wrap;font-size:12px;">'+String(fatal&&fatal.stack||fatal)+'</pre>'
+      +'<p style="font-size:13px;color:#555;">You can also reinstall the previous version from your Releases page while this is fixed.</p></div>'; }catch(_){}
+  }
 }
 
 /* ============================================================ slotting ============================================================ */
