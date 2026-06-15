@@ -158,11 +158,12 @@ async function setDesktopWindow(kind){
     else { try{ await win.setResizable(true); }catch(e){} await win.maximize(); }
   }catch(e){}
 }
-const APP_VERSION="2.2.7", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.2.8", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.2.8","Bulk Add Create works again (and now shows a message if a row has a problem instead of doing nothing); you can open Find on eBay from a Bulk Add row without typing a description first. Live indicator is back to green Live Mode. Removed the red Stop button from the item page. eBay listing fields now use clean inline auto-complete that matches the app, and the browser's own autofill no longer intrudes."],
   ["2.2.7","Fix: restored a missing function (backupAgeDays) that caused a blank launcher after login, and wrapped the launcher render so a single error can no longer blank the screen."],
   ["2.2.6","Stability fix: removed the automatic category reset that could blank the app on startup. WIM now only ensures General, NONE, and Bulk exist (nothing is deleted or forced). Added a startup safety net so a data-load problem shows a readable message instead of a blank screen, and turned on the developer console (F12) for easier troubleshooting."],
   ["2.2.5","eBay verbiage now says User Token; Live indicator shows Offline (gray) until a live eBay connection is confirmed, then Live Mode (green). Find on eBay starts fresh each time, the change link resets the search, picking an eBay category creates/assigns a matching sub category, and the listing title flows into the description. Item page drops Unit Cost/Retail, validates required eBay fields with a red * before adding, and scrolls as one page. Bulk Add leads with a search (magnifying glass) column and shows Sub Category instead of Group. Warehouse uses Send to Listing into a new Ready to List view in Live mode."],
@@ -613,7 +614,7 @@ function showLauncher(){
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
   win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
   const modeBadge = isLive()
-    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">Live Mode — checking…</span></span>`
+    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#e7f6ec;color:#1f7244;border:1px solid #b6e0c4;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span style="width:9px;height:9px;border-radius:50%;background:#1f9d55;display:inline-block;"></span>Live Mode</span>`
     : `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#33506e;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;">Warehouse Mode</span>`;
   win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;"><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
@@ -625,7 +626,6 @@ function showLauncher(){
   win.querySelector("#foot-about").onclick=openAbout;
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
-  if(isLive()){ try{ checkLiveStatus(); }catch(e){ console.error("checkLiveStatus failed:",e); } }
 }
 async function checkLiveStatus(){
   const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
@@ -1369,8 +1369,8 @@ function openItemDetail(item,mode){
     posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}:item;
   const wid=(isCat?"cat-":isNew?"item-new":"item-")+(it.id);
   if(openWindows[wid]){ focusWin(openWindows[wid].el); return; }
-  const tbar= ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}<span class="tbar-sep"></span>${tbtn(I.stop,'Stop','stop')}`
-    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${tbtn(I.cash,'List on eBay')}<span class="tbar-sep"></span>${tbtn(I.stop,'Stop','stop')}`;
+  const tbar= ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
+    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${tbtn(I.cash,'List on eBay')}`;
   const {body,close}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48});
   const secOpts=DB.sections.map(s=>`<option ${s===it.section?'selected':''}>${esc(s)}</option>`).join("");
   const dl=`<datalist id="sl-${it.id}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}">`).join("")+`</datalist>`
@@ -1699,7 +1699,7 @@ function openBulkAdd(){
         });
         const secInp=tr.querySelector('input[data-f="section"]'); if(secInp) attachAutofill(secInp, ()=>DB.sections);
         const subInp=tr.querySelector('input[data-f="subcat"]'); if(subInp) attachAutofill(subInp, ()=>allSubs);
-        const mg=tr.querySelector('.ba-find'); if(mg) mg.onclick=()=>{ if(!r.desc.trim()){ msg.style.color="#c0392b"; msg.textContent="Type a description first, then search eBay."; return; } let sec=r.section.trim(); if(!DB.sections.includes(sec)) sec="General"; const tmp={ id:"ba-tmp", section:sec, subCategory:r.subcat||"", desc:r.desc.trim(), aspects:{}, listing:{} }; openEbayFind(tmp, ()=>{ r.section=tmp.section; r.subcat=tmp.subCategory; if(tmp.desc) r.desc=tmp.desc; render(); }); };
+        const mg=tr.querySelector('.ba-find'); if(mg) mg.onclick=()=>{ let sec=r.section.trim(); if(!DB.sections.includes(sec)) sec="General"; const tmp={ id:"ba-tmp", section:sec, subCategory:r.subcat||"", desc:r.desc.trim(), aspects:{}, listing:{} }; openEbayFind(tmp, ()=>{ r.section=tmp.section; r.subcat=tmp.subCategory; if(tmp.desc) r.desc=tmp.desc; render(); }); };
         const conInp=tr.querySelector('input[data-f="condition"]'); if(conInp) attachAutofill(conInp, ()=>allConditions());
       }
       tb.appendChild(tr); });
@@ -1710,6 +1710,7 @@ function openBulkAdd(){
   addBtn.onclick=addRow;
   const tbTopPlus=openWindows["bulk-add"].el.querySelector('[data-act="Add Record"]'); if(tbTopPlus) tbTopPlus.onclick=addRow;
   function doCreate(){
+   try{
     let made=0, errors=0; const batch=[];
     rows.forEach(r=>{ if(r.created) return; r.error=""; r.skus=[]; r._items=[];
       if(!r.desc.trim() && !r.upc.trim() && !r.section.trim() && !r.slot.trim()) return; // skip empty rows
@@ -1726,8 +1727,8 @@ function openBulkAdd(){
       alloc.forEach(pl=>{ const it={ id:crypto.randomUUID(), upc:r.upc.trim(), desc:r.desc.trim(),
         vendor:(DB.vendors[0]||"HYVEE DISTRIBUTION"), condition:r.condition.trim(),
         section:cat,
-        unitCost:"0.000", retail:"0.00", onHand:"1", groups:(r.group.trim()&&r.group.trim().toLowerCase()!=="none")?[r.group.trim()]:[],
-        category:"", subCategory:"", image:"", slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), manualSlot:!!manual,
+        unitCost:"0.000", retail:"0.00", onHand:"1", groups:[],
+        category:"", subCategory:sub, aspects:{}, listing:{status:"none",title:"",price:"",qty:"1",descriptionId:null}, images:[], imageFeatured:0, image:"", slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), manualSlot:!!manual,
         sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null,
         caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0] };
         it.history=[{at:it.createdAt,desc:"Item created (SKU "+it.sku+", Bulk Add)",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
@@ -1740,6 +1741,7 @@ function openBulkAdd(){
       msg.style.color="#1f7244"; msg.textContent=made+" item(s) created (double-click a row to open it). Add more with +, or press Print Labels."; }
     else { msg.style.color= errors?"#c0392b":"#1f7244";
       msg.textContent=(made?made+" item(s) created. ":"")+(errors?errors+" row(s) need attention (see the SKU column).":(made?"":"Nothing to create — fill in at least a description.")); }
+   }catch(e){ console.error("Bulk Add create failed:",e); if(msg){ msg.style.color="#c0392b"; msg.textContent="Create failed: "+(e&&e.message?e.message:e); } }
   }
   function printLabels(){ if(!createdItems.length){ uiAlert("Nothing to print."); return; } printLabelsFor(createdItems); }
   createBtn.onclick=doCreate;
@@ -2239,12 +2241,13 @@ function openEbayFind(it, onDone){
       <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn primary" id="ef-accept">Accept</button><button class="btn" id="ef-cancel">Cancel</button></div>
       <div id="ef-msg" class="err" style="margin-top:8px;"></div></div>`;
     const fh=body.querySelector("#ef-fields");
-    aspects.forEach((a,i)=>{ const name=a.localizedAspectName, req=!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired), vals=(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,60);
-      const dlId="efd-"+i; const wrap=document.createElement("div"); wrap.className="ff"; wrap.style.cssText="grid-template-columns:170px 1fr;margin-bottom:6px;";
+    aspects.forEach((a,i)=>{ const name=a.localizedAspectName, req=!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired), vals=(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200);
+      const wrap=document.createElement("div"); wrap.className="ff"; wrap.style.cssText="grid-template-columns:170px 1fr;margin-bottom:6px;";
       wrap.innerHTML=`<label class="fld">${esc(name)}${req?' <span class="req">*</span>':''}</label>
-        <input class="txt ef-val" data-name="${esc(name)}" data-req="${req?1:0}" value="${esc(it.aspects[name]||"")}" list="${dlId}">
-        <datalist id="${dlId}">${vals.map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`;
-      fh.appendChild(wrap); });
+        <input class="txt ef-val" data-name="${esc(name)}" data-req="${req?1:0}" value="${esc(it.aspects[name]||"")}" autocomplete="off" spellcheck="false">`;
+      fh.appendChild(wrap);
+      const inp=wrap.querySelector(".ef-val"); if(vals.length) attachAutofill(inp, ()=>vals);
+    });
     body.querySelector("#ef-change").onclick=(e)=>{ e.preventDefault(); chosen=null; searchScreen(); };
     body.querySelector("#ef-cancel").onclick=close;
     body.querySelector("#ef-accept").onclick=()=>{
