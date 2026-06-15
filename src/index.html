@@ -113,6 +113,10 @@
   .lastsold{padding:0 16px 8px;font-size:12.5px;color:#222;}
   .pane-tabbody{padding:14px 16px;}
   .d-scrollwrap{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;}
+  body.popout #tb-windows{display:none !important;}
+  body.popout .window{box-shadow:none;border-radius:0;border:none;}
+  body.popout .window>.titlebar .winbtns{display:none;}
+  body.popout .window>.titlebar{cursor:default;}
   .groups3{display:grid;grid-template-columns:1fr 60px 1fr;gap:14px;align-items:start;}
   .grp-h{font-size:12.5px;margin:0 0 6px;color:#333;}
   .badge{font-size:10.5px;padding:1px 6px;border-radius:8px;background:#e2e8ef;color:#33506e;margin-left:6px;}
@@ -154,6 +158,9 @@
 /* ---- desktop (Tauri) bridge: present only in the standalone build ---- */
 const wimDesktop = (window.__TAURI__ && window.__TAURI__.core) ? { invoke:(c,a)=>window.__TAURI__.core.invoke(c,a) } : null;
 const WIM_IS_DESKTOP = !!wimDesktop;
+const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
+const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
+const WIM_POPOUT_KEY=WIM_POPOUT_MATCH?decodeURIComponent(WIM_POPOUT_MATCH[1]):null;
 async function setDesktopWindow(kind){
   if(!(window.__TAURI__ && window.__TAURI__.window)) return;
   try{ const W=window.__TAURI__.window; const win=W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||W.getCurrent());
@@ -169,11 +176,14 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.3.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.3.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.3.6","Item photos can now be uploaded to eBay Picture Services. On an item's Listing Details tab, add photos then click Upload photos to eBay — WIM sends them to eBay's image host and saves the eBay-hosted links on the item, ready for publishing. (Experimental; uses eBay's Trading upload API.)"],
+  ["2.3.5","Experimental Pop-out windows: Item Maintenance, Bulk Add, Manage Listings and Live Inventory now have a pop-out button (⧉) in their title bar that opens them in their own separate desktop window you can move anywhere. Windows sync your data through storage. This is experimental and best used one editor at a time — see notes."],
+  ["2.3.4","Slots can now hold more than one category. Slot Maintenance lets you tick every category a slot should hold (with the slot list showing all of them). When Find on eBay pulls in a category that doesn't exist yet, choosing Create now opens a Create Category window where you name it and pick which slot(s) it belongs to (filterable list showing each slot's current categories); Cancel still defaults the item to NONE."],
   ["2.3.3","WIM now opens as a normal, resizable desktop window sized to your screen instead of taking up the whole screen — move it, resize it, or maximize it from the title bar like any app. (Note: tool windows still open inside the WIM window; making each one a separate window that floats anywhere on the desktop is a larger rearchitecture planned as its own update.)"],
   ["2.3.2","Item pages opened from an Item Maintenance search now have Previous/Next arrows and a counter (e.g. 3 / 7) in the toolbar, so you can thumb through all matching records without going back to the list. The arrows grey out at the first and last record, and if you have unsaved changes it asks before moving on."],
   ["2.3.1","New Price Compare tab on the item page: pulls the top 10 similar eBay listings (thumbnail, title, condition, price, date, category). Shows a Suggested Price (average) and Price Range across them. Compare on any row copies its title, condition and price onto the item and logs the changes to Item History. Remove rows to re-figure the average/range, and Update Listings re-pulls with a last-pulled timestamp."],
@@ -208,7 +218,31 @@ function idbOpen(){ return new Promise((res,rej)=>{ if(!window.indexedDB){ rej(n
   r.onsuccess=e=>res(e.target.result); r.onerror=e=>rej(e.target.error); }); }
 function idbGet(){ return idbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(IDB_STORE,"readonly"); const rq=tx.objectStore(IDB_STORE).get(IDB_KEY); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); })); }
 function idbPut(val){ return idbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(IDB_STORE,"readwrite"); tx.objectStore(IDB_STORE).put(val,IDB_KEY); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); })); }
-function save(){ MEM=DB; idbPut(DB).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){ console.warn("WIM: could not persist data",e); } }); }
+let wimSyncBC=null; try{ wimSyncBC=new BroadcastChannel("wim-sync"); }catch(e){}
+function save(){ MEM=DB; idbPut(DB).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){ console.warn("WIM: could not persist data",e); } });
+  try{ if(wimSyncBC) wimSyncBC.postMessage({t:"changed",at:Date.now()}); }catch(e){} }
+/* ---- Pop-out: open a tool in its own desktop window (experimental, additive) ---- */
+const POPOUT_APPS={
+  itemsearch:{ title:"Item Maintenance", open:()=>openItemSearch() },
+  bulkadd:{ title:"Bulk Add Inventory", open:()=>openBulkAdd() },
+  managelistings:{ title:"Manage Listings", open:()=>openManageListings() },
+  liveinventory:{ title:"Live Inventory", open:()=>openLiveInventory() }
+};
+async function popOut(appKey){
+  const meta=POPOUT_APPS[appKey]; if(!meta) return;
+  if(!(window.__TAURI__ && window.__TAURI__.webviewWindow && window.__TAURI__.webviewWindow.WebviewWindow)){
+    uiAlert("Pop-out windows need the desktop app (this is an experimental feature)."); return; }
+  try{
+    try{ localStorage.setItem("WIM_POPOUT_SESSION", JSON.stringify({ userId:(SESSION.user&&SESSION.user.id)||"", mode:SESSION.mode||"warehouse" })); }catch(e){}
+    const W=window.__TAURI__.webviewWindow;
+    const label="popout-"+appKey+"-"+Date.now().toString(36);
+    new W.WebviewWindow(label, { url:"index.html#popout="+encodeURIComponent(appKey), title:"WIM — "+meta.title, width:1040, height:760, resizable:true, center:true });
+  }catch(e){ uiAlert("Could not open a separate window: "+(e&&e.message?e.message:e)); }
+}
+function wimRefreshAll(){ try{ if(typeof refreshSearchWindows==="function") refreshSearchWindows(); }catch(e){}
+  try{ document.querySelectorAll(".body").forEach(b=>{ if(b._refresh) b._refresh(); }); }catch(e){} }
+async function wimReloadFromStore(){ try{ let st=await idbGet(); if(!st){ const ls=localStorage.getItem(KEY); if(ls) st=JSON.parse(ls); } if(st){ DB=migrate(st); DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits; wimRefreshAll(); } }catch(e){ console.warn("WIM sync reload failed",e); } }
+try{ if(wimSyncBC) wimSyncBC.onmessage=(ev)=>{ if(ev&&ev.data&&ev.data.t==="changed") wimReloadFromStore(); }; }catch(e){}
 
 function seed(){
   const now=new Date().toISOString();
@@ -245,7 +279,9 @@ function migrate(d){
   if(!d.sections)d.sections=[]; if(!d.groups)d.groups=[]; if(!d.users)d.users=[];
   if(!d.sections.includes("General")) d.sections.unshift("General");
   (d.slots||[]).forEach(s=>{ if(s.skuLimit==null)s.skuLimit=99; if(s.manualOnly==null)s.manualOnly=false; if(s.id&&s.id.endsWith("."))s.id=s.id.slice(0,-1);
-    if(s.section==null||s.section==="")s.section="General"; });
+    if(s.section==null||s.section==="")s.section="General";
+    if(!Array.isArray(s.sections)||!s.sections.length) s.sections=[s.section];
+    if(!s.sections.includes(s.section)) s.section=s.sections[0]; });
   (d.items||[]).forEach(it=>{ if(it.sold==null)it.sold=false; if(it.createdAt==null)it.createdAt=new Date().toISOString();
     if(!("soldAt" in it))it.soldAt=null; if(!("soldBy" in it))it.soldBy=null; if(it.image==null)it.image="";
     if(it.unitCost==null)it.unitCost=it.netUnitCost||"0.000"; if(it.onHand==null||it.onHand==="")it.onHand="1";
@@ -313,6 +349,7 @@ async function boot(){
     DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
     if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
     try{ await idbPut(DB); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(_){} }
+    if(WIM_POPOUT_MODE){ bootPopout(); return; }
     showLogin();
   }catch(fatal){
     console.error("WIM boot failed:", fatal);
@@ -324,16 +361,30 @@ async function boot(){
   }
 }
 
+function bootPopout(){
+  try{ const raw=localStorage.getItem("WIM_POPOUT_SESSION"); if(raw){ const sd=JSON.parse(raw); const u=DB.users.find(x=>x.id===sd.userId); SESSION.user=u||DB.users[0]; SESSION.mode=sd.mode||"warehouse"; }
+    else { SESSION.user=DB.users[0]; SESSION.mode="warehouse"; } }
+  catch(e){ SESSION.user=DB.users[0]; SESSION.mode="warehouse"; }
+  document.body.classList.add("popout"); clearScreen();
+  const meta=POPOUT_APPS[WIM_POPOUT_KEY];
+  if(!meta){ document.body.innerHTML="<pre style='padding:20px;font-family:Segoe UI,sans-serif;'>Unknown pop-out app.</pre>"; return; }
+  try{ meta.open(); }catch(e){ document.body.innerHTML="<pre style='padding:20px;'>Pop-out failed: "+String(e&&e.stack||e)+"</pre>"; return; }
+  const fill=()=>{ const win=modalsEl.querySelector(".window"); if(win){ win.style.left="0px"; win.style.top="0px"; win.style.width=window.innerWidth+"px"; win.style.height=window.innerHeight+"px"; } };
+  setTimeout(fill,30); window.addEventListener("resize",fill);
+}
+
 /* ============================================================ slotting ============================================================ */
 function pad2(n){ return String(n).padStart(2,"0"); }
 function slotById(id){ return DB.slots.find(s=>s.id===id); }
+function slotCats(s){ if(!s) return []; return (Array.isArray(s.sections)&&s.sections.length)?s.sections:(s.section?[s.section]:["General"]); }
+function slotHasCat(s,cat){ return slotCats(s).includes(cat); }
 function activeItems(){ return DB.items.filter(i=>!i.sold); }
 function soldItems(){ return DB.items.filter(i=>i.sold); }
 function activeInSlot(slotId,ex){ return activeItems().filter(i=>i.slot===slotId&&i.id!==ex); }
 function takenPlacements(slotId,ex){ return new Set(activeInSlot(slotId,ex).map(i=>i.placement)); }
 function lowestPlacement(slotId,ex){ const s=slotById(slotId); if(!s) return null; const t=takenPlacements(slotId,ex);
   for(let p=1;p<=s.skuLimit;p++){ if(!t.has(p)) return p; } return null; }
-function autoSlot(ex,category){ const c=DB.slots.filter(s=>!s.manualOnly&&(category==null||s.section===category)&&activeInSlot(s.id,ex).length<s.skuLimit);
+function autoSlot(ex,category){ const c=DB.slots.filter(s=>!s.manualOnly&&(category==null||slotHasCat(s,category))&&activeInSlot(s.id,ex).length<s.skuLimit);
   if(!c.length) return null; c.sort((a,b)=>{ const ca=activeInSlot(a.id,ex).length,cb=activeInSlot(b.id,ex).length;
     if(ca!==cb)return ca-cb; return a.id.localeCompare(b.id,undefined,{numeric:true}); });
   const s=c[0],p=lowestPlacement(s.id,ex); if(p===null) return null; return {slot:s.id,placement:p}; }
@@ -346,7 +397,7 @@ function freeIn(slotId,ex,sim){ const s=slotById(slotId); if(!s) return []; cons
 // Allocate n placements within slots of the given Category, keeping them together & consecutive
 // when possible; prefers a single slot that fits all n, otherwise spills into the roomiest slots.
 function allocateMulti(n,ex,category){
-  const slotsOf=()=>DB.slots.filter(s=>!s.manualOnly&&(category==null||s.section===category));
+  const slotsOf=()=>DB.slots.filter(s=>!s.manualOnly&&(category==null||slotHasCat(s,category)));
   const sim={}; const t=id=>{ if(!sim[id]) sim[id]=new Set(takenPlacements(id,ex)); return sim[id]; };
   const result=[];
   const single=slotsOf().map(s=>({s,free:freeIn(s.id,ex)})).filter(c=>c.free.length>=n);
@@ -443,7 +494,7 @@ function makeDraggable(win,h){ let sx,sy,ox,oy,drag=false;
   window.addEventListener("mouseup",()=>{drag=false;}); }
 function focusWin(win){ win.style.zIndex=++zTop; }
 function userLabel(id){ const u=DB.users.find(x=>x.id===id); return u?(u.longName||u.shortName||u.id):(id||"—"); }
-function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top}){
+function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top,popoutKey}){
   const win=document.createElement("div"); win.className="window"; win.dataset.wid=id;
   // fit requested size to the available screen (leave room for the taskbar)
   const availW=window.innerWidth-16, availH=window.innerHeight-16;
@@ -453,11 +504,13 @@ function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top
   else { win.style.left=Math.max(8,Math.min(left||120, window.innerWidth-w-8))+"px"; win.style.top=Math.max(8,Math.min(top||80, window.innerHeight-h-8))+"px"; }
   win.style.transform="none"; win.style.zIndex=++zTop;
   const tb=document.createElement("div"); tb.className="titlebar"; tb.innerHTML=`<span class="appicon"></span><span class="ttl">${title}</span>`;
-  const ctr=document.createElement("div"); ctr.className="winbtns"; ctr.innerHTML=`<button class="winbtn" title="Minimize">&#8211;</button><button class="winbtn" title="Maximize">&#9633;</button><button class="winbtn close" title="Close">&#10005;</button>`;
+  const popBtn = (popoutKey && WIM_IS_DESKTOP && !WIM_POPOUT_MODE) ? `<button class="winbtn" title="Open in its own window" data-popout="${popoutKey}">&#10696;</button>` : "";
+  const ctr=document.createElement("div"); ctr.className="winbtns"; ctr.innerHTML=`${popBtn}<button class="winbtn" title="Minimize">&#8211;</button><button class="winbtn" title="Maximize">&#9633;</button><button class="winbtn close" title="Close">&#10005;</button>`;
   tb.appendChild(ctr); win.appendChild(tb);
+  const pb=ctr.querySelector("[data-popout]"); if(pb) pb.onclick=(e)=>{ e.stopPropagation(); popOut(pb.dataset.popout); };
   if(toolbar){ const t=document.createElement("div"); t.className="toolbar"; t.innerHTML=toolbar; win.appendChild(t); }
   const body=document.createElement("div"); body.className="body"; win.appendChild(body);
-  const [minB,maxB,closeB]=ctr.querySelectorAll(".winbtn");
+  const winbtnList=ctr.querySelectorAll(".winbtn:not([data-popout])"); const [minB,maxB,closeB]=winbtnList;
   const doClose=()=>{ win.remove(); delete openWindows[id]; renderTaskbar(); if(onClose)onClose(); };
   let prev=null;
   const toggleMax=()=>{ if(win.dataset.max==="1"){ Object.assign(win.style, prev); win.dataset.max="0"; }
@@ -755,7 +808,7 @@ function openWarehouseMaintenance(){
     if(!r){err.textContent="Row must be a letter (A–Z).";return;} if(!c){err.textContent="Column must be a number.";return;} if(!lim||lim<1)lim=99;
     const id=r+"."+c; if(slotById(id)){err.textContent="Slot "+id+" already exists.";return;}
     const cat=body.querySelector("#ws-cat").value||"General";
-    DB.slots.push({id,row:r,col:c,skuLimit:lim,manualOnly:manC.classList.contains("on"),section:cat}); save();
+    DB.slots.push({id,row:r,col:c,skuLimit:lim,manualOnly:manC.classList.contains("on"),section:cat,sections:[cat]}); save();
     err.textContent="";rowI.value="";colI.value="";limI.value="99";manC.classList.remove("on");upPrev(); mapState.selSlot=id; renderSlots(body); };
   renderSlots(body);
 }
@@ -773,7 +826,7 @@ function renderSlots(body){
   const lb=body.querySelector("#ws-slots"); lb.innerHTML="";
   list.forEach(s=>{ const cnt=activeInSlot(s.id).length; const full=cnt>=s.skuLimit;
     const li=document.createElement("div"); li.className="li"+(mapState.selSlot===s.id?" sel":"");
-    li.innerHTML=`<b>${s.id}</b> &nbsp; ${cnt}/${s.skuLimit} <span class="badge">${esc(s.section||"General")}</span> ${full?'<span class="badge warn">FULL</span>':''} ${s.manualOnly?'<span class="badge">manual</span>':''}`;
+    li.innerHTML=`<b>${s.id}</b> &nbsp; ${cnt}/${s.skuLimit} <span class="badge">${esc(slotCats(s).join(", ")||"General")}</span> ${full?'<span class="badge warn">FULL</span>':''} ${s.manualOnly?'<span class="badge">manual</span>':''}`;
     li.onclick=()=>{ mapState.selSlot=s.id; renderSlots(body); }; lb.appendChild(li); });
   const det=body.querySelector("#ws-detail"); det.innerHTML="";
   if(!mapState.selSlot){ det.innerHTML=`<div class="li" style="color:#888;">Select a slot.</div>`; return; }
@@ -782,23 +835,61 @@ function renderSlots(body){
   const head=document.createElement("div"); head.style.padding="10px"; head.style.borderBottom="1px solid #e2e2e2";
   head.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><b style="font-size:14px;">Slot ${s.id}</b> <span class="badge ${cnt>=s.skuLimit?'warn':'ok'}">${cnt}/${s.skuLimit} active</span></div>
     <div class="inline-add" style="gap:10px;"><div class="ff" style="grid-template-columns:auto 70px;"><label class="fld">SKU Limit</label><input class="txt" id="sd-lim" value="${s.skuLimit}" inputmode="numeric"></div>
-    <div class="ff" style="grid-template-columns:auto 160px;"><label class="fld">Category</label><select class="cmb" id="sd-cat">${DB.sections.map(x=>`<option ${x===(s.section||"General")?'selected':''}>${esc(x)}</option>`).join("")}</select></div>
     <label class="chkrow"><span class="chk ${s.manualOnly?'on':''}" id="sd-man"></span> Manually slot only</label>
-    <button class="btn sm" id="sd-save">Save</button><button class="btn sm" id="sd-del">Delete Slot</button></div><div class="err" id="sd-err"></div>`;
+    <button class="btn sm" id="sd-save">Save</button><button class="btn sm" id="sd-del">Delete Slot</button></div>
+    <div style="padding:0 0 8px;"><div class="grp-h" style="margin:2px 0 4px;">Categories this slot holds</div>
+      <div id="sd-cats" style="columns:2;max-width:420px;"></div></div><div class="err" id="sd-err"></div>`;
   det.appendChild(head);
+  const catsHost=head.querySelector("#sd-cats");
+  DB.sections.forEach(c=>{ const on=slotHasCat(s,c); const lab=document.createElement("label"); lab.className="chkrow"; lab.style.breakInside="avoid";
+    lab.innerHTML=`<span class="chk ${on?'on':''}"></span> ${esc(c)}`; lab.dataset.cat=c;
+    lab.querySelector(".chk").onclick=()=>lab.querySelector(".chk").classList.toggle("on"); catsHost.appendChild(lab); });
   const man=head.querySelector("#sd-man"); man.onclick=()=>man.classList.toggle("on");
   head.querySelector("#sd-save").onclick=()=>{ const e=head.querySelector("#sd-err"); let lim=parseInt(head.querySelector("#sd-lim").value,10);
     if(!lim||lim<1){e.style.color="#c0392b";e.textContent="Limit must be 1 or more.";return;}
     if(lim<cnt){e.style.color="#c0392b";e.textContent="Limit can't be below current active count ("+cnt+").";return;}
-    const newCat=head.querySelector("#sd-cat").value||"General";
-    const oldCat=s.section||"General";
-    s.skuLimit=lim; s.manualOnly=man.classList.contains("on"); s.section=newCat;
-    if(newCat!==oldCat){ activeInSlot(s.id).forEach(it=>{ if(it.section!==newCat){ it.section=newCat; addHistory(it,"Category changed to "+newCat+" (slot re-categorized)"); } }); }
+    const chosen=[...catsHost.querySelectorAll("label")].filter(l=>l.querySelector(".chk").classList.contains("on")).map(l=>l.dataset.cat);
+    if(!chosen.length){ e.style.color="#c0392b"; e.textContent="Pick at least one category for this slot."; return; }
+    s.skuLimit=lim; s.manualOnly=man.classList.contains("on"); s.sections=chosen; s.section=chosen[0];
     save(); renderSlots(body); refreshSearchWindows(); };
   head.querySelector("#sd-del").onclick=()=>{ if(cnt>0){uiAlert("Cannot delete slot "+s.id+": it has active inventory.");return;}
     uiConfirm("Delete slot "+s.id+"?",()=>{ DB.slots=DB.slots.filter(x=>x.id!==s.id); save(); mapState.selSlot=null; renderSlots(body); }); };
   activeInSlot(s.id).sort((a,b)=>a.placement-b.placement).forEach(it=>{ const li=document.createElement("div"); li.className="li";
     li.innerHTML=`<b>${it.sku}</b> &mdash; ${esc(it.desc)} <span style="color:#777;">(Item # ${esc(it.upc)})</span>`; li.ondblclick=()=>openItemDetail(it,"edit"); det.appendChild(li); });
+}
+
+/* ============================================================ CREATE CATEGORY (with slot picker) ============================================================ */
+function openCreateCategory(name, onDone){
+  const id="create-cat"; if(openWindows[id]){ openWindows[id].el.remove(); delete openWindows[id]; if(typeof renderTaskbar==="function") renderTaskbar(); }
+  const {body,close}=buildWindow({id,title:"Create Category",width:560,height:560,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Add a category and choose which slot(s) hold it</span>`});
+  body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+    <div class="ff" style="grid-template-columns:90px 1fr;margin-bottom:8px;"><label class="fld">Category</label><input class="txt" id="cc-name" value="${esc(name||"")}"></div>
+    <div class="grp-h" style="margin:4px 0;">Associate with slots (a slot can hold several categories)</div>
+    <input class="txt" id="cc-filter" placeholder="Filter slots by id or category" style="margin-bottom:6px;">
+    <div class="listbox" id="cc-slots" style="flex:1;min-height:140px;overflow:auto;"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn primary" id="cc-create">Create</button><button class="btn" id="cc-cancel">Cancel</button></div>
+    <div class="err" id="cc-msg"></div></div>`;
+  const host=body.querySelector("#cc-slots"), filt=body.querySelector("#cc-filter"), picked=new Set();
+  function paint(){ const q=(filt.value||"").toLowerCase(); host.innerHTML="";
+    DB.slots.slice().sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).forEach(s=>{ const cats=slotCats(s).join(", ");
+      if(q && !(s.id.toLowerCase().includes(q)||cats.toLowerCase().includes(q))) return;
+      const row=document.createElement("label"); row.className="chkrow"; row.style.cssText="display:flex;gap:8px;align-items:center;padding:3px 6px;";
+      row.innerHTML=`<span class="chk ${picked.has(s.id)?'on':''}"></span> <b style="width:50px;">${esc(s.id)}</b> <span class="smallhint" style="flex:1;">${esc(cats||"—")}</span>`;
+      row.querySelector(".chk").onclick=()=>{ if(picked.has(s.id)) picked.delete(s.id); else picked.add(s.id); paint(); };
+      host.appendChild(row); });
+    if(!host.children.length) host.innerHTML=`<div class="li" style="color:#888;">${DB.slots.length?"No slots match.":"No slots exist yet — you can create them in Warehouse Maintenance."}</div>`;
+  }
+  filt.oninput=paint; paint();
+  body.querySelector("#cc-cancel").onclick=()=>{ close(); if(onDone) onDone(false); };
+  body.querySelector("#cc-create").onclick=()=>{ const nm=body.querySelector("#cc-name").value.trim(); const msg=body.querySelector("#cc-msg");
+    if(!nm){ msg.style.color="#c0392b"; msg.textContent="Enter a category name."; return; }
+    if(!DB.sections.includes(nm)) DB.sections.push(nm);
+    if(!DB.subcats[nm]) DB.subcats[nm]=[{name:nm,ebayId:"",ebayName:"",aspects:[]}];
+    if(DB.conditionsByCat && !DB.conditionsByCat[nm]) DB.conditionsByCat[nm]=(DB.conditions||[]).slice();
+    picked.forEach(sid=>{ const s=slotById(sid); if(s){ if(!Array.isArray(s.sections)) s.sections=s.section?[s.section]:[]; if(!s.sections.includes(nm)) s.sections.push(nm); if(!s.section) s.section=nm; } });
+    save(); if(typeof refreshSearchWindows==="function") refreshSearchWindows();
+    close(); if(onDone) onDone(nm); };
 }
 
 /* ============================================================ MODIFY USERS ============================================================ */
@@ -1110,7 +1201,7 @@ function openEbayList(it){
     send.disabled=false; }; }
 }
 function applyRename(kind,oldN,newN){
-  if(kind==="section"){ DB.items.forEach(i=>{ if(i.section===oldN) i.section=newN; }); DB.slots.forEach(s=>{ if(s.section===oldN) s.section=newN; });
+  if(kind==="section"){ DB.items.forEach(i=>{ if(i.section===oldN) i.section=newN; }); DB.slots.forEach(s=>{ if(Array.isArray(s.sections)) s.sections=s.sections.map(c=>c===oldN?newN:c); if(s.section===oldN) s.section=newN; });
     if(DB.conditionsByCat && DB.conditionsByCat[oldN]){ DB.conditionsByCat[newN]=DB.conditionsByCat[oldN]; delete DB.conditionsByCat[oldN]; } }
   else if(kind==="group"){ DB.items.forEach(i=>{ if(i.groups){ i.groups=i.groups.map(g=>g===oldN?newN:g); } }); }
   else if(kind==="vendor"){ DB.items.forEach(i=>{ if(i.vendor===oldN) i.vendor=newN; }); }
@@ -1152,7 +1243,7 @@ function cmpVal(a,b,type){ if(type==="date") return (new Date(a||0))-(new Date(b
 
 function openItemSearch(){
   if(openWindows["item-search"]){ focusWin(openWindows["item-search"].el); return; }
-  const {body}=buildWindow({id:"item-search",title:"Item Maintenance Search",width:1040,height:720,
+  const {body}=buildWindow({id:"item-search",title:"Item Maintenance Search",width:1040,height:720,popoutKey:"itemsearch",
     toolbar:`${tbtn(I.copy,'New Search')}${tbtn(I.bolt,'Run Search')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}<span class="tbar-sep"></span>${tbtn(I.stop,'Stop','stop')}`,
     center:false,left:90,top:55});
   buildSearchUI(body,{scope:"active",cols:ITEM_COLS,winId:"item-search"});
@@ -1464,7 +1555,8 @@ function openItemDetail(item,mode,nav){
         <textarea id="l-descbody" placeholder="Listing description" style="width:100%;height:90px;margin-top:6px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;">${esc((it.listing.descriptionId&&(DB.descriptions.find(x=>x.id===it.listing.descriptionId)||{}).body)||it.listing.descBody||"")}</textarea>
         <div class="col-title" style="text-align:left;margin-top:8px;">Subsidiary photos</div>
         <div id="l-photos" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-        <div style="margin-top:6px;"><input type="file" id="l-photofile" accept="image/*" style="display:none;"><button class="btn sm" id="l-photoadd">Add subsidiary photo</button></div>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="file" id="l-photofile" accept="image/*" style="display:none;"><button class="btn sm" id="l-photoadd">Add subsidiary photo</button>${WIM_IS_DESKTOP?'<button class="btn sm" id="l-photoupload">Upload photos to eBay</button>':''}<span class="smallhint" id="l-photomsg"></span></div>
+        <div id="l-ebayimgs" style="margin-top:6px;"></div>
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn" id="l-toggle">${it.listing.status==="listed"?"Delist (keep SKU)":"Mark as Listed"}</button><span class="smallhint">Real eBay publish/delist arrives in the publishing update; this sets the status so Discrepancies &amp; Manage Listings work now.</span></div>
       </fieldset>`;
     }
@@ -1482,6 +1574,19 @@ function openItemDetail(item,mode,nav){
       lwrap.querySelector("#l-photoadd").onclick=()=>pf.click();
       pf.onchange=async ()=>{ if(pf.files[0]){ try{ const d=await compressImage(pf.files[0]); it.images.push(d); markDirty&&markDirty(); paintPhotos(); }catch(e){ uiAlert("Could not read image."); } } };
       paintPhotos();
+      function renderEbayImgs(){ const host=lwrap.querySelector("#l-ebayimgs"); if(!host) return; const urls=(it.listing&&it.listing.ebayImageUrls)||[];
+        host.innerHTML = urls.length ? `<div class="smallhint" style="margin-bottom:3px;">On eBay (${urls.length}):</div>`+urls.map(u=>`<div style="font-size:11px;color:#1f7244;word-break:break-all;">✓ ${esc(u)}</div>`).join("") : ""; }
+      renderEbayImgs();
+      const upBtn=lwrap.querySelector("#l-photoupload"), upMsg=lwrap.querySelector("#l-photomsg");
+      if(upBtn) upBtn.onclick=async ()=>{ if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+        if(!it.images || !it.images.length){ upMsg.style.color="#c0392b"; upMsg.textContent="Add at least one photo first."; return; }
+        upBtn.disabled=true; const urls=[]; let failed=0;
+        for(let i=0;i<it.images.length;i++){ upMsg.style.color="#555"; upMsg.textContent="Uploading "+(i+1)+" of "+it.images.length+"…";
+          try{ const r=await EBAY.uploadPicture(it.images[i], (it.desc||"WIM")+" "+(i+1)); if(r&&r.ok&&r.body){ urls.push(r.body); } else { failed++; console.warn("EPS upload failed:", r&&r.body); } }
+          catch(e){ failed++; console.warn("EPS upload error:",e); } }
+        if(!it.listing) it.listing={status:"none"}; it.listing.ebayImageUrls=urls;
+        addHistory(it,"Uploaded "+urls.length+" photo(s) to eBay"+(failed?(" ("+failed+" failed)"):"")); markDirty&&markDirty(); save();
+        upMsg.style.color= failed?"#c0392b":"#1f7244"; upMsg.textContent="Uploaded "+urls.length+" of "+it.images.length+" to eBay"+(failed?" — "+failed+" failed (see console).":"."); upBtn.disabled=false; renderEbayImgs(); };
       function paintPhotos(){ const host=lwrap.querySelector("#l-photos"); if(!host) return; host.innerHTML="";
         it.images.forEach((src,i)=>{ const cell=document.createElement("div"); cell.style.cssText="position:relative;width:54px;height:54px;border:1px solid #bbb;background:#fff center/cover no-repeat;"; cell.style.backgroundImage=`url(${src})`;
           if(i===it.imageFeatured){ const star=document.createElement("span"); star.textContent="\u2605"; star.title="Featured"; star.style.cssText="position:absolute;left:1px;top:0;color:#e6a200;font-size:13px;"; cell.appendChild(star); }
@@ -1755,7 +1860,7 @@ function normSlot(v){ if(!v) return ""; v=v.toUpperCase().trim().replace(/\.+$/,
 /* ============================================================ BULK ADD ============================================================ */
 function openBulkAdd(){
   if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
-  const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:980,height:580,
+  const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:980,height:580,popoutKey:"bulkadd",
     toolbar:`${tbtn(I.plus,'Add Record','plus')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Type rows, then Create to assign Warehouse SKUs</span>`});
   const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",qty:"1",slot:"",skus:[],created:false,error:""});
   let rows=[blank()], createdItems=[], phase="edit";
@@ -1812,7 +1917,7 @@ function openBulkAdd(){
       const qty=Math.max(1,parseInt(r.qty,10)||1); r.qty=String(qty);
       const manual=r.slot.trim(); let alloc;
       if(manual){ const slotV=normSlot(manual); if(!slotV||!slotById(slotV)){ r.error="bad slot"; errors++; return; }
-        if((slotById(slotV).section||"General")!==cat){ r.error="slot ≠ category"; errors++; return; }
+        if(!slotHasCat(slotById(slotV),cat)){ r.error="slot ≠ category"; errors++; return; }
         alloc=allocateInSlot(slotV,qty,null); if(!alloc){ r.error="slot can't fit "+qty; errors++; return; } }
       else { alloc=allocateMulti(qty,null,cat); if(alloc.length<qty){ r.error="no "+cat+" space ("+alloc.length+")"; errors++; return; } }
       alloc.forEach(pl=>{ const it={ id:crypto.randomUUID(), upc:r.upc.trim(), desc:r.desc.trim(),
@@ -2273,7 +2378,8 @@ const EBAY={
   async treeId(){ if(DB.ebay.categoryTreeId) return DB.ebay.categoryTreeId;
     const r=await this.app("/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id="+this.mkt());
     if(!r.ok) throw new Error("category tree (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
-    const j=JSON.parse(r.body); DB.ebay.categoryTreeId=j.categoryTreeId; save(); return j.categoryTreeId; }
+    const j=JSON.parse(r.body); DB.ebay.categoryTreeId=j.categoryTreeId; save(); return j.categoryTreeId; },
+  uploadPicture(b64,name){ return wimDesktop.invoke("ebay_upload_picture",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, imageBase64:b64, pictureName:name||"WIM photo" }); }
 };
 function openEbayFind(it, onDone){
   if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
@@ -2352,10 +2458,7 @@ function openEbayFind(it, onDone){
   function ensureCategory(mainCat, done){
     if(DB.sections.includes(mainCat)){ it.section=mainCat; done(); return; }
     uiChoose('"'+mainCat+'" category does not exist. Would you like to create it?',[
-      {label:"Create", primary:true, onClick:()=>{ DB.sections.push(mainCat);
-        if(!DB.subcats[mainCat]) DB.subcats[mainCat]=[{name:mainCat,ebayId:"",ebayName:"",aspects:[]}];
-        if(DB.conditionsByCat && !DB.conditionsByCat[mainCat]) DB.conditionsByCat[mainCat]=(DB.conditions||[]).slice();
-        it.section=mainCat; addHistory(it,'Category created from eBay: '+mainCat); done(); }},
+      {label:"Create", primary:true, onClick:()=>{ openCreateCategory(mainCat, (res)=>{ it.section = res || "NONE"; done(); }); }},
       {label:"Cancel (use NONE)", onClick:()=>{ it.section="NONE"; done(); }}
     ]);
   }
@@ -2464,7 +2567,7 @@ async function pullActiveListings(after){
 /* ============================================================ LIVE: VIEW LIVE INVENTORY ============================================================ */
 function openLiveInventory(){
   if(openWindows["live-inv"]){ focusWin(openWindows["live-inv"].el); return; }
-  const {body}=buildWindow({id:"live-inv",title:"Live Inventory",width:960,height:620,
+  const {body}=buildWindow({id:"live-inv",title:"Live Inventory",width:960,height:620,popoutKey:"liveinventory",
     toolbar:`${tbtn(I.print,'Print')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">All active live listings</span>`});
   function render(){
     const rows=listedItems().sort((a,b)=>skuCmp(a.sku,b.sku));
@@ -2493,7 +2596,7 @@ function openLiveInventory(){
 /* ============================================================ LIVE: MANAGE LISTINGS ============================================================ */
 function openManageListings(){
   if(openWindows["manage-listings"]){ focusWin(openWindows["manage-listings"].el); return; }
-  const {body}=buildWindow({id:"manage-listings",title:"Manage Listings",width:920,height:600,
+  const {body}=buildWindow({id:"manage-listings",title:"Manage Listings",width:920,height:600,popoutKey:"managelistings",
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Edit live listings, or delist without removing the warehouse SKU</span>`});
   function render(){
     const rows=DB.items.filter(i=>i.listing && (i.listing.status==="listed"||i.listing.status==="delisted")).sort((a,b)=>skuCmp(a.sku,b.sku));
