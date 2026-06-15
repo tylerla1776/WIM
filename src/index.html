@@ -23,6 +23,8 @@
   .winbtn:hover{background:#e6e6e6;}.winbtn.close:hover{background:#e81123;color:#fff;}
   .toolbar{display:flex;align-items:center;gap:2px;padding:5px 8px;border-bottom:1px solid #d4d4d4;background:var(--chrome);}
   .tbtn{width:28px;height:26px;border:1px solid transparent;background:transparent;border-radius:3px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#444;}
+  .tbtn:disabled{opacity:.3;cursor:default;}
+  #d-prev,#d-next{font-size:18px;font-weight:600;line-height:1;}
   .tbtn:hover{border-color:#bcd1ea;background:#e9f1fb;}
   .tbtn svg{width:16px;height:16px;}
   .tbtn.plus svg{color:#1f9d3a;}.tbtn.del svg{color:#c0392b;}
@@ -156,14 +158,24 @@ async function setDesktopWindow(kind){
   if(!(window.__TAURI__ && window.__TAURI__.window)) return;
   try{ const W=window.__TAURI__.window; const win=W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||W.getCurrent());
     if(kind==="login"){ try{ await win.unmaximize(); }catch(e){} try{ await win.setResizable(false); }catch(e){} await win.setSize(new W.LogicalSize(470,470)); await win.center(); }
-    else { try{ await win.setResizable(true); }catch(e){} await win.maximize(); }
+    else { try{ await win.setResizable(true); }catch(e){}
+      try{ await win.unmaximize(); }catch(e){}
+      // Open as a normal desktop window (not full-screen). Fit a sensible size to the monitor.
+      let w=1200, h=780;
+      try{ if(window.screen){ w=Math.min(1320, Math.max(960, Math.round(window.screen.availWidth*0.8))); h=Math.min(900, Math.max(640, Math.round(window.screen.availHeight*0.85))); } }catch(e){}
+      try{ await win.setSize(new W.LogicalSize(w,h)); }catch(e){}
+      try{ await win.center(); }catch(e){}
+      try{ await win.setFocus(); }catch(e){}
+    }
   }catch(e){}
 }
-const APP_VERSION="2.3.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.3.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.3.3","WIM now opens as a normal, resizable desktop window sized to your screen instead of taking up the whole screen — move it, resize it, or maximize it from the title bar like any app. (Note: tool windows still open inside the WIM window; making each one a separate window that floats anywhere on the desktop is a larger rearchitecture planned as its own update.)"],
+  ["2.3.2","Item pages opened from an Item Maintenance search now have Previous/Next arrows and a counter (e.g. 3 / 7) in the toolbar, so you can thumb through all matching records without going back to the list. The arrows grey out at the first and last record, and if you have unsaved changes it asks before moving on."],
   ["2.3.1","New Price Compare tab on the item page: pulls the top 10 similar eBay listings (thumbnail, title, condition, price, date, category). Shows a Suggested Price (average) and Price Range across them. Compare on any row copies its title, condition and price onto the item and logs the changes to Item History. Remove rows to re-figure the average/range, and Update Listings re-pulls with a last-pulled timestamp."],
   ["2.3.0","Item page reorganized: Price and Cost now sit at the top; the item's own description is labeled Item Description (the eBay listing text stays Description); and the eBay Listing Fields + listing section moved into a new Listing Details tab next to Groups and Item History. The page now scrolls as one continuous page with the Save bar pinned, instead of small inner scrollbars."],
   ["2.2.9","Find on eBay now shows the top 10 similar listings after you pick a category — each with a thumbnail, title, condition, category and price. Choose one and it loads into the item: listing title fills the Description, the UPC fills the Item Number, eBay fields fill in, and the eBay main category is pulled in as the item's Category (with a prompt to create it if it doesn't exist yet, or default to NONE). Includes a Back button to reselect, and a 'just use the category fields' option to fill them in manually."],
@@ -1214,14 +1226,14 @@ function buildSearchUI(body,{scope,cols,winId}){
       th.innerHTML=esc(c.label)+arrow; th.onclick=()=>{ if(st.sort.key===c.key) st.sort.dir*=-1; else { st.sort.key=c.key; st.sort.dir=1; } sortAndRender(); }; h.appendChild(th); });
   }
   function renderRows(){ const tb=body.querySelector("#s-tbody"); tb.innerHTML="";
-    st.results.forEach(it=>{ const tr=document.createElement("tr");
+    st.results.forEach((it,ri)=>{ const tr=document.createElement("tr");
       cols.forEach(c=>{ const td=document.createElement("td");
         if(c.key==="sold"&&c.type==="check"){ td.className="cc"; const cb=document.createElement("span"); cb.className="chk"+(st.pending.has(it.id)?" on":"");
           cb.onclick=(e)=>{ e.stopPropagation(); if(st.pending.has(it.id)) st.pending.delete(it.id); else st.pending.add(it.id); cb.classList.toggle("on"); updateSoldBtn(); };
           td.appendChild(cb); }
         else { td.textContent = c.type==="date"? fmtDay(c.get(it)) : (c.get(it)||""); }
         tr.appendChild(td); });
-      tr.ondblclick=()=>openItemDetail(it,isCat?"catalog":"edit"); tb.appendChild(tr); });
+      tr.ondblclick=()=>openItemDetail(it,isCat?"catalog":"edit",{list:st.results.slice(),index:ri}); tb.appendChild(tr); });
     body.querySelector("#s-count").textContent="Records: "+st.results.length;
   }
   function updateSoldBtn(){ const b=body.querySelector("#s-soldbtn"); if(!b) return; const n=st.pending.size; b.textContent="Items Sold ("+n+")"; b.disabled=n===0; }
@@ -1365,7 +1377,7 @@ function openInvoiceDetail(inv){
 }
 
 /* ============================================================ ITEM DETAIL ============================================================ */
-function openItemDetail(item,mode){
+function openItemDetail(item,mode,nav){
   const isNew=mode==="new", isCat=mode==="catalog", ro=isCat;
   const it=isNew?{id:crypto.randomUUID(),upc:"",desc:"",vendor:"HYVEE DISTRIBUTION",condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
     unitCost:"0.000",retail:"0.00",onHand:"1",groups:[],category:"FRUIT",subCategory:"",image:"",slot:"",placement:null,sku:"",
@@ -1373,9 +1385,11 @@ function openItemDetail(item,mode){
     posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}:item;
   const wid=(isCat?"cat-":isNew?"item-new":"item-")+(it.id);
   if(openWindows[wid]){ focusWin(openWindows[wid].el); return; }
-  const tbar= ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
-    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${tbtn(I.cash,'List on eBay')}`;
+  const navHtml = (nav && nav.list && nav.list.length) ? `<span class="tbar-sep"></span><button class="tbtn" id="d-prev" title="Previous record" ${nav.index<=0?'disabled':''}>&#8249;</button><span style="font-size:12px;align-self:center;padding:0 6px;white-space:nowrap;">${nav.index+1} / ${nav.list.length}</span><button class="tbtn" id="d-next" title="Next record" ${nav.index>=nav.list.length-1?'disabled':''}>&#8250;</button>` : "";
+  const tbar= (ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
+    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${tbtn(I.cash,'List on eBay')}`) + navHtml;
   const {body,close}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48});
+  let dirty=false;
   const secOpts=DB.sections.map(s=>`<option ${s===it.section?'selected':''}>${esc(s)}</option>`).join("");
   const dl=`<datalist id="sl-${it.id}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}">`).join("")+`</datalist>`
     +`<datalist id="con-${it.id}">`+condsFor(it.section).map(c=>`<option value="${esc(c)}">`).join("")+`</datalist>`;
@@ -1572,6 +1586,13 @@ function openItemDetail(item,mode){
   body.querySelector("#d-tab-compare").onclick=()=>showTab("compare");
   const priceTop=body.querySelector("#d-price"); if(priceTop && !ro) priceTop.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=priceTop.value; markDirty&&markDirty(); };
   showTab("groups");
+  if(nav && nav.list && nav.list.length){
+    const pv=body.querySelector("#d-prev"), nx=body.querySelector("#d-next");
+    const go=(ni)=>{ if(ni<0||ni>=nav.list.length) return; const open=()=>{ close(); openItemDetail(nav.list[ni], mode, {list:nav.list, index:ni}); };
+      if(dirty){ uiConfirm("Discard unsaved changes and move to the other record?", open); } else open(); };
+    if(pv) pv.onclick=()=>go(nav.index-1);
+    if(nx) nx.onclick=()=>go(nav.index+1);
+  }
   if(ro){ body.querySelector("#d-close").onclick=close;
     const ract=openWindows[wid].el.querySelector('[data-act="Reactivate"]'); if(ract) ract.onclick=()=>reactivateItem(it, close);
     const rpb=openWindows[wid].el.querySelector('[data-act="Print"]'); if(rpb) rpb.onclick=()=>printLabelsFor([it]);
@@ -1659,7 +1680,7 @@ function openItemDetail(item,mode){
     if(isNew || !keepOpen){ close(); }
     else { dirty=false; updateBtn(); status.style.color="#1f7244"; status.textContent="Saved."; showTab(curTab); }
   }
-  let dirty=false;
+  dirty=false;
   const bottomBtn=body.querySelector("#d-save");
   function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"List Inventory":"Add Item"):(dirty?"Save":"Okay"); }
   const s2l=body.querySelector("#d-send2list"); if(s2l) s2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
