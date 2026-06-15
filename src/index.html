@@ -109,7 +109,8 @@
   .imgbox img{width:100%;height:100%;object-fit:cover;}
   .imgbox .ph{font-size:40px;color:#bbb;}
   .lastsold{padding:0 16px 8px;font-size:12.5px;color:#222;}
-  .pane-tabbody{padding:14px 16px;overflow:auto;}
+  .pane-tabbody{padding:14px 16px;}
+  .d-scrollwrap{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;}
   .groups3{display:grid;grid-template-columns:1fr 60px 1fr;gap:14px;align-items:start;}
   .grp-h{font-size:12.5px;margin:0 0 6px;color:#333;}
   .badge{font-size:10.5px;padding:1px 6px;border-radius:8px;background:#e2e8ef;color:#33506e;margin-left:6px;}
@@ -158,11 +159,13 @@ async function setDesktopWindow(kind){
     else { try{ await win.setResizable(true); }catch(e){} await win.maximize(); }
   }catch(e){}
 }
-const APP_VERSION="2.2.9", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.3.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.3.1","New Price Compare tab on the item page: pulls the top 10 similar eBay listings (thumbnail, title, condition, price, date, category). Shows a Suggested Price (average) and Price Range across them. Compare on any row copies its title, condition and price onto the item and logs the changes to Item History. Remove rows to re-figure the average/range, and Update Listings re-pulls with a last-pulled timestamp."],
+  ["2.3.0","Item page reorganized: Price and Cost now sit at the top; the item's own description is labeled Item Description (the eBay listing text stays Description); and the eBay Listing Fields + listing section moved into a new Listing Details tab next to Groups and Item History. The page now scrolls as one continuous page with the Save bar pinned, instead of small inner scrollbars."],
   ["2.2.9","Find on eBay now shows the top 10 similar listings after you pick a category — each with a thumbnail, title, condition, category and price. Choose one and it loads into the item: listing title fills the Description, the UPC fills the Item Number, eBay fields fill in, and the eBay main category is pulled in as the item's Category (with a prompt to create it if it doesn't exist yet, or default to NONE). Includes a Back button to reselect, and a 'just use the category fields' option to fill them in manually."],
   ["2.2.8","Bulk Add Create works again (and now shows a message if a row has a problem instead of doing nothing); you can open Find on eBay from a Bulk Add row without typing a description first. Live indicator is back to green Live Mode. Removed the red Stop button from the item page. eBay listing fields now use clean inline auto-complete that matches the app, and the browser's own autofill no longer intrudes."],
   ["2.2.7","Fix: restored a missing function (backupAgeDays) that caused a blank launcher after login, and wrapped the launcher render so a single error can no longer blank the screen."],
@@ -1378,6 +1381,7 @@ function openItemDetail(item,mode){
     +`<datalist id="con-${it.id}">`+condsFor(it.section).map(c=>`<option value="${esc(c)}">`).join("")+`</datalist>`;
   const dis=ro?'disabled':'';
   body.innerHTML=`
+    <div class="d-scrollwrap">
     <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':'Active record')}</div></div>
     ${dl}
     <div class="imd-top">
@@ -1385,14 +1389,16 @@ function openItemDetail(item,mode){
         ${ro?'':`<input type="file" id="d-imgfile" accept="image/*" style="display:none;"><div style="display:flex;gap:6px;"><button class="btn sm" id="d-imgbtn">Add Photo</button><button class="btn sm" id="d-imgclr">Remove</button></div>`}</div>
       <div style="display:grid;gap:10px;">
         <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" ${dis}></div>
-        <div class="ff"><label class="blue" style="text-align:left;">Description</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
+        <div class="ff"><label class="blue" style="text-align:left;">Item Description</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
         <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
         <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${(ro||(!isNew&&!it.manualSlot))?'disabled':''}>${secOpts}</select></div>
         <div class="ff"><label style="text-align:left;">Sub Category</label><select class="cmb" id="d-subcat" ${dis}></select></div>
         <div class="ff"><label style="text-align:left;">Condition</label><input class="txt" id="d-condition" list="con-${it.id}" value="${esc(it.condition||"")}" ${dis}></div>
       </div>
       <div style="display:grid;gap:10px;">
-        <input type="hidden" id="d-unitcost" value="${esc(it.unitCost)}"><input type="hidden" id="d-retail" value="${esc(it.retail)}">
+        <input type="hidden" id="d-retail" value="${esc(it.retail)}">
+        <div class="ff sm"><label style="text-align:left;">Price</label><input class="txt" id="d-price" value="${esc((it.listing&&it.listing.price)||'')}" inputmode="decimal" ${dis} placeholder="listing price"></div>
+        <div class="ff sm"><label style="text-align:left;">Cost</label><input class="txt" id="d-unitcost" value="${esc(it.unitCost)}" inputmode="decimal" ${dis} placeholder="what you paid"></div>
         <div class="ff sm"><label style="text-align:left;">On Hand</label><input class="txt" id="d-onhand" value="${isNew?'1':(isCat?'0':groupQty(it))}" readonly title="Quantity of this Item Number — change it only through Add or Sell"></div>
         ${isNew?`<div class="ff sm"><label style="text-align:left;">Quantity</label><input class="txt" id="d-qty" value="1" inputmode="numeric" title="How many units to add — each gets its own Warehouse SKU"></div>`:''}
         <label class="chkrow" style="margin-top:2px;${ro?'opacity:.6;pointer-events:none;':''}"><span class="chk ${it.manualSlot?'on':''}" id="d-manual"></span> Manually slot</label>
@@ -1404,10 +1410,10 @@ function openItemDetail(item,mode){
         <div id="d-sku-list" style="display:none;border:1px solid #bbb;background:#fff;max-height:130px;overflow:auto;font-size:12px;"></div>
       </div>
     </div>
-    <div id="d-listingwrap" style="margin:0 14px;"></div>
     <div class="lastsold">${isCat?`Added: <b>${fmtDate(it.createdAt)}</b> &nbsp;|&nbsp; Sold: <b>${fmtDate(it.soldAt)}</b> &nbsp;|&nbsp; Sold by <b>${esc(userLabel(it.soldBy))}</b>`:(it.createdAt?`Added to system: ${fmtDate(it.createdAt)}`:'New item — not yet saved')}</div>
-    <div class="tabs"><div class="tab sel" id="d-tab-groups">Groups</div><div class="tab" id="d-tab-history">Item History</div></div>
+    <div class="tabs"><div class="tab sel" id="d-tab-groups">Groups</div><div class="tab" id="d-tab-history">Item History</div><div class="tab" id="d-tab-listing">Listing Details</div><div class="tab" id="d-tab-compare">Price Compare</div></div>
     <div class="pane-tabbody" id="d-tabbody"></div>
+    </div>
     <div class="statusbar"><span id="d-status"></span><span>${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'List Inventory':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
 
   if(!ro){ const file=body.querySelector("#d-imgfile");
@@ -1418,13 +1424,13 @@ function openItemDetail(item,mode){
   const tabbody=body.querySelector("#d-tabbody"); let assigned=[...(it.groups||[])]; let curTab="groups";
 
   /* ---- V2.2.2: sub-category, dynamic aspects, listing fields ---- */
-  const subSel=body.querySelector("#d-subcat"), secSel=body.querySelector("#d-section"), lwrap=body.querySelector("#d-listingwrap");
+  const subSel=body.querySelector("#d-subcat"), secSel=body.querySelector("#d-section"); let lwrap=null;
   if(!it.aspects) it.aspects={}; if(!it.images) it.images=it.image?[it.image]:[]; if(it.imageFeatured==null) it.imageFeatured=0;
   if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};
   function fillSubcats(){ const cat=(secSel&&secSel.value)||it.section; let subs=subcatsOf(cat); if(!subs.length) subs=[{name:cat}];
     if(!subs.some(s=>s.name===it.subCategory)) it.subCategory=subs[0].name;
     subSel.innerHTML=subs.map(s=>`<option ${s.name===it.subCategory?'selected':''}>${esc(s.name)}</option>`).join(""); }
-  function renderListing(){ const cat=(secSel&&secSel.value)||it.section; const asp=aspectsFor({section:cat,subCategory:it.subCategory});
+  function renderListing(){ if(!lwrap) return; const cat=(secSel&&secSel.value)||it.section; const asp=aspectsFor({section:cat,subCategory:it.subCategory});
     const scObj=subcatObj(cat,it.subCategory);
     let html=`<fieldset class="gb" style="margin:8px 0;"><legend>Listing fields${it.subCategory?` &mdash; ${esc(it.subCategory)}`:''}${scObj&&scObj._new?' <span class="badge warn">*NEW</span>':''}</legend>`;
     if(!ro && WIM_IS_DESKTOP){ html+=`<div style="margin-bottom:8px;"><button class="btn sm" id="d-ebayfind">🔍 Find on eBay (auto-fill fields)</button></div>`; }
@@ -1435,9 +1441,9 @@ function openItemDetail(item,mode){
       html+=`<fieldset class="gb" style="margin:8px 0;"><legend>eBay listing</legend>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Title</label><input class="txt" id="l-title" value="${esc(it.listing.title||it.desc||"")}"></div>
-          <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Price</label><input class="txt" id="l-price" value="${esc(it.listing.price||"")}" inputmode="decimal"></div>
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Quantity</label><input class="txt" id="l-qty" value="${esc(it.listing.qty||"1")}" inputmode="numeric"></div>
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Status</label><input class="txt" value="${esc(it.listing.status||"none")}" readonly></div>
+          <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Price</label><input class="txt" value="${esc((it.listing&&it.listing.price)||'')}" readonly title="Set the price at the top of the item"></div>
         </div>
         <div class="ff" style="grid-template-columns:90px 1fr;margin-top:8px;"><label class="fld">Description</label>
           <select class="cmb" id="l-desc"><option value="">(write your own below)</option>${descs.map(d=>`<option value="${d.id}" ${it.listing.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}</select></div>
@@ -1452,9 +1458,8 @@ function openItemDetail(item,mode){
     lwrap.querySelectorAll(".af-asp").forEach(inp=>inp.oninput=()=>{ it.aspects[inp.dataset.asp]=inp.value; markDirty&&markDirty(); });
     const ebtn=lwrap.querySelector("#d-ebayfind"); if(ebtn) ebtn.onclick=()=>openEbayFind(it, ()=>renderListing());
     if(isLive() && !ro){
-      const t=lwrap.querySelector("#l-title"), pr=lwrap.querySelector("#l-price"), q=lwrap.querySelector("#l-qty"), dsel=lwrap.querySelector("#l-desc"), dbody=lwrap.querySelector("#l-descbody");
+      const t=lwrap.querySelector("#l-title"), q=lwrap.querySelector("#l-qty"), dsel=lwrap.querySelector("#l-desc"), dbody=lwrap.querySelector("#l-descbody");
       t.oninput=()=>{ it.listing.title=t.value; markDirty&&markDirty(); };
-      pr.oninput=()=>{ it.listing.price=pr.value; markDirty&&markDirty(); };
       q.oninput=()=>{ it.listing.qty=q.value; markDirty&&markDirty(); };
       dsel.onchange=()=>{ it.listing.descriptionId=dsel.value||null; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d) dbody.value=d.body; markDirty&&markDirty(); };
       dbody.oninput=()=>{ it.listing.descBody=dbody.value; markDirty&&markDirty(); };
@@ -1477,9 +1482,65 @@ function openItemDetail(item,mode){
   if(subSel) subSel.addEventListener("change",()=>{ it.subCategory=subSel.value; renderListing(); markDirty&&markDirty(); });
   fillSubcats(); renderListing();
 
+  function compareStats(items){ const ps=(items||[]).map(x=>parseFloat(x.price)).filter(n=>!isNaN(n));
+    if(!ps.length) return null; const sum=ps.reduce((a,b)=>a+b,0);
+    return { avg:sum/ps.length, min:Math.min(...ps), max:Math.max(...ps), n:ps.length }; }
+  async function pullCompare(){
+    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+    const sc=subcatObj(it.section,it.subCategory); const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
+    if(!q){ uiAlert("Add a description or run Find on eBay first, so there's something to compare."); return; }
+    const st=body.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Pulling listings from eBay…"; }
+    let url="/buy/browse/v1/item_summary/search?limit=10&q="+encodeURIComponent(q);
+    if(sc&&sc.ebayId) url+="&category_ids="+encodeURIComponent(sc.ebayId);
+    try{ const r=await EBAY.app(url);
+      if(!r.ok){ if(st){ st.style.color="#c0392b"; st.textContent="eBay search failed (HTTP "+r.status+"): "+(r.body||"").slice(0,160); } return; }
+      const items=(JSON.parse(r.body).itemSummaries)||[];
+      it.compare={ pulledAt:new Date().toISOString(), items: items.map(s=>({
+        itemId:s.itemId||"", thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"",
+        title:s.title||"", condition:s.condition||(s.conditionId?("Cond "+s.conditionId):""),
+        price:(s.price&&s.price.value)?s.price.value:"", date:s.itemCreationDate||s.itemEndDate||"",
+        category:(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"" })) };
+      addHistory(it,"Pulled "+it.compare.items.length+" comparison listing(s) from eBay");
+      save(); compareTab();
+    }catch(e){ if(st){ st.style.color="#c0392b"; st.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); } }
+  }
+  function compareTab(){
+    const cmp=it.compare||null; const stats=cmp?compareStats(cmp.items):null;
+    const fmtP=v=>{ const n=parseFloat(v); return isNaN(n)?"—":("$"+n.toFixed(2)); };
+    tabbody.innerHTML=`
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.min)+" – "+fmtP(stats.max):"—"}</div></div>
+        <span style="flex:1;"></span>
+        <div style="text-align:right;"><button class="btn sm" id="cmp-update" ${ro?'disabled':''}>Update Listings</button>
+          <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
+      </div>
+      <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:90px;">Condition</th><th style="width:70px;">Price</th><th style="width:100px;">Date</th><th>Category</th><th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+    const upd=tabbody.querySelector("#cmp-update"); if(upd) upd.onclick=pullCompare;
+    if(!cmp && !it._compareAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareAutoTried=true; pullCompare(); return; }
+    const tb=tabbody.querySelector("#cmp-tb");
+    if(!cmp || !cmp.items || !cmp.items.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No comparison listings yet. Click <b>Update Listings</b> to pull the top 10 similar eBay listings.</td></tr>`; return; }
+    cmp.items.forEach((row,idx)=>{ const tr=document.createElement("tr");
+      const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
+      tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
+        <td style="font-size:12px;">${esc(row.title)}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
+      const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
+      cb.onclick=()=>{ const changes=[];
+        if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
+        if(row.condition && row.condition!==it.condition){ changes.push("Condition → "+row.condition); it.condition=row.condition; const ci=body.querySelector("#d-condition"); if(ci) ci.value=row.condition; }
+        if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=body.querySelector("#d-price"); if(pi) pi.value=row.price; }
+        if(!changes.length){ uiAlert("This listing already matches the item — nothing to change."); return; }
+        changes.forEach(c=>addHistory(it,"Price Compare applied: "+c)); markDirty&&markDirty(); save();
+        uiAlert("Updated from comparison:\n• "+changes.join("\n• ")); };
+      tdC.appendChild(cb); tr.appendChild(tdC);
+      const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
+      x.onclick=()=>{ it.compare.items.splice(idx,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
+      tb.appendChild(tr); });
+  }
   function historyTab(){
     const hist=(it.history||[]).slice().sort((a,b)=> new Date(b.at)-new Date(a.at));
-    tabbody.innerHTML=`<div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;max-height:200px;"><table class="res"><thead><tr><th style="width:110px;">Date</th><th>Change</th><th style="width:160px;">User</th><th style="width:90px;">Time</th></tr></thead><tbody id="d-hist-tb"></tbody></table></div>`;
+    tabbody.innerHTML=`<div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:110px;">Date</th><th>Change</th><th style="width:160px;">User</th><th style="width:90px;">Time</th></tr></thead><tbody id="d-hist-tb"></tbody></table></div>`;
     const tb=tabbody.querySelector("#d-hist-tb");
     if(!hist.length){ tb.innerHTML=`<tr><td colspan="4" style="color:#888;">No history yet.</td></tr>`; return; }
     hist.forEach(h=>{ const d=new Date(h.at); const tr=document.createElement("tr");
@@ -1499,9 +1560,17 @@ function openItemDetail(item,mode){
   function showTab(t){ curTab=t;
     body.querySelector("#d-tab-groups").classList.toggle("sel",t==="groups");
     body.querySelector("#d-tab-history").classList.toggle("sel",t==="history");
-    if(t==="groups") groupsTab(); else historyTab(); }
+    body.querySelector("#d-tab-listing").classList.toggle("sel",t==="listing");
+    body.querySelector("#d-tab-compare").classList.toggle("sel",t==="compare");
+    if(t==="groups"){ lwrap=null; groupsTab(); }
+    else if(t==="history"){ lwrap=null; historyTab(); }
+    else if(t==="compare"){ lwrap=null; compareTab(); }
+    else { tabbody.innerHTML='<div id="d-listingwrap"></div>'; lwrap=tabbody.querySelector("#d-listingwrap"); renderListing(); } }
   body.querySelector("#d-tab-groups").onclick=()=>showTab("groups");
   body.querySelector("#d-tab-history").onclick=()=>showTab("history");
+  body.querySelector("#d-tab-listing").onclick=()=>showTab("listing");
+  body.querySelector("#d-tab-compare").onclick=()=>showTab("compare");
+  const priceTop=body.querySelector("#d-price"); if(priceTop && !ro) priceTop.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=priceTop.value; markDirty&&markDirty(); };
   showTab("groups");
   if(ro){ body.querySelector("#d-close").onclick=close;
     const ract=openWindows[wid].el.querySelector('[data-act="Reactivate"]'); if(ract) ract.onclick=()=>reactivateItem(it, close);
