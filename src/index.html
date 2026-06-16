@@ -176,11 +176,13 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.3.8", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.4.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.4.1","Find on eBay now fills the top fields, not just Listing Details: the listing title flows into Item Description, the matched eBay category is pulled into the top Category (and its fields load automatically, so you no longer have to set the category first), and the price pulls in. The eBay-listing Price is editable again and linked to the top Price — typing in either updates both. The confusing read-only Status field is relabeled Listing status (it shows not listed/listed/delisted — not condition)."],
+  ["2.4.0","Updater endpoint corrected (was pointing at a non-existent {{version}} URL that always failed). Auto-update should work from this version forward."],
   ["2.3.8","Pop-out permission fix: the app now actually grants the window-creation permission (the missing piece behind the “not allowed by ACL” error), so the pop-out ⧉ button can open a separate window. This requires copying the updated capabilities file (see steps)."],
   ["2.3.7","Auto-update repair: WIM is moving to a fresh signing key so future versions update themselves automatically (one last manual install needed for this one). Also made the experimental pop-out (⧉) button report errors instead of silently doing nothing, with a fallback for finding the window-creation tool."],
   ["2.3.6","Item photos can now be uploaded to eBay Picture Services. On an item's Listing Details tab, add photos then click Upload photos to eBay — WIM sends them to eBay's image host and saves the eBay-hosted links on the item, ready for publishing. (Experimental; uses eBay's Trading upload API.)"],
@@ -1552,8 +1554,8 @@ function openItemDetail(item,mode,nav){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Title</label><input class="txt" id="l-title" value="${esc(it.listing.title||it.desc||"")}"></div>
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Quantity</label><input class="txt" id="l-qty" value="${esc(it.listing.qty||"1")}" inputmode="numeric"></div>
-          <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Status</label><input class="txt" value="${esc(it.listing.status||"none")}" readonly></div>
-          <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Price</label><input class="txt" value="${esc((it.listing&&it.listing.price)||'')}" readonly title="Set the price at the top of the item"></div>
+          <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Listing status</label><input class="txt" value="${esc(it.listing.status||"not listed")}" readonly title="Whether this item is live on eBay (not listed / listed / delisted). This is NOT the item's condition."></div>
+          <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Price</label><input class="txt" id="l-price" value="${esc((it.listing&&it.listing.price)||'')}" inputmode="decimal" title="Same as the Price at the top — changing either updates both."></div>
         </div>
         <div class="ff" style="grid-template-columns:90px 1fr;margin-top:8px;"><label class="fld">Description</label>
           <select class="cmb" id="l-desc"><option value="">(write your own below)</option>${descs.map(d=>`<option value="${d.id}" ${it.listing.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}</select></div>
@@ -1567,11 +1569,12 @@ function openItemDetail(item,mode,nav){
     }
     lwrap.innerHTML=html;
     lwrap.querySelectorAll(".af-asp").forEach(inp=>inp.oninput=()=>{ it.aspects[inp.dataset.asp]=inp.value; markDirty&&markDirty(); });
-    const ebtn=lwrap.querySelector("#d-ebayfind"); if(ebtn) ebtn.onclick=()=>openEbayFind(it, ()=>renderListing());
+    const ebtn=lwrap.querySelector("#d-ebayfind"); if(ebtn) ebtn.onclick=()=>openEbayFind(it, ()=>{ refreshTopFields(); renderListing(); });
     if(isLive() && !ro){
       const t=lwrap.querySelector("#l-title"), q=lwrap.querySelector("#l-qty"), dsel=lwrap.querySelector("#l-desc"), dbody=lwrap.querySelector("#l-descbody");
       t.oninput=()=>{ it.listing.title=t.value; markDirty&&markDirty(); };
       q.oninput=()=>{ it.listing.qty=q.value; markDirty&&markDirty(); };
+      const lp=lwrap.querySelector("#l-price"); if(lp) lp.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=lp.value; const dp=body.querySelector("#d-price"); if(dp) dp.value=lp.value; markDirty&&markDirty(); };
       dsel.onchange=()=>{ it.listing.descriptionId=dsel.value||null; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d) dbody.value=d.body; markDirty&&markDirty(); };
       dbody.oninput=()=>{ it.listing.descBody=dbody.value; markDirty&&markDirty(); };
       const tog=lwrap.querySelector("#l-toggle"); if(tog) tog.onclick=()=>{ if(it.listing.status==="listed"){ it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString(); addHistory(it,"Delisted from eBay (SKU kept)"); } else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); addHistory(it,"Marked as Listed"); } save(); refreshSearchWindows&&refreshSearchWindows(); renderListing(); };
@@ -1694,7 +1697,17 @@ function openItemDetail(item,mode,nav){
   body.querySelector("#d-tab-history").onclick=()=>showTab("history");
   body.querySelector("#d-tab-listing").onclick=()=>showTab("listing");
   body.querySelector("#d-tab-compare").onclick=()=>showTab("compare");
-  const priceTop=body.querySelector("#d-price"); if(priceTop && !ro) priceTop.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=priceTop.value; markDirty&&markDirty(); };
+  const priceTop=body.querySelector("#d-price"); if(priceTop && !ro) priceTop.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=priceTop.value; const lp=body.querySelector("#l-price"); if(lp) lp.value=priceTop.value; markDirty&&markDirty(); };
+  function refreshTopFields(){
+    const d=body.querySelector("#d-desc"); if(d) d.value=it.desc||"";
+    const sec=body.querySelector("#d-section");
+    if(sec){ if(it.section && ![...sec.options].some(o=>o.value===it.section)){ const o=document.createElement("option"); o.value=it.section; o.textContent=it.section; sec.appendChild(o); } sec.value=it.section||"NONE"; }
+    if(typeof fillSubcats==="function") fillSubcats();
+    const sub=body.querySelector("#d-subcat"); if(sub && it.subCategory){ if(![...sub.options].some(o=>o.value===it.subCategory)){ const o=document.createElement("option"); o.value=it.subCategory; o.textContent=it.subCategory; sub.appendChild(o); } sub.value=it.subCategory; }
+    const c=body.querySelector("#d-condition"); if(c && it.condition) c.value=it.condition;
+    const p=body.querySelector("#d-price"); if(p && it.listing) p.value=it.listing.price||"";
+    markDirty&&markDirty();
+  }
   showTab("groups");
   if(nav && nav.list && nav.list.length){
     const pv=body.querySelector("#d-prev"), nx=body.querySelector("#d-next");
@@ -2486,10 +2499,10 @@ function openEbayFind(it, onDone){
       localized.forEach(a=>{ if(a&&a.name&&a.value) it.aspects[a.name]=a.value; });
       if(!it.listing) it.listing={status:"none"};
       const title=summary.title||"";
-      if(title){ it.listing.title=title; it.listing.descBody=title; if(!it.desc) it.desc=title; }
+      if(title){ it.listing.title=title; it.listing.descBody=title; it.desc=title; }
       if(gtin) it.upc=gtin;
-      if(summary.price&&summary.price.value && !it.listing.price) it.listing.price=summary.price.value;
-      if(condText(summary) && !it.condition) it.condition=condText(summary);
+      if(summary.price&&summary.price.value) it.listing.price=String(summary.price.value);
+      if(condText(summary)) it.condition=condText(summary);
       addHistory(it,"Copied eBay listing: "+title+(gtin?(" (UPC "+gtin+")"):""));
       save(); if(onDone) onDone(); close();
       uiAlert('Loaded into the item.'+(DB.sections.includes(mainCat)?'':'')+'\nCategory: '+it.section+' · Sub category: '+it.subCategory);
@@ -2532,7 +2545,7 @@ function openEbayFind(it, onDone){
         it.subCategory=sc.name;
         body.querySelectorAll(".ef-val").forEach(inp=>{ const v=inp.value.trim(); if(v) it.aspects[inp.dataset.name]=v; else delete it.aspects[inp.dataset.name]; });
         const title=body.querySelector("#ef-title").value.trim();
-        if(title){ if(!it.listing) it.listing={}; it.listing.title=title; it.desc=it.desc||title; it.listing.descBody=title; }
+        if(title){ if(!it.listing) it.listing={}; it.listing.title=title; it.desc=title; it.listing.descBody=title; }
         addHistory(it,"eBay category set: "+chosen.path);
         save(); if(onDone) onDone(); close();
         uiAlert('Applied. Category: '+it.section+' · Sub category: '+sc.name);
