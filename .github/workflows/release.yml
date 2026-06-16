@@ -1,15 +1,15 @@
 name: release
 # Builds the Windows installer, signs it for the auto-updater, creates a GitHub
-# Release, and uploads latest.json automatically — every time you push a version tag.
+# Release, uploads latest.json, AND publishes latest.json to the "updater" branch
+# at a direct (non-redirecting) raw URL so installed apps can fetch it cleanly.
 #
-# Before this works you must add three repository secrets
-#   (GitHub → your repo → Settings → Secrets and variables → Actions → New repository secret):
-#     TAURI_SIGNING_PRIVATE_KEY            -> the contents of the private key file you generated
-#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   -> the password you set for that key (blank is allowed)
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#     TAURI_SIGNING_PRIVATE_KEY            -> contents of the private key file
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   -> the key password
 #
-# To publish a new version: bump the version numbers, commit, then run in a terminal:
-#     git tag v2.2.1
-#     git push origin v2.2.1
+# To publish a new version: bump the version numbers, commit, then:
+#     git tag v2.4.2
+#     git push origin v2.4.2
 
 on:
   push:
@@ -47,3 +47,43 @@ jobs:
           releaseBody: "Download the installer below. Existing installs will auto-update."
           releaseDraft: false
           prerelease: false
+
+      # Publish latest.json to the dedicated "updater" branch so the app can fetch it
+      # from a direct raw.githubusercontent.com URL (GitHub's /releases/latest/ URL is a
+      # redirect the in-app updater does not follow). This runs AFTER the release above,
+      # so a failure here never blocks the normal release.
+      - name: Publish latest.json to updater branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          echo "Downloading latest.json from the release..."
+          mkdir -p "$RUNNER_TEMP/upd"
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "latest.json" \
+            --dir "$RUNNER_TEMP/upd" --clobber
+
+          echo "Cloning repo to publish to updater branch..."
+          cd "$RUNNER_TEMP"
+          rm -rf repo
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" repo
+          cd repo
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin updater >/dev/null 2>&1; then
+            echo "updater branch exists; checking it out"
+            git checkout updater
+          else
+            echo "creating updater branch"
+            git checkout --orphan updater
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          cp "$RUNNER_TEMP/upd/latest.json" latest.json
+          git add latest.json
+          git commit -m "latest.json for ${{ github.ref_name }}" || echo "no changes to commit"
+          git push origin updater
+          echo "Published latest.json to updater branch."
