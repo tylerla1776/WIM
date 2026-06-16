@@ -41,7 +41,7 @@
       "endpoints": [
         "https://raw.githubusercontent.com/tylerla1776/WIM/updater/latest.json"
       ],
-      "pubkey": "PASTE_YOUR_TAURI_PUBLIC_KEY_HERE"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYyNkIwREU5QUYxRkZCMDEKUldRQit4K3Y2UTFyWW9hWEFOa09jWHljZlBCTG9JazM2OUtLdElZNjdZQWtsK3pXSWNZVS9qbmYK"
     }
   }
 }
