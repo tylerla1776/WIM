@@ -1,0 +1,15 @@
+{
+  "version": "2.4.2",
+  "notes": "Download the installer below. Existing installs will auto-update.",
+  "pub_date": "2026-06-16T22:05:32.530Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTd1pYdW1NRW0rVUw0MzFaQjlLZHBBRWlrZE1WOXlheUZsS0N0Zk82NHpxeG1acjBNdG1kaXpFYnNhQVNwTlRQWXkwL283V3lpVEZ4NE0rSlp2V2xCM29rSU5iZGkxK2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjQ3NTMwCWZpbGU6V0lNXzIuNC4yX3g2NC1zZXR1cC5leGUKaXJndlFEZ05zZmt3SkpJWVlxL1VmZEVjYzFtbDJCOUI3RHVYNTR6MDhsbUs4eWkrUm5HRFhpTGZrempVSmxNTDVQSStjcXlqK0ZXdXFTUEFreE05RGc9PQo=",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.4.2/WIM_2.4.2_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTd1pYdW1NRW0rVUw0MzFaQjlLZHBBRWlrZE1WOXlheUZsS0N0Zk82NHpxeG1acjBNdG1kaXpFYnNhQVNwTlRQWXkwL283V3lpVEZ4NE0rSlp2V2xCM29rSU5iZGkxK2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjQ3NTMwCWZpbGU6V0lNXzIuNC4yX3g2NC1zZXR1cC5leGUKaXJndlFEZ05zZmt3SkpJWVlxL1VmZEVjYzFtbDJCOUI3RHVYNTR6MDhsbUs4eWkrUm5HRFhpTGZrempVSmxNTDVQSStjcXlqK0ZXdXFTUEFreE05RGc9PQo=",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.4.2/WIM_2.4.2_x64-setup.exe"
+    }
+  }
+}
