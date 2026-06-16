@@ -176,11 +176,12 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.4.2", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.4.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.4.3","Three improvements. (1) eBay Connection now remembers separate Sandbox and Production keys — flip the environment and the matching keys load; the environment also persists properly. Find on eBay now retries without the category filter when a search comes back empty, and tells you if you're on Sandbox (which has no real listings). (2) Price Compare pulls the top 15, and each column (Condition, Price, Date, Category) has a little filter pin — filter to a value and the Suggested Price and Range recompute from just the shown rows. (3) The login screen shows an updater status at the bottom: Checking for updates… → Up to date / Installing update / Update installed."],
   ["2.4.2","Auto-update plumbing fix: the build now publishes latest.json to a dedicated updater branch, and the app checks it at a direct raw URL instead of GitHub's redirect link (which the updater would not follow). This is the cross-over install; the version after it should auto-update on its own."],
   ["2.4.1","Find on eBay now fills the top fields, not just Listing Details: the listing title flows into Item Description, the matched eBay category is pulled into the top Category (and its fields load automatically, so you no longer have to set the category first), and the price pulls in. The eBay-listing Price is editable again and linked to the top Price — typing in either updates both. The confusing read-only Status field is relabeled Listing status (it shows not listed/listed/delisted — not condition)."],
   ["2.4.0","Updater endpoint corrected (was pointing at a non-existent {{version}} URL that always failed). Auto-update should work from this version forward."],
@@ -303,6 +304,8 @@ function migrate(d){
   d.sections.forEach(s=>{ if(!Array.isArray(d.conditionsByCat[s])) d.conditionsByCat[s]=d.conditions.slice(); });
   if(!d.printTemplate) d.printTemplate={ fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" };
   if(!d.ebay) d.ebay={ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false };
+  if(!d.ebay.creds){ d.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:""}, production:{appId:"",certId:"",refreshToken:""} };
+    const ev=d.ebay.env||"sandbox"; d.ebay.creds[ev]={ appId:d.ebay.appId||"", certId:d.ebay.certId||"", refreshToken:d.ebay.refreshToken||"" }; }
   // ---- V2.2.2: eBay-aware categories, sub-categories, listing + description model ----
   if(!d.sections.includes("NONE")) d.sections.unshift("NONE");
   if(!d.subcats || typeof d.subcats!=="object") d.subcats={};
@@ -600,6 +603,24 @@ function downloadCSV(filename, headers, rows){
 }
 
 /* ============================================================ LOGIN ============================================================ */
+function runUpdateCheck(el){
+  if(!el) return;
+  if(!(window.__TAURI__ && window.__TAURI__.updater)){ el.textContent=""; return; }
+  let dots=0, timer=null;
+  const stop=()=>{ if(timer){ clearInterval(timer); timer=null; } };
+  const animate=(label)=>{ stop(); el.style.color="#888"; el.textContent=label+" ."; dots=1; timer=setInterval(()=>{ dots=(dots%3)+1; el.textContent=label+" "+".".repeat(dots); },420); };
+  const done=(text,color)=>{ stop(); el.style.color=color||"#888"; el.textContent=text; };
+  animate("Checking for updates");
+  (async()=>{
+    try{
+      const upd=await window.__TAURI__.updater.check();
+      if(!upd){ done("WIM is up to date","#1f7244"); return; }
+      animate("Installing update "+(upd.version||""));
+      await upd.downloadAndInstall();
+      done("Update installed — restart WIM to finish","#1f5fbf");
+    }catch(e){ done("Couldn't check for updates right now",""); }
+  })();
+}
 function showLogin(msg){
   closeAllModals(); clearScreen(); setDesktopWindow("login");
   const wrap=document.createElement("div"); wrap.className="center-screen";
@@ -611,8 +632,10 @@ function showLogin(msg){
       <div class="row"><label class="fld">Password</label><input class="txt" id="lg-pass" type="password" autocomplete="off"></div>
       <div class="row"><label class="fld">Mode</label><select class="cmb" id="lg-mode" style="flex:1;"><option value="warehouse">Warehouse</option><option value="live">Live (eBay)</option></select></div>
       <div class="err" id="lg-err">${msg||""}</div>
-      <div class="actions"><button class="btn primary" id="lg-ok">OK</button><button class="btn" id="lg-cancel">Cancel</button></div></div>`;
+      <div class="actions"><button class="btn primary" id="lg-ok">OK</button><button class="btn" id="lg-cancel">Cancel</button></div>
+      <div id="lg-update" style="position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#888;font-size:11.5px;"></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
+  runUpdateCheck(win.querySelector("#lg-update"));
   const u=win.querySelector("#lg-user"),p=win.querySelector("#lg-pass"),err=win.querySelector("#lg-err"); u.focus();
   const attempt=()=>{ const uid=u.value.trim(),pw=p.value; const f=DB.users.find(x=>x.id===uid);
     if(!f||f.password!==pw){ err.style.color="#c0392b"; err.textContent="Invalid user name or password."; p.value="";p.focus(); return; }
@@ -1168,7 +1191,18 @@ function openEbayConfig(){
           <li>Press <b>Save</b>, then <b>Test</b> — WIM will refresh a token directly with eBay and confirm the connection.</li>
         </ol></fieldset></div>`;
   const msg=body.querySelector("#eb-msg");
-  body.querySelector("#eb-save").onclick=()=>{ DB.ebay={ env:body.querySelector("#eb-env").value, appId:body.querySelector("#eb-app").value.trim(), certId:body.querySelector("#eb-cert").value.trim(), refreshToken:body.querySelector("#eb-tok").value.trim(), marketplace:body.querySelector("#eb-mkt").value.trim()||"EBAY_US", connected:!!(body.querySelector("#eb-app").value.trim()&&body.querySelector("#eb-tok").value.trim()) }; save(); msg.style.color="#1f7244"; msg.textContent="Saved."; };
+  const envSel=body.querySelector("#eb-env"), appI=body.querySelector("#eb-app"), certI=body.querySelector("#eb-cert"), tokI=body.querySelector("#eb-tok");
+  if(!DB.ebay.creds) DB.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:""}, production:{appId:"",certId:"",refreshToken:""} };
+  let shownEnv=envSel.value;
+  function stash(env){ DB.ebay.creds[env]={ appId:appI.value.trim(), certId:certI.value.trim(), refreshToken:tokI.value.trim() }; }
+  function loadEnv(env){ const c=DB.ebay.creds[env]||{appId:"",certId:"",refreshToken:""}; appI.value=c.appId||""; certI.value=c.certId||""; tokI.value=c.refreshToken||""; }
+  envSel.onchange=()=>{ stash(shownEnv); shownEnv=envSel.value; loadEnv(shownEnv); msg.style.color="#555"; msg.textContent='Showing '+shownEnv+' keys. Press Save to keep them.'; };
+  body.querySelector("#eb-save").onclick=()=>{ const env=envSel.value; stash(env);
+    const c=DB.ebay.creds[env];
+    DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken;
+    DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US";
+    DB.ebay.connected=!!(c.appId&&c.refreshToken);
+    save(); msg.style.color="#1f7244"; msg.textContent="Saved "+env+" keys."; };
   body.querySelector("#eb-test").onclick=async ()=>{
     if(!(body.querySelector("#eb-app").value.trim()&&body.querySelector("#eb-tok").value.trim())){ msg.style.color="#c0392b"; msg.textContent="Enter App ID and User Token, then Save."; return; }
     if(!WIM_IS_DESKTOP){ msg.style.color=DB.ebay.connected?"#1f7244":"#c0392b"; msg.textContent=DB.ebay.connected?"Keys present. Live calls run in the desktop app build.":"Enter App ID and Refresh Token, then Save."; return; }
@@ -1618,38 +1652,54 @@ function openItemDetail(item,mode,nav){
     const sc=subcatObj(it.section,it.subCategory); const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
     if(!q){ uiAlert("Add a description or run Find on eBay first, so there's something to compare."); return; }
     const st=body.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Pulling listings from eBay…"; }
-    let url="/buy/browse/v1/item_summary/search?limit=10&q="+encodeURIComponent(q);
-    if(sc&&sc.ebayId) url+="&category_ids="+encodeURIComponent(sc.ebayId);
-    try{ const r=await EBAY.app(url);
+    const base="/buy/browse/v1/item_summary/search?limit=15&q="+encodeURIComponent(q);
+    try{ let r=await EBAY.app(base+((sc&&sc.ebayId)?("&category_ids="+encodeURIComponent(sc.ebayId)):""));
       if(!r.ok){ if(st){ st.style.color="#c0392b"; st.textContent="eBay search failed (HTTP "+r.status+"): "+(r.body||"").slice(0,160); } return; }
-      const items=(JSON.parse(r.body).itemSummaries)||[];
+      let items=(JSON.parse(r.body).itemSummaries)||[];
+      if(!items.length && sc && sc.ebayId){ const r2=await EBAY.app(base); if(r2.ok) items=(JSON.parse(r2.body).itemSummaries)||[]; }
       it.compare={ pulledAt:new Date().toISOString(), items: items.map(s=>({
         itemId:s.itemId||"", thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"",
         title:s.title||"", condition:s.condition||(s.conditionId?("Cond "+s.conditionId):""),
         price:(s.price&&s.price.value)?s.price.value:"", date:s.itemCreationDate||s.itemEndDate||"",
         category:(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"" })) };
-      addHistory(it,"Pulled "+it.compare.items.length+" comparison listing(s) from eBay");
+      cmpFilter={}; addHistory(it,"Pulled "+it.compare.items.length+" comparison listing(s) from eBay");
       save(); compareTab();
     }catch(e){ if(st){ st.style.color="#c0392b"; st.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); } }
   }
+  let cmpFilter={};
   function compareTab(){
-    const cmp=it.compare||null; const stats=cmp?compareStats(cmp.items):null;
+    const cmp=it.compare||null;
     const fmtP=v=>{ const n=parseFloat(v); return isNaN(n)?"—":("$"+n.toFixed(2)); };
+    const allRows=(cmp&&cmp.items)?cmp.items:[];
+    const passes=(row)=> Object.keys(cmpFilter).every(k=> !cmpFilter[k] || String(row[k]||"")===String(cmpFilter[k]));
+    const visible=allRows.filter(passes);
+    const stats=visible.length?compareStats(visible):null;
+    const anyFilter=Object.keys(cmpFilter).some(k=>cmpFilter[k]);
+    const pin=(col,label,w)=>`<th style="${w?('width:'+w+';'):''}"><span style="display:inline-flex;align-items:center;gap:4px;">${label}<span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${cmpFilter[col]?'#1f5fbf':'#999'};font-size:12px;">▾</span></span></th>`;
     tabbody.innerHTML=`
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.min)+" – "+fmtP(stats.max):"—"}</div></div>
+        <div class="smallhint">${visible.length} of ${allRows.length} shown${anyFilter?' (filtered)':''}</div>
         <span style="flex:1;"></span>
-        <div style="text-align:right;"><button class="btn sm" id="cmp-update" ${ro?'disabled':''}>Update Listings</button>
+        <div style="text-align:right;">${anyFilter?'<button class="btn sm" id="cmp-clear">Clear filter</button> ':''}<button class="btn sm" id="cmp-update" ${ro?'disabled':''}>Update Listings</button>
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:90px;">Condition</th><th style="width:70px;">Price</th><th style="width:100px;">Date</th><th>Category</th><th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th>${pin("condition","Condition","100px")}${pin("price","Price","80px")}${pin("date","Date","110px")}${pin("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
     const upd=tabbody.querySelector("#cmp-update"); if(upd) upd.onclick=pullCompare;
+    const clr=tabbody.querySelector("#cmp-clear"); if(clr) clr.onclick=()=>{ cmpFilter={}; compareTab(); };
+    tabbody.querySelectorAll(".cmp-pin").forEach(p=>{ p.onclick=()=>{ const col=p.dataset.col;
+      const vals=[...new Set(allRows.map(r=>String(r[col]||"")).filter(v=>v!==""))].sort();
+      if(!vals.length){ return; }
+      const choices=vals.map(v=>({ label:(col==="price"?("$"+v):v)+(cmpFilter[col]===v?"  ✓":""), onClick:()=>{ cmpFilter[col]=v; compareTab(); } }));
+      choices.push({ label:"(show all)", onClick:()=>{ cmpFilter[col]=null; compareTab(); } });
+      uiChoose("Filter "+col+" to:", choices, "Filter"); }; });
     if(!cmp && !it._compareAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareAutoTried=true; pullCompare(); return; }
     const tb=tabbody.querySelector("#cmp-tb");
-    if(!cmp || !cmp.items || !cmp.items.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No comparison listings yet. Click <b>Update Listings</b> to pull the top 10 similar eBay listings.</td></tr>`; return; }
-    cmp.items.forEach((row,idx)=>{ const tr=document.createElement("tr");
+    if(!allRows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No comparison listings yet. Click <b>Update Listings</b> to pull the top 15 similar eBay listings.</td></tr>`; return; }
+    if(!visible.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No rows match the filter. <a href="#" id="cmp-clear2">Clear filter</a></td></tr>`; const c2=tb.querySelector("#cmp-clear2"); if(c2) c2.onclick=(e)=>{e.preventDefault(); cmpFilter={}; compareTab();}; return; }
+    visible.forEach((row)=>{ const tr=document.createElement("tr");
       const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
       tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
         <td style="font-size:12px;">${esc(row.title)}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
@@ -1657,13 +1707,13 @@ function openItemDetail(item,mode,nav){
       cb.onclick=()=>{ const changes=[];
         if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
         if(row.condition && row.condition!==it.condition){ changes.push("Condition → "+row.condition); it.condition=row.condition; const ci=body.querySelector("#d-condition"); if(ci) ci.value=row.condition; }
-        if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=body.querySelector("#d-price"); if(pi) pi.value=row.price; }
+        if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=body.querySelector("#d-price"); if(pi) pi.value=row.price; const lp=body.querySelector("#l-price"); if(lp) lp.value=row.price; }
         if(!changes.length){ uiAlert("This listing already matches the item — nothing to change."); return; }
         changes.forEach(c=>addHistory(it,"Price Compare applied: "+c)); markDirty&&markDirty(); save();
         uiAlert("Updated from comparison:\n• "+changes.join("\n• ")); };
       tdC.appendChild(cb); tr.appendChild(tdC);
       const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
-      x.onclick=()=>{ it.compare.items.splice(idx,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
+      x.onclick=()=>{ const i=it.compare.items.indexOf(row); if(i>=0) it.compare.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
       tb.appendChild(tr); });
   }
   function historyTab(){
@@ -2446,9 +2496,12 @@ function openEbayFind(it, onDone){
   async function loadListings(){ if(!chosen){ searchScreen(); return; }
     setMsg("Pulling similar eBay listings…");
     let items=[];
-    try{ const r=await EBAY.app("/buy/browse/v1/item_summary/search?limit=10&category_ids="+encodeURIComponent(chosen.id)+"&q="+encodeURIComponent(lastQuery||it.desc||chosen.leaf));
+    try{ const q2=lastQuery||it.desc||chosen.leaf;
+      let r=await EBAY.app("/buy/browse/v1/item_summary/search?limit=10&category_ids="+encodeURIComponent(chosen.id)+"&q="+encodeURIComponent(q2));
       if(!r.ok){ setMsg("Listing search failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); return; }
       items=(JSON.parse(r.body).itemSummaries)||[];
+      if(!items.length){ const r2=await EBAY.app("/buy/browse/v1/item_summary/search?limit=10&q="+encodeURIComponent(q2));
+        if(r2.ok) items=(JSON.parse(r2.body).itemSummaries)||[]; }
     }catch(e){ setMsg("Could not reach eBay: "+(e&&e.message?e.message:e)); return; }
     body.innerHTML=`<div style="padding:14px;overflow:auto;height:100%;">
       <div style="font-size:12.5px;color:#555;">eBay category: <b>${esc(chosen.path)}</b></div>
@@ -2461,7 +2514,8 @@ function openEbayFind(it, onDone){
     body.querySelector("#ef-back").onclick=()=>{ chosen=null; searchScreen(); body.querySelector("#ef-q")&&(body.querySelector("#ef-q").value=lastQuery); doSearch(lastQuery); };
     body.querySelector("#ef-manual").onclick=(e)=>{ e.preventDefault(); loadAspects(); };
     const host=body.querySelector("#ef-list");
-    if(!items.length){ host.innerHTML=`<div class="smallhint">No active listings came back for this category. Use “just use the category fields” to fill them in manually.</div>`; return; }
+    if(!items.length){ const sb=((DB.ebay&&DB.ebay.env)!=="production");
+      host.innerHTML=`<div class="smallhint">${sb?'You\'re connected to <b>Sandbox</b>, which has almost no real listings — switch to <b>Production</b> in Configuration → eBay Connection to see comparable listings.<br><br>':''}No listings came back for this search. Use “just use the category fields” to fill them in manually.</div>`; return; }
     items.forEach(s=>{ const card=document.createElement("div");
       card.style.cssText="display:flex;gap:10px;align-items:center;border:1px solid #d8d8d8;border-radius:4px;padding:8px;margin-bottom:8px;background:#fff;";
       const thumb=thumbOf(s); const price=(s.price&&s.price.value)?("$"+s.price.value):"—"; const cat=(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"";
