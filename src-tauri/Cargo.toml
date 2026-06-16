@@ -1,6 +1,6 @@
 [package]
 name = "wim"
-version = "2.3.6"
+version = "2.3.7"
 description = "Warehouse Inventory Management"
 authors = ["WIM"]
 edition = "2021"

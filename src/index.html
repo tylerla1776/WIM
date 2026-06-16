@@ -176,11 +176,12 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.3.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.3.7", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.3.7","Auto-update repair: WIM is moving to a fresh signing key so future versions update themselves automatically (one last manual install needed for this one). Also made the experimental pop-out (⧉) button report errors instead of silently doing nothing, with a fallback for finding the window-creation tool."],
   ["2.3.6","Item photos can now be uploaded to eBay Picture Services. On an item's Listing Details tab, add photos then click Upload photos to eBay — WIM sends them to eBay's image host and saves the eBay-hosted links on the item, ready for publishing. (Experimental; uses eBay's Trading upload API.)"],
   ["2.3.5","Experimental Pop-out windows: Item Maintenance, Bulk Add, Manage Listings and Live Inventory now have a pop-out button (⧉) in their title bar that opens them in their own separate desktop window you can move anywhere. Windows sync your data through storage. This is experimental and best used one editor at a time — see notes."],
   ["2.3.4","Slots can now hold more than one category. Slot Maintenance lets you tick every category a slot should hold (with the slot list showing all of them). When Find on eBay pulls in a category that doesn't exist yet, choosing Create now opens a Create Category window where you name it and pick which slot(s) it belongs to (filterable list showing each slot's current categories); Cancel still defaults the item to NONE."],
@@ -230,13 +231,16 @@ const POPOUT_APPS={
 };
 async function popOut(appKey){
   const meta=POPOUT_APPS[appKey]; if(!meta) return;
-  if(!(window.__TAURI__ && window.__TAURI__.webviewWindow && window.__TAURI__.webviewWindow.WebviewWindow)){
-    uiAlert("Pop-out windows need the desktop app (this is an experimental feature)."); return; }
+  const T=window.__TAURI__||{};
+  const WW = (T.webviewWindow && T.webviewWindow.WebviewWindow) || (T.window && T.window.WebviewWindow) || null;
+  if(typeof WW!=="function"){ uiAlert("Pop-out windows need the desktop app (this is an experimental feature)."); return; }
   try{
     try{ localStorage.setItem("WIM_POPOUT_SESSION", JSON.stringify({ userId:(SESSION.user&&SESSION.user.id)||"", mode:SESSION.mode||"warehouse" })); }catch(e){}
-    const W=window.__TAURI__.webviewWindow;
     const label="popout-"+appKey+"-"+Date.now().toString(36);
-    new W.WebviewWindow(label, { url:"index.html#popout="+encodeURIComponent(appKey), title:"WIM — "+meta.title, width:1040, height:760, resizable:true, center:true });
+    const w=new WW(label, { url:"index.html#popout="+encodeURIComponent(appKey), title:"WIM — "+meta.title, width:1040, height:760, resizable:true, center:true });
+    if(w && typeof w.once==="function"){
+      w.once("tauri://error",(ev)=>{ uiAlert("Pop-out couldn't open: "+JSON.stringify((ev&&ev.payload)||ev)); });
+    }
   }catch(e){ uiAlert("Could not open a separate window: "+(e&&e.message?e.message:e)); }
 }
 function wimRefreshAll(){ try{ if(typeof refreshSearchWindows==="function") refreshSearchWindows(); }catch(e){}

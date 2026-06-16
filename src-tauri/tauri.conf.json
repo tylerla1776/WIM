@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WIM",
-  "version": "2.3.6",
+  "version": "2.3.7",
   "identifier": "com.wim.inventory",
   "build": {
     "frontendDist": "../src"
@@ -40,7 +40,7 @@
       "endpoints": [
         "https://github.com/tylerla1776/WIM/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBOUEzRDZEMEQ4OUNFQjIKUldTeXpva05iVDJhcXB0Q0NJWnVHSm9mckhHTnBMMk5HUk9sQmxBeXBiU3NRbE4rdFVrOWZYMHAK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5ClJXUlRZMEl5cnpTdDVHdEFsb3BVTWhGNEh5aVU5NmxXK0p4NVdmeUtpcFFUUXZ5ZUdQOEFBQkFBQUFBQUFBQUFBQUlBQUFBQUw0U25KOFlFaWd1Q0lKSTNGUlNtWERvOStGTmFLcGJ3Rk4xc0daMDVzVnY0TlZZM1ZoSmJMOXVVTVF4ejRUR0dWclVSb3dKZTNjWHA1RHdnMmNkdGNPeFhtTmQ4aUtqNGdlOEx1TzVqU2krT3F4cTEyb0c2dC9BeTlHRWFzdlkzZ0xxSEZocTBmZmc9Cg"
     }
   }
 }
