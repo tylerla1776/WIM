@@ -176,11 +176,12 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.4.4", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.4.5", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.4.5","Price Compare column tools reworked: click a column's pin to open a checkbox dropdown with Select all (checked by default) — check as many values as you like and the table filters to any of them, recomputing the avg and range live. Click a column header to group rows by that value alphabetically. (Rolling this out to the other search tables comes next.)"],
   ["2.4.4","Re-ship of the 2.4.3 changes (the previous build went out without the updated index.html, so its features were missing): per-environment eBay keys, Price Compare top-15 + column filter pins with recompute, and the login-screen updater status line."],
   ["2.4.3","Three improvements. (1) eBay Connection now remembers separate Sandbox and Production keys — flip the environment and the matching keys load; the environment also persists properly. Find on eBay now retries without the category filter when a search comes back empty, and tells you if you're on Sandbox (which has no real listings). (2) Price Compare pulls the top 15, and each column (Condition, Price, Date, Category) has a little filter pin — filter to a value and the Suggested Price and Range recompute from just the shown rows. (3) The login screen shows an updater status at the bottom: Checking for updates… → Up to date / Installing update / Update installed."],
   ["2.4.2","Auto-update plumbing fix: the build now publishes latest.json to a dedicated updater branch, and the app checks it at a direct raw URL instead of GitHub's redirect link (which the updater would not follow). This is the cross-over install; the version after it should auto-update on its own."],
@@ -1667,55 +1668,91 @@ function openItemDetail(item,mode,nav){
       save(); compareTab();
     }catch(e){ if(st){ st.style.color="#c0392b"; st.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); } }
   }
-  let cmpFilter={};
+  let cmpFilter={}; let cmpGroup=null;
   function compareTab(){
     const cmp=it.compare||null;
     const fmtP=v=>{ const n=parseFloat(v); return isNaN(n)?"—":("$"+n.toFixed(2)); };
     const allRows=(cmp&&cmp.items)?cmp.items:[];
-    const passes=(row)=> Object.keys(cmpFilter).every(k=> !cmpFilter[k] || String(row[k]||"")===String(cmpFilter[k]));
-    const visible=allRows.filter(passes);
-    const stats=visible.length?compareStats(visible):null;
-    const anyFilter=Object.keys(cmpFilter).some(k=>cmpFilter[k]);
-    const pin=(col,label,w)=>`<th style="${w?('width:'+w+';'):''}"><span style="display:inline-flex;align-items:center;gap:4px;">${label}<span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${cmpFilter[col]?'#1f5fbf':'#999'};font-size:12px;">▾</span></span></th>`;
+    const colVal=(row,col)=> String(row[col]==null?"":row[col]);
+    const passes=(row)=> Object.keys(cmpFilter).every(k=>{ const sel=cmpFilter[k]; if(sel===undefined) return true; return sel.includes(colVal(row,k)); });
+    function getVisible(){ let v=allRows.filter(passes);
+      if(cmpGroup){ v=v.slice().sort((a,b)=> colVal(a,cmpGroup).localeCompare(colVal(b,cmpGroup),undefined,{numeric:cmpGroup==="price",sensitivity:"base"})); }
+      return v; }
+    const anyFilter=Object.keys(cmpFilter).some(k=>cmpFilter[k]!==undefined);
+    const pinHead=(col,label,w)=>`<th style="position:relative;${w?('width:'+w+';'):''}"><span class="cmp-h" data-col="${col}" style="cursor:pointer;" title="Click to group by ${label}">${label}${cmpGroup===col?' ⤓':''}</span> <span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${(cmpFilter[col]!==undefined)?'#1f5fbf':'#9a9a9a'};font-size:11px;">▾</span></th>`;
     tabbody.innerHTML=`
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.min)+" – "+fmtP(stats.max):"—"}</div></div>
-        <div class="smallhint">${visible.length} of ${allRows.length} shown${anyFilter?' (filtered)':''}</div>
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;" id="cmp-avg">—</div></div>
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;" id="cmp-range">—</div></div>
+        <div class="smallhint" id="cmp-count"></div>
         <span style="flex:1;"></span>
-        <div style="text-align:right;">${anyFilter?'<button class="btn sm" id="cmp-clear">Clear filter</button> ':''}<button class="btn sm" id="cmp-update" ${ro?'disabled':''}>Update Listings</button>
+        <div style="text-align:right;">${(anyFilter||cmpGroup)?'<button class="btn sm" id="cmp-clear">Reset</button> ':''}<button class="btn sm" id="cmp-update" ${ro?'disabled':''}>Update Listings</button>
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th>${pin("condition","Condition","100px")}${pin("price","Price","80px")}${pin("date","Date","110px")}${pin("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
     const upd=tabbody.querySelector("#cmp-update"); if(upd) upd.onclick=pullCompare;
-    const clr=tabbody.querySelector("#cmp-clear"); if(clr) clr.onclick=()=>{ cmpFilter={}; compareTab(); };
-    tabbody.querySelectorAll(".cmp-pin").forEach(p=>{ p.onclick=()=>{ const col=p.dataset.col;
-      const vals=[...new Set(allRows.map(r=>String(r[col]||"")).filter(v=>v!==""))].sort();
-      if(!vals.length){ return; }
-      const choices=vals.map(v=>({ label:(col==="price"?("$"+v):v)+(cmpFilter[col]===v?"  ✓":""), onClick:()=>{ cmpFilter[col]=v; compareTab(); } }));
-      choices.push({ label:"(show all)", onClick:()=>{ cmpFilter[col]=null; compareTab(); } });
-      uiChoose("Filter "+col+" to:", choices, "Filter"); }; });
+    const clr=tabbody.querySelector("#cmp-clear"); if(clr) clr.onclick=()=>{ cmpFilter={}; cmpGroup=null; compareTab(); };
     if(!cmp && !it._compareAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareAutoTried=true; pullCompare(); return; }
+
+    // click header text -> group by that column (toggle off if already grouped)
+    tabbody.querySelectorAll(".cmp-h").forEach(h=>{ h.onclick=()=>{ const col=h.dataset.col; cmpGroup=(cmpGroup===col)?null:col; compareTab(); }; });
+    // click pin -> multi-select checkbox dropdown
+    tabbody.querySelectorAll(".cmp-pin").forEach(p=>{ p.onclick=(e)=>{ e.stopPropagation(); openFilterMenu(p.dataset.col, p); }; });
+
+    function openFilterMenu(col, anchor){
+      closeFilterMenu();
+      const vals=[...new Set(allRows.map(r=>colVal(r,col)).filter(v=>v!==""))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:col==="price",sensitivity:"base"}));
+      if(!vals.length) return;
+      const sel = cmpFilter[col]!==undefined ? cmpFilter[col] : vals.slice(); // default: all checked
+      const menu=document.createElement("div"); menu.id="cmp-filtermenu";
+      const r=anchor.getBoundingClientRect();
+      menu.style.cssText="position:fixed;top:"+(r.bottom+2)+"px;left:"+Math.max(8,r.left-120)+"px;z-index:99999;background:#fff;border:1px solid #9a9a9a;border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.18);padding:6px;min-width:170px;max-height:280px;overflow:auto;font-size:12.5px;";
+      const mk=(checked,label,val)=>`<label style="display:flex;align-items:center;gap:7px;padding:3px 6px;cursor:pointer;white-space:nowrap;"><input type="checkbox" ${checked?'checked':''} data-v="${val==null?'':esc(String(val))}"> ${esc(label)}</label>`;
+      menu.innerHTML = mk(sel.length===vals.length,"Select all","__ALL__") + '<div style="border-top:1px solid #e2e2e2;margin:4px 0;"></div>'
+        + vals.map(v=>mk(sel.includes(v),(col==="price"?("$"+v):v),v)).join("");
+      document.body.appendChild(menu);
+      const allCb=menu.querySelector('input[data-v="__ALL__"]');
+      const valCbs=[...menu.querySelectorAll('input:not([data-v="__ALL__"])')];
+      function applyFromMenu(){ const checked=valCbs.filter(c=>c.checked).map(c=>c.getAttribute("data-v"));
+        if(checked.length===vals.length){ delete cmpFilter[col]; } else { cmpFilter[col]=checked; }
+        // update pin colour + repaint rows live (without closing menu)
+        const pinEl=tabbody.querySelector('.cmp-pin[data-col="'+col+'"]'); if(pinEl) pinEl.style.color=(cmpFilter[col]!==undefined)?'#1f5fbf':'#9a9a9a';
+        repaint(); }
+      allCb.onchange=()=>{ valCbs.forEach(c=>c.checked=allCb.checked); applyFromMenu(); };
+      valCbs.forEach(c=>c.onchange=()=>{ allCb.checked=valCbs.every(x=>x.checked); applyFromMenu(); });
+    }
+    function closeFilterMenu(){ const m=document.getElementById("cmp-filtermenu"); if(m) m.remove(); }
+    setTimeout(()=>{ document.addEventListener("mousedown", function h(ev){ const m=document.getElementById("cmp-filtermenu"); if(m && !m.contains(ev.target) && !(ev.target.classList&&ev.target.classList.contains("cmp-pin"))){ m.remove(); document.removeEventListener("mousedown",h); } }); },0);
+
     const tb=tabbody.querySelector("#cmp-tb");
-    if(!allRows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No comparison listings yet. Click <b>Update Listings</b> to pull the top 15 similar eBay listings.</td></tr>`; return; }
-    if(!visible.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No rows match the filter. <a href="#" id="cmp-clear2">Clear filter</a></td></tr>`; const c2=tb.querySelector("#cmp-clear2"); if(c2) c2.onclick=(e)=>{e.preventDefault(); cmpFilter={}; compareTab();}; return; }
-    visible.forEach((row)=>{ const tr=document.createElement("tr");
-      const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
-      tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
-        <td style="font-size:12px;">${esc(row.title)}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
-      const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
-      cb.onclick=()=>{ const changes=[];
-        if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
-        if(row.condition && row.condition!==it.condition){ changes.push("Condition → "+row.condition); it.condition=row.condition; const ci=body.querySelector("#d-condition"); if(ci) ci.value=row.condition; }
-        if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=body.querySelector("#d-price"); if(pi) pi.value=row.price; const lp=body.querySelector("#l-price"); if(lp) lp.value=row.price; }
-        if(!changes.length){ uiAlert("This listing already matches the item — nothing to change."); return; }
-        changes.forEach(c=>addHistory(it,"Price Compare applied: "+c)); markDirty&&markDirty(); save();
-        uiAlert("Updated from comparison:\n• "+changes.join("\n• ")); };
-      tdC.appendChild(cb); tr.appendChild(tdC);
-      const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
-      x.onclick=()=>{ const i=it.compare.items.indexOf(row); if(i>=0) it.compare.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
-      tb.appendChild(tr); });
+    function repaint(){
+      const visible=getVisible(); const stats=visible.length?compareStats(visible):null;
+      const avgEl=tabbody.querySelector("#cmp-avg"), rngEl=tabbody.querySelector("#cmp-range"), cntEl=tabbody.querySelector("#cmp-count");
+      if(avgEl) avgEl.textContent=stats?fmtP(stats.avg):"—";
+      if(rngEl) rngEl.textContent=stats?(fmtP(stats.min)+" – "+fmtP(stats.max)):"—";
+      if(cntEl) cntEl.textContent=visible.length+" of "+allRows.length+" shown"+(anyFilter?" (filtered)":"")+(cmpGroup?(" · grouped by "+cmpGroup):"");
+      tb.innerHTML="";
+      if(!allRows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No comparison listings yet. Click <b>Update Listings</b> to pull the top 15 similar eBay listings.</td></tr>`; return; }
+      if(!visible.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No rows match the filter.</td></tr>`; return; }
+      visible.forEach((row)=>{ const tr=document.createElement("tr");
+        const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
+        tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
+          <td style="font-size:12px;">${esc(row.title)}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
+        const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
+        cb.onclick=()=>{ const changes=[];
+          if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
+          if(row.condition && row.condition!==it.condition){ changes.push("Condition → "+row.condition); it.condition=row.condition; const ci=body.querySelector("#d-condition"); if(ci) ci.value=row.condition; }
+          if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=body.querySelector("#d-price"); if(pi) pi.value=row.price; const lp=body.querySelector("#l-price"); if(lp) lp.value=row.price; }
+          if(!changes.length){ uiAlert("This listing already matches the item — nothing to change."); return; }
+          changes.forEach(c=>addHistory(it,"Price Compare applied: "+c)); markDirty&&markDirty(); save();
+          uiAlert("Updated from comparison:\n• "+changes.join("\n• ")); };
+        tdC.appendChild(cb); tr.appendChild(tdC);
+        const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
+        x.onclick=()=>{ const i=it.compare.items.indexOf(row); if(i>=0) it.compare.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
+        tb.appendChild(tr); });
+    }
+    repaint();
   }
   function historyTab(){
     const hist=(it.history||[]).slice().sort((a,b)=> new Date(b.at)-new Date(a.at));
