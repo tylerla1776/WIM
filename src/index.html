@@ -176,11 +176,12 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.4.5", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.4.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.4.6","Floating windows: every app now opens in its own movable desktop window automatically (no button needed). A 'Windows: Floating/Docked' toggle in the launcher footer turns it off if you prefer the old single-window behavior; if a window can't float it falls back to opening docked. Experimental."],
   ["2.4.5","Price Compare column tools reworked: click a column's pin to open a checkbox dropdown with Select all (checked by default) — check as many values as you like and the table filters to any of them, recomputing the avg and range live. Click a column header to group rows by that value alphabetically. (Rolling this out to the other search tables comes next.)"],
   ["2.4.4","Re-ship of the 2.4.3 changes (the previous build went out without the updated index.html, so its features were missing): per-environment eBay keys, Price Compare top-15 + column filter pins with recompute, and the login-screen updater status line."],
   ["2.4.3","Three improvements. (1) eBay Connection now remembers separate Sandbox and Production keys — flip the environment and the matching keys load; the environment also persists properly. Find on eBay now retries without the category filter when a search comes back empty, and tells you if you're on Sandbox (which has no real listings). (2) Price Compare pulls the top 15, and each column (Condition, Price, Date, Category) has a little filter pin — filter to a value and the Suggested Price and Range recompute from just the shown rows. (3) The login screen shows an updater status at the bottom: Checking for updates… → Up to date / Installing update / Update installed."],
@@ -234,8 +235,43 @@ const POPOUT_APPS={
   itemsearch:{ title:"Item Maintenance", open:()=>openItemSearch() },
   bulkadd:{ title:"Bulk Add Inventory", open:()=>openBulkAdd() },
   managelistings:{ title:"Manage Listings", open:()=>openManageListings() },
-  liveinventory:{ title:"Live Inventory", open:()=>openLiveInventory() }
+  liveinventory:{ title:"Live Inventory", open:()=>openLiveInventory() },
+  additem:{ title:"Add Inventory", open:()=>openItemDetail(null,"new") },
+  sell:{ title:"Sell Inventory", open:()=>openSell() },
+  bulksell:{ title:"Bulk Sell", open:()=>openBulkSell() },
+  adjust:{ title:"Adjust Inventory", open:()=>openAdjust() },
+  warehouse:{ title:"Warehouse Maintenance", open:()=>openWarehouseMaintenance() },
+  vendors:{ title:"Vendor Management", open:()=>openListMaintenance("vendor") },
+  conditions:{ title:"Condition Maintenance", open:()=>openConditionMaintenance() },
+  printcfg:{ title:"Print Configuration", open:()=>openPrintConfig() },
+  ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
+  backup:{ title:"Backup & Updates", open:()=>openBackup() },
+  descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
+  categories:{ title:"Category Maintenance", open:()=>openListMaintenance("section") },
+  groups:{ title:"Group Maintenance", open:()=>openListMaintenance("group") },
+  adjustcfg:{ title:"Adjustment Configuration", open:()=>openListMaintenance("adjustment") },
+  about:{ title:"About", open:()=>openAbout() },
+  users:{ title:"Modify Users", open:()=>openModifyUsers() },
+  catalog:{ title:"Catalog Maintenance", open:()=>openCatalog() },
+  aging:{ title:"Aging Inventory", open:()=>openAgingReport() },
+  itemreport:{ title:"Item Report", open:()=>openItemReport() },
+  activesummary:{ title:"Active Summary", open:()=>openActiveSummary() },
+  invoices:{ title:"Invoice Records", open:()=>openInvoices() },
+  discrepancies:{ title:"Discrepancies", open:()=>openDiscrepancies() },
+  readytolist:{ title:"Ready to List", open:()=>openReadyToList() },
+  comm:{ title:"Communication", open:()=>openCommunication() },
+  listingreport:{ title:"Listing Report", open:()=>openListingReport() }
 };
+// Launch an app: float it in its own OS window if enabled & supported, else open the normal in-app window.
+function launchApp(key){
+  const meta=POPOUT_APPS[key];
+  const floatOn = !(DB.meta && DB.meta.floatWindows===false);
+  const T=window.__TAURI__||{};
+  const canFloat = floatOn && WIM_IS_DESKTOP && !WIM_POPOUT_MODE && meta
+    && ((T.webviewWindow && T.webviewWindow.WebviewWindow) || (T.window && T.window.WebviewWindow));
+  if(canFloat){ try{ popOut(key); return; }catch(e){ /* fall back to in-app window */ } }
+  if(meta){ meta.open(); }
+}
 async function popOut(appKey){
   const meta=POPOUT_APPS[appKey]; if(!meta) return;
   const T=window.__TAURI__||{};
@@ -246,7 +282,7 @@ async function popOut(appKey){
     const label="popout-"+appKey+"-"+Date.now().toString(36);
     const w=new WW(label, { url:"index.html#popout="+encodeURIComponent(appKey), title:"WIM — "+meta.title, width:1040, height:760, resizable:true, center:true });
     if(w && typeof w.once==="function"){
-      w.once("tauri://error",(ev)=>{ uiAlert("Pop-out couldn't open: "+JSON.stringify((ev&&ev.payload)||ev)); });
+      w.once("tauri://error",(ev)=>{ console.warn("pop-out error:",(ev&&ev.payload)||ev); try{ if(POPOUT_APPS[appKey]) POPOUT_APPS[appKey].open(); }catch(e){} });
     }
   }catch(e){ uiAlert("Could not open a separate window: "+(e&&e.message?e.message:e)); }
 }
@@ -286,6 +322,7 @@ function seed(){
 function migrate(d){
   if(!d.meta) d.meta={schemaVersion:1,createdAt:new Date().toISOString()};
   if(d.meta.invoiceSeq==null) d.meta.invoiceSeq=1000;
+  if(d.meta.floatWindows==null) d.meta.floatWindows=true;
   if(!d.invoices) d.invoices=[];
   if(!d.sections)d.sections=[]; if(!d.groups)d.groups=[]; if(!d.users)d.users=[];
   if(!d.sections.includes("General")) d.sections.unshift("General");
@@ -721,11 +758,12 @@ function showLauncher(){
   win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;"><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
     <div class="body"><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
-      <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
+      <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-float" class="action" style="text-decoration:underline;margin-right:14px;" title="When on, each app opens in its own movable desktop window">Windows: ${(DB.meta&&DB.meta.floatWindows===false)?"Docked":"Floating"}</span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
   win.querySelector("#lc-switch").onclick=()=>{ SESSION.mode=isLive()?"warehouse":"live"; treeState={expanded:{},sel:null}; showLauncher(); };
   win.querySelector("#foot-about").onclick=openAbout;
+  const ftFloat=win.querySelector("#foot-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
 }
@@ -768,44 +806,44 @@ function renderTree(){
 function showActions(node){ const dp=document.getElementById("detail-pane"); if(!dp) return; dp.innerHTML="";
   nodeActions(node).forEach(a=>{ const el=document.createElement("div"); el.className="action"; el.textContent=a; el.onclick=()=>handleAction(node.key,a); dp.appendChild(el); }); }
 function handleAction(k,a){
-  if(k==="config"&&a==="Warehouse Maintenance") return openWarehouseMaintenance();
-  if(k==="config"&&a==="Vendor Management") return openListMaintenance("vendor");
-  if(k==="config"&&a==="Condition Maintenance") return openConditionMaintenance();
-  if(k==="config"&&a==="Print Configuration") return openPrintConfig();
-  if(k==="config"&&a==="eBay Connection") return openEbayConfig();
-  if(k==="config"&&a==="Backup & Updates") return openBackup();
-  if(k==="config"&&a==="Description Manager") return openDescriptionManager();
-  if(k==="config"&&a==="Category Maintenance") return openListMaintenance("section");
-  if(k==="config"&&a==="About / Version") return openAbout();
-  if(k==="security"&&a==="Modify Users") return openModifyUsers();
-  if(k==="catalog"&&a==="Catalog Maintenance") return openCatalog();
-  if(k==="item"&&a==="Item Maintenance") return openItemSearch();
-  if(k==="item"&&a==="Category Maintenance") return openListMaintenance("section");
-  if(k==="item"&&a==="Group Maintenance") return openListMaintenance("group");
-  if(k==="config"&&a==="Adjustment Configuration") return openListMaintenance("adjustment");
+  if(k==="config"&&a==="Warehouse Maintenance") return launchApp("warehouse");
+  if(k==="config"&&a==="Vendor Management") return launchApp("vendors");
+  if(k==="config"&&a==="Condition Maintenance") return launchApp("conditions");
+  if(k==="config"&&a==="Print Configuration") return launchApp("printcfg");
+  if(k==="config"&&a==="eBay Connection") return launchApp("ebaycfg");
+  if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
+  if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
+  if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
+  if(k==="config"&&a==="About / Version") return launchApp("about");
+  if(k==="security"&&a==="Modify Users") return launchApp("users");
+  if(k==="catalog"&&a==="Catalog Maintenance") return launchApp("catalog");
+  if(k==="item"&&a==="Item Maintenance") return launchApp("itemsearch");
+  if(k==="item"&&a==="Category Maintenance") return launchApp("categories");
+  if(k==="item"&&a==="Group Maintenance") return launchApp("groups");
+  if(k==="config"&&a==="Adjustment Configuration") return launchApp("adjustcfg");
   if(k==="addsell"&&a==="Add Inventory") return showInventoryApps("add");
   if(k==="addsell"&&a==="Sell Inventory") return showInventoryApps("sell");
-  if(k==="addsell"&&a==="Adjust Inventory") return openAdjust();
-  if(k==="reports"&&a==="Aging Inventory") return openAgingReport();
-  if(k==="reports"&&a==="Item Report") return openItemReport();
-  if(k==="reports"&&a==="Active Summary") return openActiveSummary();
-  if(k==="invoices"&&a==="Records") return openInvoices();
-  if(k==="listings"&&a==="Manage Listings") return openManageListings();
-  if(k==="listings"&&a==="View Live Inventory") return openLiveInventory();
-  if(k==="additems"&&a==="Add Item") return openItemDetail(null,"new");
-  if(k==="additems"&&a==="Bulk Add Items") return openBulkAdd();
-  if(k==="discrepancies"&&a==="Discrepancies") return openDiscrepancies();
-  if(k==="discrepancies"&&a==="Ready to List") return openReadyToList();
-  if(k==="comm"&&a==="Communication") return openCommunication();
-  if(k==="livereports"&&a==="Listing Report") return openListingReport();
+  if(k==="addsell"&&a==="Adjust Inventory") return launchApp("adjust");
+  if(k==="reports"&&a==="Aging Inventory") return launchApp("aging");
+  if(k==="reports"&&a==="Item Report") return launchApp("itemreport");
+  if(k==="reports"&&a==="Active Summary") return launchApp("activesummary");
+  if(k==="invoices"&&a==="Records") return launchApp("invoices");
+  if(k==="listings"&&a==="Manage Listings") return launchApp("managelistings");
+  if(k==="listings"&&a==="View Live Inventory") return launchApp("liveinventory");
+  if(k==="additems"&&a==="Add Item") return launchApp("additem");
+  if(k==="additems"&&a==="Bulk Add Items") return launchApp("bulkadd");
+  if(k==="discrepancies"&&a==="Discrepancies") return launchApp("discrepancies");
+  if(k==="discrepancies"&&a==="Ready to List") return launchApp("readytolist");
+  if(k==="comm"&&a==="Communication") return launchApp("comm");
+  if(k==="livereports"&&a==="Listing Report") return launchApp("listingreport");
 }
 function showInventoryApps(which){
   const dp=document.getElementById("detail-pane"); if(!dp) return; dp.innerHTML="";
   const back=document.createElement("div"); back.className="action"; back.style.color="#666"; back.innerHTML="&#8592; Back to Manage Inventory"; back.onclick=()=>showActions({key:"addsell"}); dp.appendChild(back);
   const head=document.createElement("div"); head.style.cssText="font-size:13px;font-weight:600;margin:8px 0 4px;color:#333;"; head.textContent=(which==="add"?"Add Inventory":"Sell Inventory"); dp.appendChild(head);
   const apps = which==="add"
-    ? [["Add Inventory",()=>openItemDetail(null,"new")],["Bulk Add Inventory",openBulkAdd]]
-    : [["Sell Inventory",openSell],["Bulk Sell Inventory",openBulkSell]];
+    ? [["Add Inventory",()=>launchApp("additem")],["Bulk Add Inventory",()=>launchApp("bulkadd")]]
+    : [["Sell Inventory",()=>launchApp("sell")],["Bulk Sell Inventory",()=>launchApp("bulksell")]];
   apps.forEach(([label,fn])=>{ const el=document.createElement("div"); el.className="action"; el.textContent=label; el.onclick=fn; dp.appendChild(el); });
 }
 
