@@ -1,15 +1,15 @@
 {
-  "version": "2.4.5",
+  "version": "2.4.6",
   "notes": "Download the installer below. Existing installs will auto-update.",
-  "pub_date": "2026-06-17T04:26:06.274Z",
+  "pub_date": "2026-06-18T04:18:54.549Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTd1pYdW1NRW0rVUZIVUR0QW4zMXRySVFjM3RJLzhLdDhtZlFTaWFwVEFSZUNjY0UrN0dkUTJiQWdPeFI1UEFRV2c3K1hYV1l2VEY3TDVLS2FKQmVDYmFYUkJ1dk5aS2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjcwMzY0CWZpbGU6V0lNXzIuNC41X3g2NC1zZXR1cC5leGUKMGlGM3ArMS83WTFDRG5IVjB6Sk1MbHNDei8rNVdmNGM0TTQxemQ5UnUrTVcyTWphSTg3R05kVjBoZ0NkSWtLY2I3YVBhTE9GSmVSZ0NXQktjRGNBQ3c9PQo=",
-      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.4.5/WIM_2.4.5_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMkY1cjRtbk5ObkpwbFYzU2VuTThiQWJYUWRzMXBuVFhib3M5eDV3ZWFyMkJrM1o0MXFOWUZFN0FHT1g0TEhhZGhGZ1dFODkzdVBTTldFVVBkVkpuQUlOZTdrUzNXVlFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNzU2MzMxCWZpbGU6V0lNXzIuNC42X3g2NC1zZXR1cC5leGUKeXF1T3pwVXlwSjgvUzlEMDhNTVBub0o5Z09FbkIyUWVBTWo0OVdUM0RxRk1hL2h5OGQ5T21mR2VJNU9IUkxsRXFiNlliUmk1cDd2MFZDYUV6OGdJQ3c9PQo=",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.4.6/WIM_2.4.6_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTd1pYdW1NRW0rVUZIVUR0QW4zMXRySVFjM3RJLzhLdDhtZlFTaWFwVEFSZUNjY0UrN0dkUTJiQWdPeFI1UEFRV2c3K1hYV1l2VEY3TDVLS2FKQmVDYmFYUkJ1dk5aS2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjcwMzY0CWZpbGU6V0lNXzIuNC41X3g2NC1zZXR1cC5leGUKMGlGM3ArMS83WTFDRG5IVjB6Sk1MbHNDei8rNVdmNGM0TTQxemQ5UnUrTVcyTWphSTg3R05kVjBoZ0NkSWtLY2I3YVBhTE9GSmVSZ0NXQktjRGNBQ3c9PQo=",
-      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.4.5/WIM_2.4.5_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMkY1cjRtbk5ObkpwbFYzU2VuTThiQWJYUWRzMXBuVFhib3M5eDV3ZWFyMkJrM1o0MXFOWUZFN0FHT1g0TEhhZGhGZ1dFODkzdVBTTldFVVBkVkpuQUlOZTdrUzNXVlFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNzU2MzMxCWZpbGU6V0lNXzIuNC42X3g2NC1zZXR1cC5leGUKeXF1T3pwVXlwSjgvUzlEMDhNTVBub0o5Z09FbkIyUWVBTWo0OVdUM0RxRk1hL2h5OGQ5T21mR2VJNU9IUkxsRXFiNlliUmk1cDd2MFZDYUV6OGdJQ3c9PQo=",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.4.6/WIM_2.4.6_x64-setup.exe"
     }
   }
 }
