@@ -176,11 +176,12 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.4.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.4.7", BUILD_DATE="2026-06-14", SCHEMA_VERSION=10, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
 const CHANGELOG=[
+  ["2.4.7","Three things. (1) The Floating/Docked control is now a small pop-out icon in the launcher title bar next to Switch/Log out (blue = floating, gray = docked) instead of footer text. (2) The same multi-select column filter + click-header-to-group from Price Compare now works on Item Maintenance, Live Inventory, and Manage Listings — click a column's small ▾ to filter to any values, click a header to group/sort. (3) The login updater check now retries a couple times before reporting a problem, so a brief network hiccup no longer flashes an error."],
   ["2.4.6","Floating windows: every app now opens in its own movable desktop window automatically (no button needed). A 'Windows: Floating/Docked' toggle in the launcher footer turns it off if you prefer the old single-window behavior; if a window can't float it falls back to opening docked. Experimental."],
   ["2.4.5","Price Compare column tools reworked: click a column's pin to open a checkbox dropdown with Select all (checked by default) — check as many values as you like and the table filters to any of them, recomputing the avg and range live. Click a column header to group rows by that value alphabetically. (Rolling this out to the other search tables comes next.)"],
   ["2.4.4","Re-ship of the 2.4.3 changes (the previous build went out without the updated index.html, so its features were missing): per-environment eBay keys, Price Compare top-15 + column filter pins with recompute, and the login-screen updater status line."],
@@ -262,6 +263,37 @@ const POPOUT_APPS={
   comm:{ title:"Communication", open:()=>openCommunication() },
   listingreport:{ title:"Listing Report", open:()=>openListingReport() }
 };
+// Reusable multi-select column filter for any results table.
+function makeColFilter(){
+  const filt={}; // key -> array of allowed string values (absent = all)
+  const norm=v=>String(v==null?"":v);
+  function apply(rows, colVal){ const keys=Object.keys(filt); if(!keys.length) return rows;
+    return rows.filter(r=> keys.every(k=>{ const sel=filt[k]; if(sel===undefined) return true; return sel.includes(norm(colVal(r,k))); })); }
+  function active(key){ return filt[key]!==undefined; }
+  function pinHtml(key){ return `<span class="cf-pin" data-key="${key}" title="Filter this column" style="cursor:pointer;color:${active(key)?'#1f5fbf':'#9a9a9a'};font-size:11px;margin-left:4px;">&#9662;</span>`; }
+  function closeMenu(){ const m=document.getElementById("cf-menu"); if(m) m.remove(); }
+  function wire(scope, allRowsFn, colVal, rerender){
+    scope.querySelectorAll(".cf-pin").forEach(p=>{ p.onclick=(e)=>{ e.stopPropagation(); openMenu(p, p.dataset.key, allRowsFn, colVal, rerender); }; });
+  }
+  function openMenu(anchor, key, allRowsFn, colVal, rerender){
+    closeMenu();
+    const vals=[...new Set(allRowsFn().map(r=>norm(colVal(r,key))).filter(v=>v!==""))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}));
+    if(!vals.length) return;
+    const sel = filt[key]!==undefined ? filt[key] : vals.slice();
+    const m=document.createElement("div"); m.id="cf-menu"; const r=anchor.getBoundingClientRect();
+    m.style.cssText="position:fixed;top:"+(r.bottom+3)+"px;left:"+Math.max(8,Math.min(r.left-90,window.innerWidth-200))+"px;z-index:99999;background:#fff;border:1px solid #9a9a9a;border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.18);padding:6px;min-width:160px;max-height:300px;overflow:auto;font-size:12.5px;";
+    const rowHtml=(ck,lbl,v)=>`<label style="display:flex;align-items:center;gap:7px;padding:3px 6px;cursor:pointer;white-space:nowrap;"><input type="checkbox" ${ck?'checked':''} data-v="${esc(String(v))}"> ${esc(lbl)}</label>`;
+    m.innerHTML=rowHtml(sel.length===vals.length,"Select all","__ALL__")+'<div style="border-top:1px solid #e2e2e2;margin:4px 0;"></div>'+vals.map(v=>rowHtml(sel.includes(v),v,v)).join("");
+    document.body.appendChild(m);
+    const allCb=m.querySelector('input[data-v="__ALL__"]'); const cbs=[...m.querySelectorAll('input:not([data-v="__ALL__"])')];
+    function applyMenu(){ const ck=cbs.filter(c=>c.checked).map(c=>c.getAttribute("data-v")); if(ck.length===vals.length) delete filt[key]; else filt[key]=ck;
+      const pin=document.querySelector('.cf-pin[data-key="'+key+'"]'); if(pin) pin.style.color=active(key)?'#1f5fbf':'#9a9a9a'; rerender(); }
+    allCb.onchange=()=>{ cbs.forEach(c=>c.checked=allCb.checked); applyMenu(); };
+    cbs.forEach(c=>c.onchange=()=>{ allCb.checked=cbs.every(x=>x.checked); applyMenu(); });
+  }
+  if(!makeColFilter._closer){ makeColFilter._closer=true; document.addEventListener("mousedown",(ev)=>{ const m=document.getElementById("cf-menu"); if(m && !m.contains(ev.target) && !(ev.target.classList&&ev.target.classList.contains("cf-pin"))) m.remove(); }); }
+  return { filt, apply, pinHtml, wire, active };
+}
 // Launch an app: float it in its own OS window if enabled & supported, else open the normal in-app window.
 function launchApp(key){
   const meta=POPOUT_APPS[key];
@@ -651,13 +683,18 @@ function runUpdateCheck(el){
   const done=(text,color)=>{ stop(); el.style.color=color||"#888"; el.textContent=text; };
   animate("Checking for updates");
   (async()=>{
-    try{
-      const upd=await window.__TAURI__.updater.check();
-      if(!upd){ done("WIM is up to date","#1f7244"); return; }
-      animate("Installing update "+(upd.version||""));
-      await upd.downloadAndInstall();
-      done("Update installed — restart WIM to finish","#1f5fbf");
-    }catch(e){ done("Couldn't check for updates right now",""); }
+    let lastErr=null;
+    for(let attempt=1; attempt<=3; attempt++){
+      try{
+        const upd=await window.__TAURI__.updater.check();
+        if(!upd){ done("WIM is up to date","#1f7244"); return; }
+        animate("Installing update "+(upd.version||""));
+        await upd.downloadAndInstall();
+        done("Update installed — restart WIM to finish","#1f5fbf"); return;
+      }catch(e){ lastErr=e; if(attempt<3){ await new Promise(r=>setTimeout(r,2500)); animate("Checking for updates"); } }
+    }
+    done("Couldn't check for updates right now","");
+    console.warn("update check failed:", lastErr&&lastErr.message?lastErr.message:lastErr);
   })();
 }
 function showLogin(msg){
@@ -756,14 +793,14 @@ function showLauncher(){
     ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#e7f6ec;color:#1f7244;border:1px solid #b6e0c4;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span style="width:9px;height:9px;border-radius:50%;background:#1f9d55;display:inline-block;"></span>Live Mode</span>`
     : `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#33506e;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;">Warehouse Mode</span>`;
   win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>${modeBadge}
-      <div class="winbtns" style="display:flex;gap:6px;"><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
+      <div class="winbtns" style="display:flex;gap:6px;align-items:center;"><button class="btn sm" id="lc-float" title="${(DB.meta&&DB.meta.floatWindows===false)?'Apps open docked in this window — click to make them float in their own windows':'Apps open in their own movable windows — click to dock them in one window'}" style="min-width:0;padding:2px 9px;font-size:14px;${(DB.meta&&DB.meta.floatWindows===false)?'color:#9aa3ad;':'color:#1f5fbf;'}">&#10696;</button><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
     <div class="body"><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
-      <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-float" class="action" style="text-decoration:underline;margin-right:14px;" title="When on, each app opens in its own movable desktop window">Windows: ${(DB.meta&&DB.meta.floatWindows===false)?"Docked":"Floating"}</span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
+      <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
   win.querySelector("#lc-switch").onclick=()=>{ SESSION.mode=isLive()?"warehouse":"live"; treeState={expanded:{},sel:null}; showLauncher(); };
   win.querySelector("#foot-about").onclick=openAbout;
-  const ftFloat=win.querySelector("#foot-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
+  const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
 }
@@ -1340,6 +1377,7 @@ function openCatalog(){
 function buildSearchUI(body,{scope,cols,winId}){
   const isCat=scope==="sold";
   const st={ results:[], sort:{key:null,dir:1}, pending:new Set(), searched:false };
+  const cf=makeColFilter();
   body._state=st;
   const dlSec=`<datalist id="dl-sec-${winId}"><option value="None"></option>`+DB.sections.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
   const dlSlot=`<datalist id="dl-slot-${winId}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}"></option>`).join("")+`</datalist>`;
@@ -1396,18 +1434,23 @@ function buildSearchUI(body,{scope,cols,winId}){
   }
   function renderHead(){ const h=body.querySelector("#s-head"); h.innerHTML="";
     cols.forEach(c=>{ const th=document.createElement("th"); const arrow=st.sort.key===c.key?`<span class="arr">${st.sort.dir>0?'▲':'▼'}</span>`:"";
-      th.innerHTML=esc(c.label)+arrow; th.onclick=()=>{ if(st.sort.key===c.key) st.sort.dir*=-1; else { st.sort.key=c.key; st.sort.dir=1; } sortAndRender(); }; h.appendChild(th); });
+      const canFilter = c.type==="text";
+      th.innerHTML=`<span class="cf-h" style="cursor:pointer;">${esc(c.label)}${arrow}</span>`+(canFilter?cf.pinHtml(c.key):"");
+      const hd=th.querySelector(".cf-h"); if(hd) hd.onclick=()=>{ if(st.sort.key===c.key) st.sort.dir*=-1; else { st.sort.key=c.key; st.sort.dir=1; } sortAndRender(); };
+      h.appendChild(th); });
+    cf.wire(h, ()=>st.results, (r,key)=>{ const col=cols.find(c=>c.key===key); return col&&col.get?col.get(r):""; }, ()=>renderRows());
   }
   function renderRows(){ const tb=body.querySelector("#s-tbody"); tb.innerHTML="";
-    st.results.forEach((it,ri)=>{ const tr=document.createElement("tr");
+    const shown=cf.apply(st.results, (r,key)=>{ const col=cols.find(c=>c.key===key); return col&&col.get?col.get(r):""; });
+    shown.forEach((it,ri)=>{ const tr=document.createElement("tr");
       cols.forEach(c=>{ const td=document.createElement("td");
         if(c.key==="sold"&&c.type==="check"){ td.className="cc"; const cb=document.createElement("span"); cb.className="chk"+(st.pending.has(it.id)?" on":"");
           cb.onclick=(e)=>{ e.stopPropagation(); if(st.pending.has(it.id)) st.pending.delete(it.id); else st.pending.add(it.id); cb.classList.toggle("on"); updateSoldBtn(); };
           td.appendChild(cb); }
         else { td.textContent = c.type==="date"? fmtDay(c.get(it)) : (c.get(it)||""); }
         tr.appendChild(td); });
-      tr.ondblclick=()=>openItemDetail(it,isCat?"catalog":"edit",{list:st.results.slice(),index:ri}); tb.appendChild(tr); });
-    body.querySelector("#s-count").textContent="Records: "+st.results.length;
+      tr.ondblclick=()=>openItemDetail(it,isCat?"catalog":"edit",{list:shown.slice(),index:ri}); tb.appendChild(tr); });
+    body.querySelector("#s-count").textContent="Records: "+shown.length+(shown.length!==st.results.length?(" of "+st.results.length):"");
   }
   function updateSoldBtn(){ const b=body.querySelector("#s-soldbtn"); if(!b) return; const n=st.pending.size; b.textContent="Items Sold ("+n+")"; b.disabled=n===0; }
   body._refresh=()=>{
@@ -2718,23 +2761,31 @@ function openLiveInventory(){
   if(openWindows["live-inv"]){ focusWin(openWindows["live-inv"].el); return; }
   const {body}=buildWindow({id:"live-inv",title:"Live Inventory",width:960,height:620,popoutKey:"liveinventory",
     toolbar:`${tbtn(I.print,'Print')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">All active live listings</span>`});
+  const cf=makeColFilter(); let liGroup=null;
+  const LI_COLS=[{key:"title",label:"Title",get:it=>(it.listing&&it.listing.title)||it.desc},{key:"upc",label:"Item #",get:it=>it.upc},{key:"sku",label:"Warehouse SKU",get:it=>it.sku},{key:"section",label:"Category",get:it=>it.section,filter:true},{key:"subCategory",label:"Sub Category",get:it=>it.subCategory||"",filter:true},{key:"price",label:"Price",get:it=>(it.listing&&it.listing.price)||""},{key:"qty",label:"Qty",get:it=>(it.listing&&it.listing.qty)||"1"}];
+  const liVal=(it,key)=>{ const c=LI_COLS.find(x=>x.key===key); return c?c.get(it):""; };
   function render(){
     const rows=listedItems().sort((a,b)=>skuCmp(a.sku,b.sku));
+    const headHtml=LI_COLS.map(c=>`<th><span class="cf-h" data-key="${c.key}" style="cursor:pointer;">${c.label}${liGroup===c.key?' ⤓':''}</span>${c.filter?cf.pinHtml(c.key):""}</th>`).join("");
     body.innerHTML=`<div class="searchform" style="grid-template-columns:1fr 1fr;padding:10px 14px 4px;">
         <div class="ff"><label>Search title / SKU / item #</label><input class="txt" id="li-q"></div>
         <div class="ff"><label>Category</label><input class="txt" id="li-cat" list="li-cat-dl"></div>
       </div><datalist id="li-cat-dl">${DB.sections.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
       <div style="padding:0 14px 6px;display:flex;align-items:center;gap:10px;"><span class="smallhint" id="li-count"></span><span style="flex:1;"></span>${WIM_IS_DESKTOP?'<button class="btn sm" id="li-pull">Pull Active Listings from eBay</button>':''}</div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th>Item #</th><th>Warehouse SKU</th><th>Category</th><th>Sub Category</th><th>Price</th><th>Qty</th></tr></thead><tbody id="li-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr>${headHtml}</tr></thead><tbody id="li-tb"></tbody></table></div>`;
     const tb=body.querySelector("#li-tb"), q=body.querySelector("#li-q"), cat=body.querySelector("#li-cat");
     function paint(){ const t=(q.value||"").toLowerCase(), c=(cat.value||"").toLowerCase();
-      const list=rows.filter(it=>{ const L=it.listing||{}; if(t && !((L.title||it.desc||"").toLowerCase().includes(t)||(it.sku||"").toLowerCase().includes(t)||(it.upc||"").toLowerCase().includes(t))) return false; if(c && (it.section||"").toLowerCase()!==c) return false; return true; });
-      tb.innerHTML=""; body.querySelector("#li-count").textContent=list.length+" active listing(s).";
+      let list=rows.filter(it=>{ const L=it.listing||{}; if(t && !((L.title||it.desc||"").toLowerCase().includes(t)||(it.sku||"").toLowerCase().includes(t)||(it.upc||"").toLowerCase().includes(t))) return false; if(c && (it.section||"").toLowerCase()!==c) return false; return true; });
+      list=cf.apply(list, liVal);
+      if(liGroup) list=list.slice().sort((a,b)=>String(liVal(a,liGroup)).localeCompare(String(liVal(b,liGroup)),undefined,{numeric:true,sensitivity:"base"}));
+      tb.innerHTML=""; body.querySelector("#li-count").textContent=list.length+" active listing(s)."+(liGroup?(" · grouped by "+(LI_COLS.find(x=>x.key===liGroup)||{}).label):"");
       if(!list.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No active listings${rows.length?" match.":". Mark items as Listed from an item page or Discrepancies."}</td></tr>`; return; }
       list.forEach(it=>{ const L=it.listing||{}; const tr=document.createElement("tr");
         tr.innerHTML=`<td>${esc(L.title||it.desc)}</td><td>${esc(it.upc)}</td><td>${esc(it.sku)}</td><td>${esc(it.section)}</td><td>${esc(it.subCategory||"")}</td><td>${L.price?("$"+esc(L.price)):"—"}</td><td class="cc">${esc(L.qty||"1")}</td>`;
         tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
     }
+    body.querySelectorAll(".cf-h").forEach(h=>{ h.onclick=()=>{ liGroup=(liGroup===h.dataset.key)?null:h.dataset.key; render(); }; });
+    cf.wire(body, ()=>rows, liVal, paint);
     q.addEventListener("input",paint); cat.addEventListener("input",paint); paint();
     const pull=body.querySelector("#li-pull"); if(pull) pull.onclick=()=>pullActiveListings(()=>render());
     const pb=openWindows["live-inv"].el.querySelector('[data-act="Print"]'); if(pb) pb.onclick=()=>printTable("WIM Live Inventory", ["Title","Item #","Warehouse SKU","Category","Sub Category","Price","Qty"], rows.map(it=>{const L=it.listing||{};return [L.title||it.desc,it.upc,it.sku,it.section,it.subCategory||"",L.price||"",L.qty||"1"];}));
@@ -2747,13 +2798,22 @@ function openManageListings(){
   if(openWindows["manage-listings"]){ focusWin(openWindows["manage-listings"].el); return; }
   const {body}=buildWindow({id:"manage-listings",title:"Manage Listings",width:920,height:600,popoutKey:"managelistings",
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Edit live listings, or delist without removing the warehouse SKU</span>`});
+  const cf=makeColFilter(); let mlGroup=null;
+  const ML_COLS=[{key:"title",label:"Title",get:it=>(it.listing&&it.listing.title)||it.desc},{key:"sku",label:"Warehouse SKU",get:it=>it.sku},{key:"section",label:"Category",get:it=>it.section,filter:true},{key:"price",label:"Price",get:it=>(it.listing&&it.listing.price)||""},{key:"status",label:"Status",get:it=>(it.listing&&it.listing.status)||"",filter:true}];
+  const mlVal=(it,key)=>{ const c=ML_COLS.find(x=>x.key===key); return c?c.get(it):""; };
   function render(){
-    const rows=DB.items.filter(i=>i.listing && (i.listing.status==="listed"||i.listing.status==="delisted")).sort((a,b)=>skuCmp(a.sku,b.sku));
-    body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;display:flex;align-items:center;gap:10px;"><span>${rows.length} listing(s).</span><span style="flex:1;"></span>${WIM_IS_DESKTOP?'<button class="btn sm" id="ml-pull">Pull Active Listings from eBay</button>':''}</div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th>Warehouse SKU</th><th>Category</th><th>Price</th><th>Status</th><th></th><th></th></tr></thead><tbody id="ml-tb"></tbody></table></div>`;
+    let rows=DB.items.filter(i=>i.listing && (i.listing.status==="listed"||i.listing.status==="delisted")).sort((a,b)=>skuCmp(a.sku,b.sku));
+    const allRows=rows.slice();
+    const headHtml=ML_COLS.map(c=>`<th><span class="cf-h" data-key="${c.key}" style="cursor:pointer;">${c.label}${mlGroup===c.key?' ⤓':''}</span>${c.filter?cf.pinHtml(c.key):""}</th>`).join("")+"<th></th><th></th>";
+    rows=cf.apply(rows, mlVal);
+    if(mlGroup) rows=rows.slice().sort((a,b)=>String(mlVal(a,mlGroup)).localeCompare(String(mlVal(b,mlGroup)),undefined,{numeric:true,sensitivity:"base"}));
+    body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;display:flex;align-items:center;gap:10px;"><span>${rows.length} listing(s)${mlGroup?(" · grouped by "+(ML_COLS.find(x=>x.key===mlGroup)||{}).label):""}.</span><span style="flex:1;"></span>${WIM_IS_DESKTOP?'<button class="btn sm" id="ml-pull">Pull Active Listings from eBay</button>':''}</div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr>${headHtml}</tr></thead><tbody id="ml-tb"></tbody></table></div>`;
     const pull=body.querySelector("#ml-pull"); if(pull) pull.onclick=()=>pullActiveListings(()=>render());
+    body.querySelectorAll(".cf-h").forEach(h=>{ h.onclick=()=>{ mlGroup=(mlGroup===h.dataset.key)?null:h.dataset.key; render(); }; });
+    cf.wire(body, ()=>allRows, mlVal, render);
     const tb=body.querySelector("#ml-tb");
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No listings yet. Use Discrepancies or Add Items to create one.</td></tr>`; return; }
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No listings${allRows.length?" match.":" yet. Use Discrepancies or Add Items to create one."}</td></tr>`; return; }
     rows.forEach(it=>{ const L=it.listing; const tr=document.createElement("tr");
       tr.innerHTML=`<td>${esc(L.title||it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(it.section)}</td><td>${L.price?("$"+esc(L.price)):"—"}</td><td><span class="badge ${L.status==='listed'?'ok':'warn'}">${L.status}</span></td>`;
       const tdEdit=document.createElement("td"); tdEdit.className="cc"; const e=document.createElement("button"); e.className="btn sm"; e.textContent="Edit"; e.onclick=()=>openItemDetail(it,"edit"); tdEdit.appendChild(e); tr.appendChild(tdEdit);
