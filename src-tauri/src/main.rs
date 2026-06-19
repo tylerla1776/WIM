@@ -171,6 +171,101 @@ async fn ebay_put_inventory_item(env: String, app_id: String, cert_id: String, r
     }
 }
 
+// Upload a photo to eBay Picture Services (EPS) via the Trading API, returning the hosted URL.
+#[tauri::command]
+async fn ebay_upload_picture(env: String, app_id: String, cert_id: String, refresh_token: String, image_base64: String, picture_name: String) -> ApiResult {
+    // OAuth user token, passed to the Trading API via the IAF token header.
+    let token = match get_user_token(&env, &app_id, &cert_id, &refresh_token,
+        "https://api.ebay.com/oauth/api_scope/sell.inventory").await {
+        Ok(t) => t,
+        Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("token error: {}", b) },
+    };
+    // Accept either a raw base64 string or a data URL (data:image/...;base64,XXXX)
+    let b64 = if let Some(idx) = image_base64.find("base64,") { &image_base64[idx + 7..] } else { &image_base64[..] };
+    let bytes = match general_purpose::STANDARD.decode(b64.trim()) {
+        Ok(v) => v,
+        Err(e) => return ApiResult { ok: false, status: 0, body: format!("image decode error: {}", e) },
+    };
+    let endpoint = if env == "production" {
+        "https://api.ebay.com/ws/api.dll"
+    } else {
+        "https://api.sandbox.ebay.com/ws/api.dll"
+    };
+    let safe_name = picture_name.replace('<', " ").replace('>', " ");
+    let xml = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<UploadSiteHostedPicturesRequest xmlns=\"urn:ebay:apis:eBLBaseComponents\"><PictureName>{}</PictureName><PictureSet>Supersize</PictureSet></UploadSiteHostedPicturesRequest>",
+        safe_name
+    );
+    let part = match reqwest::multipart::Part::bytes(bytes).file_name("photo.jpg").mime_str("application/octet-stream") {
+        Ok(p) => p,
+        Err(e) => return ApiResult { ok: false, status: 0, body: e.to_string() },
+    };
+    let form = reqwest::multipart::Form::new()
+        .text("XML Payload", xml)
+        .part("image", part);
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(endpoint)
+        .header("X-EBAY-API-CALL-NAME", "UploadSiteHostedPictures")
+        .header("X-EBAY-API-COMPATIBILITY-LEVEL", "1193")
+        .header("X-EBAY-API-SITEID", "0")
+        .header("X-EBAY-API-IAF-TOKEN", token)
+        .multipart(form)
+        .send()
+        .await;
+    match resp {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let text = r.text().await.unwrap_or_default();
+            // Pull the hosted URL out of the XML response.
+            let url = extract_tag(&text, "FullURL").or_else(|| extract_tag(&text, "ExternalPictureURL"));
+            match url {
+                Some(u) if !u.is_empty() => ApiResult { ok: true, status, body: u },
+                _ => ApiResult { ok: false, status, body: text },
+            }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+fn extract_tag(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{}>", tag);
+    let close = format!("</{}>", tag);
+    let start = xml.find(&open)? + open.len();
+    let end = xml[start..].find(&close)? + start;
+    Some(xml[start..end].trim().to_string())
+}
+
+// POST a base64 image to Browse search_by_image using an APPLICATION token.
+#[tauri::command]
+async fn ebay_search_by_image(env: String, app_id: String, cert_id: String, scope: String, marketplace: String, image_base64: String, limit: String) -> ApiResult {
+    let sc = if scope.is_empty() { "https://api.ebay.com/oauth/api_scope".to_string() } else { scope };
+    let tok = match get_app_token(&env, &app_id, &cert_id, &sc).await {
+        Ok(t) => t,
+        Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("app token error: {}", b) },
+    };
+    let lim = if limit.is_empty() { "15".to_string() } else { limit };
+    let url = format!("{}/buy/browse/v1/item_summary/search_by_image?limit={}", base_url(&env), lim);
+    let body = format!("{{\"image\":\"{}\"}}", image_base64.replace('"', ""));
+    let client = reqwest::Client::new();
+    let mut req = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", tok))
+        .header("Content-Type", "application/json")
+        .body(body);
+    if !marketplace.is_empty() {
+        req = req.header("X-EBAY-C-MARKETPLACE-ID", marketplace);
+    }
+    match req.send().await {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let body = r.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 async fn check_for_update(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_updater::UpdaterExt;
     if let Some(update) = app.updater()?.check().await? {
@@ -194,7 +289,9 @@ fn main() {
             ebay_test,
             ebay_get_app,
             ebay_get_user,
-            ebay_put_inventory_item
+            ebay_put_inventory_item,
+            ebay_upload_picture,
+            ebay_search_by_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");

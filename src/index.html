@@ -147,7 +147,13 @@
   #desktop{background:radial-gradient(120% 90% at 85% 10%,#f4f7fc 0%,#e7ecf5 45%,#dfe5f0 100%);}
   #desktop::before{background:radial-gradient(100% 70% at 80% 15%,rgba(255,255,255,.5),transparent 60%);}
   .window{background:#fff;border:1px solid #e3e7ef;border-radius:14px;box-shadow:0 18px 50px rgba(31,45,71,.20),0 2px 8px rgba(31,45,71,.08);}
-  .titlebar{height:42px;background:#edf2fc;border-bottom:1px solid #dde6f5;border-radius:14px 14px 0 0;padding:0 8px 0 14px;}
+  .titlebar{height:42px;background:linear-gradient(180deg,#e3ebfc,#d7e2fa);border-bottom:1px solid #c6d4ef;border-radius:14px 14px 0 0;padding:0 8px 0 14px;}
+  .titlebar .ttl{font-size:14px;font-weight:600;color:#2a3f6e;}
+  .body{background:#eef2f9;}
+  .pane-tabbody{background:#eef2f9;}
+  .searchform{background:#fff;border:1px solid var(--line);border-radius:12px;margin:12px 14px 6px;padding:16px 18px;box-shadow:0 1px 4px rgba(31,45,71,.05);}
+  .imd-top{background:#fff;border:1px solid var(--line);border-radius:12px;margin:12px 14px 4px;padding:16px 18px 10px;box-shadow:0 1px 4px rgba(31,45,71,.05);}
+  .statusbar{background:#eef2f9;}
   .titlebar .ttl{font-size:14px;font-weight:600;color:#28313f;}
   .winbtn{border-radius:8px;color:#5b6270;}
   .winbtn:hover{background:#f0f3f8;}.winbtn.close:hover{background:#ef4d52;color:#fff;}
@@ -174,7 +180,9 @@
   .chk{border-radius:5px;border-color:#c4cad3;}
   .chk.on{background:var(--accent);border-color:var(--accent);}
   .launcher{border-radius:16px;}
-  .launcher .body,.launcher .tree-pane,.launcher .detail-pane{background:#fff;}
+  .launcher .body{background:#fff;}
+  .launcher .tree-pane{background:#fff;}
+  .launcher .detail-pane{background:#f0f4fb;}
   .launcher .panes{border-radius:0 0 16px 16px;overflow:hidden;}
   .tree-pane{border-right:1px solid var(--line);}
   .launcher-foot{border-top:1px solid var(--line);background:#fbfcfe;border-radius:0 0 16px 16px;color:var(--muted);}
@@ -188,8 +196,8 @@
   .tab.sel{background:#eef2fb;color:var(--accent-d);font-weight:600;border:none;top:0;}
   .tab:not(.sel):hover{background:#f5f7fb;}
   .resultwrap{border:1px solid var(--line);border-radius:12px;background:#fff;}
-  table.res th{background:#f7f9fc;border:none;border-bottom:1px solid #e5e9f0;padding:10px 12px;font-weight:600;color:#5b6270;font-size:12px;}
-  table.res th:hover{background:#eef2f8;}
+  table.res th{background:#e7eefb;border:none;border-bottom:1px solid #d2ddf2;padding:10px 12px;font-weight:600;color:#3a4d80;font-size:12px;}
+  table.res th:hover{background:#dce6f9;}
   table.res th .arr{color:var(--accent);}
   table.res td{border:none;border-bottom:1px solid #f0f2f6;padding:9px 12px;color:#2b3340;}
   table.res tbody tr:nth-child(even){background:#fbfcfe;}
@@ -254,7 +262,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.4", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -313,6 +321,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.4","More color and less white: window title bars are a richer indigo, table headers are tinted indigo, and window bodies now have a soft tinted backdrop so the forms and tables read as white cards floating on it instead of one big white sheet. New Find by Photo tool (under Item Maintenance / Manage Listings): pick a photo, search eBay for visually similar listings, tick the ones that match, and get a median price and range."],
   ["2.6.3","UI refinement: window title bars and toolbars now have a subtle indigo tint so they read as distinct bands instead of an all-white sheet (applied to every window). The login screen now fills the whole app surface instead of appearing as a small floating window sitting on a blank background."],
   ["2.6.2","Dashboard home screen (modern UI phase 2): the launcher now opens to a Dashboard with summary cards (Active Items, Units on Hand, Listed on eBay, Sold This Month), an Items-Sold chart for the last 6 months, a Top Categories breakdown, and inventory value at cost. Click a menu option to open a tool, or click the WIM title to return to the Dashboard."],
   ["2.6.1","Modern visual refresh (phase 1): white rounded cards with soft shadows, a friendlier font, an indigo accent, pill-shaped status badges, cleaner tables with more breathing room, and softer buttons and fields throughout — while keeping WIM's draggable floating-window workflow. Same screens, fresh look."],
@@ -387,6 +396,7 @@ const POPOUT_APPS={
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
+  findbyphoto:{ title:"Find by Photo", open:()=>openFindByPhoto() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
   categories:{ title:"Category Maintenance", open:()=>openListMaintenance("section") },
@@ -929,12 +939,12 @@ function nodeActions(node){
     const a=["Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Print Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
   if(node.key==="security") return ["Modify Users"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
-  if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance"];
+  if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Find by Photo"];
   if(node.key==="addsell") return ["Add Inventory","Sell Inventory","Adjust Inventory"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
   if(node.key==="reports") return ["Aging Inventory","Item Report","Active Summary"];
   if(node.key==="invoices") return ["Records"];
-  if(node.key==="listings") return ["Manage Listings","View Live Inventory"];
+  if(node.key==="listings") return ["Manage Listings","View Live Inventory","Find by Photo"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items"];
   if(node.key==="discrepancies") return ["Discrepancies","Ready to List"];
   if(node.key==="comm") return ["Communication"];
@@ -1071,6 +1081,7 @@ function handleAction(k,a){
   if(k==="item"&&a==="Item Maintenance") return launchApp("itemsearch");
   if(k==="item"&&a==="Category Maintenance") return launchApp("categories");
   if(k==="item"&&a==="Group Maintenance") return launchApp("groups");
+  if(k==="item"&&a==="Find by Photo") return launchApp("findbyphoto");
   if(k==="config"&&a==="Adjustment Configuration") return launchApp("adjustcfg");
   if(k==="addsell"&&a==="Add Inventory") return showInventoryApps("add");
   if(k==="addsell"&&a==="Sell Inventory") return showInventoryApps("sell");
@@ -1082,6 +1093,7 @@ function handleAction(k,a){
   if(k==="invoices"&&a==="Records") return launchApp("invoices");
   if(k==="listings"&&a==="Manage Listings") return launchApp("managelistings");
   if(k==="listings"&&a==="View Live Inventory") return launchApp("liveinventory");
+  if(k==="listings"&&a==="Find by Photo") return launchApp("findbyphoto");
   if(k==="additems"&&a==="Add Item") return launchApp("additem");
   if(k==="additems"&&a==="Bulk Add Items") return launchApp("bulkadd");
   if(k==="discrepancies"&&a==="Discrepancies") return launchApp("discrepancies");
@@ -2807,7 +2819,8 @@ const EBAY={
     const r=await this.app("/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id="+this.mkt());
     if(!r.ok) throw new Error("category tree (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
     const j=JSON.parse(r.body); DB.ebay.categoryTreeId=j.categoryTreeId; save(); return j.categoryTreeId; },
-  uploadPicture(b64,name){ return wimDesktop.invoke("ebay_upload_picture",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, imageBase64:b64, pictureName:name||"WIM photo" }); }
+  uploadPicture(b64,name){ return wimDesktop.invoke("ebay_upload_picture",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, imageBase64:b64, pictureName:name||"WIM photo" }); },
+  searchByImage(b64,limit){ return wimDesktop.invoke("ebay_search_by_image",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, scope:"https://api.ebay.com/oauth/api_scope", marketplace:this.mkt(), imageBase64:b64, limit:String(limit||15) }); }
 };
 function openEbayFind(it, onDone){
   if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
@@ -2995,6 +3008,65 @@ async function pullNewListings(after){
     closeAllModals(); if(after) after(candidates);
   }catch(e){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); }
 }
+/* ============================================================ FIND BY PHOTO (eBay image search → price range) ============================================================ */
+function openFindByPhoto(){
+  const id="find-by-photo"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Find by Photo",width:940,height:640,popoutKey:"findbyphoto",
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Match a photo to similar eBay listings and get a price range</span>`});
+  let results=[]; const sel=new Set();
+  function render(){
+    body.innerHTML=`<div style="padding:14px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">
+        <div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 1px 4px rgba(31,45,71,.05);">
+          <div id="fp-box" style="width:170px;height:170px;border:1px dashed #c3ccda;border-radius:12px;background:#f8fafc;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#9aa3ad;font-size:13px;text-align:center;cursor:pointer;">Click to choose a photo</div>
+          <input type="file" id="fp-file" accept="image/*" style="display:none;">
+          <div style="margin-top:10px;display:flex;gap:8px;"><button class="btn primary" id="fp-go" disabled>Find Matches</button><button class="btn sm" id="fp-clear">Clear</button></div>
+          <div id="fp-msg" class="smallhint" style="margin-top:8px;max-width:170px;"></div>
+        </div>
+        <div style="flex:1;min-width:300px;">
+          <div id="fp-stats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;"></div>
+          <div class="resultwrap" style="margin:0;"><table class="res"><thead><tr><th style="width:40px;"></th><th style="width:46px;"></th><th>Title</th><th style="width:110px;">Condition</th><th style="width:90px;">Price</th></tr></thead><tbody id="fp-tb"></tbody></table></div>
+        </div></div>`;
+    const box=body.querySelector("#fp-box"), file=body.querySelector("#fp-file"), go=body.querySelector("#fp-go"), msg=body.querySelector("#fp-msg");
+    let b64="";
+    box.onclick=()=>file.click();
+    body.querySelector("#fp-clear").onclick=()=>{ results=[]; sel.clear(); render(); };
+    file.onchange=()=>{ const f=file.files&&file.files[0]; if(!f) return;
+      const r=new FileReader(); r.onload=()=>{ const d=String(r.result); b64=d.split(",")[1]||""; box.innerHTML=`<img src="${d}" style="width:100%;height:100%;object-fit:contain;">`; go.disabled=!b64; }; r.readAsDataURL(f); };
+    go.onclick=async ()=>{
+      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Set up eBay keys first (Configuration → eBay Connection)."; return; }
+      if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Image search runs in the desktop app."; return; }
+      msg.style.color="#555"; msg.textContent="Searching eBay by image…"; go.disabled=true;
+      try{ const r=await EBAY.searchByImage(b64,15);
+        if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="eBay image search failed (HTTP "+r.status+"): "+(r.body||"").slice(0,160); go.disabled=false; return; }
+        const items=(JSON.parse(r.body).itemSummaries)||[];
+        results=items.map(s=>({ itemId:s.itemId||"", thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"", title:s.title||"", condition:s.condition||"", price:(s.price&&s.price.value)?s.price.value:"" }));
+        sel.clear(); results.forEach((_,i)=>sel.add(i));
+        msg.style.color=results.length?"#1f7244":"#c0392b"; msg.textContent=results.length?(results.length+" matches found."):"No similar listings came back.";
+        paint();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); go.disabled=false; }
+    };
+    paint();
+  }
+  function paint(){
+    const tb=body.querySelector("#fp-tb"), stats=body.querySelector("#fp-stats"); if(!tb) return;
+    const chosen=results.filter((_,i)=>sel.has(i)); const prices=chosen.map(r=>parseFloat(r.price)).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+    const median = prices.length? (prices.length%2? prices[(prices.length-1)/2] : (prices[prices.length/2-1]+prices[prices.length/2])/2) : null;
+    const fmt=v=>v==null?"—":("$"+v.toFixed(2));
+    const card=(l,v)=>`<div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 1px 4px rgba(31,45,71,.05);"><div class="smallhint">${l}</div><div style="font-size:18px;font-weight:700;color:#28313f;">${v}</div></div>`;
+    stats.innerHTML = card("Median (selected)", fmt(median)) + card("Range", prices.length?(fmt(prices[0])+" – "+fmt(prices[prices.length-1])):"—") + card("Selected", chosen.length+" of "+results.length);
+    tb.innerHTML="";
+    if(!results.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">Choose a photo and click <b>Find Matches</b> to see similar eBay listings. Tick rows to include them in the price range.</td></tr>`; return; }
+    results.forEach((r,i)=>{ const tr=document.createElement("tr");
+      const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("span"); cb.className="chk"+(sel.has(i)?" on":""); cb.onclick=()=>{ if(sel.has(i)) sel.delete(i); else sel.add(i); cb.classList.toggle("on"); paint(); }; tdC.appendChild(cb); tr.appendChild(tdC);
+      const td2=document.createElement("td"); td2.innerHTML=r.thumb?`<img src="${esc(r.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:6px;">`:""; tr.appendChild(td2);
+      const td3=document.createElement("td"); td3.style.fontSize="12px"; td3.textContent=r.title; tr.appendChild(td3);
+      const td4=document.createElement("td"); td4.textContent=r.condition||"—"; tr.appendChild(td4);
+      const td5=document.createElement("td"); td5.textContent=r.price?("$"+r.price):"—"; tr.appendChild(td5);
+      tb.appendChild(tr); });
+  }
+  render();
+}
+
 function openListedNoSku(){
   const id="listed-no-sku"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Listed, no SKU",width:940,height:600,popoutKey:"listednosku",
