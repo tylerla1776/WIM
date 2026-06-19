@@ -176,7 +176,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.5.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.0", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -235,6 +235,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.0","Listed, no SKU (Phase 1): new Discrepancies > Listed, no SKU screen in Warehouse mode. 'Pull New Listings' fetches your active eBay listings, hides the ones already filed in WIM, and shows the rest. Click File on one and it opens Add Inventory pre-filled with the listing's title, condition, price and photos so you just assign a slot/SKU; it's saved as Listed. If a pulled listing looks like a copy of something already filed (similar title + condition within your tolerance), WIM offers to file it as another quantity next to the existing item instead. Never merges automatically."],
   ["2.5.1","Condition-match tolerance is now configurable in Listing Configuration and defaults to Relaxed (within 2 steps on the category's eBay scale), so e.g. a Like new book listing can match an existing Good copy. Switch to Strict (1 step) anytime."],
   ["2.5.0","Foundation for pulling your own listings: WIM now uses eBay's official categories and each category's official condition scale (e.g. Books: Brand new -> Like new -> Very good -> Good -> Acceptable). Replaces the old placeholder categories/conditions. New Listing Configuration screen under Configuration (eBay seller name + fuzzy-title-match toggle). Adds the duplicate-match engine (same category, condition within one step on that scale, fuzzy title) that the upcoming Pull New Listings feature will use."],
   ["2.4.8","Polish: every column in Item Maintenance now has a filter caret (including Item Number, SKU, On Hand, and the Sold checkbox — whose filter offers Checked / Unchecked). The Floating/Docked control in the title bar is now a plain clickable icon instead of a button."],
@@ -304,6 +305,7 @@ const POPOUT_APPS={
   printcfg:{ title:"Print Configuration", open:()=>openPrintConfig() },
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
+  listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
   categories:{ title:"Category Maintenance", open:()=>openListMaintenance("section") },
@@ -472,6 +474,8 @@ function migrate(d){
   if(!d.ebay.seller) d.ebay.seller="";
   if(d.ebay.matchFuzzy==null) d.ebay.matchFuzzy=true;
   if(d.ebay.condTolerance!==1 && d.ebay.condTolerance!==2) d.ebay.condTolerance=2;
+  if(!Array.isArray(d.ebay.filedSkus)) d.ebay.filedSkus=[];
+  if(!Array.isArray(d.pulledListings)) d.pulledListings=[];
   d.meta.schemaVersion=SCHEMA_VERSION; return d;
 }
 let DB=null;
@@ -820,6 +824,7 @@ const TREE_WAREHOUSE=[
   {key:"catalog",icon:I.book,label:"Catalog"},
   {key:"item",icon:I.find,label:"Item Maintenance"},
   {key:"addsell",icon:I.plus,label:"Manage Inventory"},
+  {key:"whdiscrep",icon:I.find,label:"Discrepancies"},
   {key:"reports",icon:I.print,label:"Reports"},
   {key:"invoices",icon:I.cash,label:"Records"}
 ];
@@ -845,6 +850,7 @@ function nodeActions(node){
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance"];
   if(node.key==="addsell") return ["Add Inventory","Sell Inventory","Adjust Inventory"];
+  if(node.key==="whdiscrep") return ["Listed, no SKU"];
   if(node.key==="reports") return ["Aging Inventory","Item Report","Active Summary"];
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","View Live Inventory"];
@@ -932,6 +938,7 @@ function handleAction(k,a){
   if(k==="addsell"&&a==="Add Inventory") return showInventoryApps("add");
   if(k==="addsell"&&a==="Sell Inventory") return showInventoryApps("sell");
   if(k==="addsell"&&a==="Adjust Inventory") return launchApp("adjust");
+  if(k==="whdiscrep"&&a==="Listed, no SKU") return launchApp("listednosku");
   if(k==="reports"&&a==="Aging Inventory") return launchApp("aging");
   if(k==="reports"&&a==="Item Report") return launchApp("itemreport");
   if(k==="reports"&&a==="Active Summary") return launchApp("activesummary");
@@ -1687,10 +1694,10 @@ function openInvoiceDetail(inv){
 /* ============================================================ ITEM DETAIL ============================================================ */
 function openItemDetail(item,mode,nav){
   const isNew=mode==="new", isCat=mode==="catalog", ro=isCat;
-  const it=isNew?{id:crypto.randomUUID(),upc:"",desc:"",vendor:"HYVEE DISTRIBUTION",condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
+  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:"HYVEE DISTRIBUTION",condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
     unitCost:"0.000",retail:"0.00",onHand:"1",groups:[],category:"FRUIT",subCategory:"",image:"",slot:"",placement:null,sku:"",
     manualSlot:false,sold:false,createdAt:null,soldAt:null,soldBy:null,caseCost:"0.00",casePack:"",base:"0.00",mixMatch:"None - 0",
-    posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}:item;
+    posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}, item||{}):item;
   const wid=(isCat?"cat-":isNew?"item-new":"item-")+(it.id);
   if(openWindows[wid]){ focusWin(openWindows[wid].el); return; }
   const navHtml = (nav && nav.list && nav.list.length) ? `<span class="tbar-sep"></span><button class="tbtn" id="d-prev" title="Previous record" ${nav.index<=0?'disabled':''}>&#8249;</button><span style="font-size:12px;align-self:center;padding:0 6px;white-space:nowrap;">${nav.index+1} / ${nav.list.length}</span><button class="tbtn" id="d-next" title="Next record" ${nav.index>=nav.list.length-1?'disabled':''}>&#8250;</button>` : "";
@@ -2047,6 +2054,10 @@ function openItemDetail(item,mode,nav){
         ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
         DB.items.push(ni); created.push(ni); });
       recordAdds(created, SESSION.user.id, "Add");
+      if(it._pendingListing && created[0]){ const L=it._pendingListing;
+        created[0].listing=Object.assign({status:"listed",title:desc,price:"",qty:String(qty),descriptionId:null,ebayOfferId:null,ebaySku:null,listedAt:new Date().toISOString(),delistedAt:null}, L);
+        if(L.ebaySku){ if(!DB.ebay) DB.ebay={}; if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[]; if(!DB.ebay.filedSkus.includes(L.ebaySku)) DB.ebay.filedSkus.push(L.ebaySku); }
+        addHistory(created[0],"Filed from eBay listing"+(L.ebaySku?(" (eBay SKU "+L.ebaySku+")"):"")); }
     } else {
       const pl=placements[0]; const newSku=skuOf(pl.slot,pl.placement); const ch=[];
       if((it.desc||"")!==desc) ch.push('Description changed: "'+(it.desc||"")+'" → "'+desc+'"');
@@ -2819,6 +2830,75 @@ function openEbayFind(it, onDone){
     };
   }
   searchScreen();
+}
+
+/* ============================================================ LISTED, NO SKU (pull your own eBay listings into WIM) ============================================================ */
+function ebayCondLabel(c){ const m={NEW:"New",LIKE_NEW:"Like New",NEW_OTHER:"New (other)",NEW_WITH_DEFECTS:"New with defects",CERTIFIED_REFURBISHED:"Certified - Refurbished",EXCELLENT_REFURBISHED:"Excellent - Refurbished",VERY_GOOD_REFURBISHED:"Very Good - Refurbished",GOOD_REFURBISHED:"Good - Refurbished",SELLER_REFURBISHED:"Seller refurbished",USED_EXCELLENT:"Used - Excellent",USED_VERY_GOOD:"Used - Very Good",USED_GOOD:"Used - Good",USED_ACCEPTABLE:"Used - Acceptable",FOR_PARTS_OR_NOT_WORKING:"For parts or not working"}; return m[c]||c||""; }
+async function pullNewListings(after){
+  if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+  if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
+  const prog=uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;">Contacting eBay…</div>`,[]);
+  const set=t=>{ const e=document.getElementById("pnl-prog"); if(e) e.textContent=t; };
+  try{
+    const inv=await EBAY.user("/sell/inventory/v1/inventory_item?limit=100&offset=0", EBAY_SCOPE_INV);
+    if(!inv.ok){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); return; }
+    const items=(JSON.parse(inv.body).inventoryItems)||[];
+    const known=new Set(); DB.items.forEach(x=>{ if(x.listing&&x.listing.ebaySku) known.add(x.listing.ebaySku); if(x.sku) known.add(x.sku); });
+    (DB.ebay.filedSkus||[]).forEach(s=>known.add(s));
+    const candidates=[];
+    for(let n=0;n<items.length;n++){ const ei=items[n]; const sku=ei.sku; if(known.has(sku)) continue;
+      set("Reading "+(n+1)+" of "+items.length+"…");
+      let price="", qty="1", offerId=null;
+      try{ const off=await EBAY.user("/sell/inventory/v1/offer?sku="+encodeURIComponent(sku), EBAY_SCOPE_INV);
+        if(off.ok){ const o=((JSON.parse(off.body).offers)||[])[0]; if(o){ offerId=o.offerId; price=(o.pricingSummary&&o.pricingSummary.price&&o.pricingSummary.price.value)||""; qty=(o.availableQuantity!=null?String(o.availableQuantity):"1"); } } }catch(e){}
+      const p=ei.product||{};
+      candidates.push({ ebaySku:sku, offerId, title:p.title||sku, condEnum:ei.condition||"", condLabel:ebayCondLabel(ei.condition), price, qty, images:(p.imageUrls||[]).slice(), thumb:(p.imageUrls||[])[0]||"" });
+    }
+    DB.pulledListings=candidates; DB.ebay.lastPullAt=new Date().toISOString(); save();
+    closeAllModals(); if(after) after(candidates);
+  }catch(e){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); }
+}
+function openListedNoSku(){
+  const id="listed-no-sku"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Listed, no SKU",width:940,height:600,popoutKey:"listednosku",
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">eBay listings you've created that aren't filed in WIM yet</span>`});
+  function render(){
+    const list=(DB.pulledListings||[]);
+    body.innerHTML=`<div style="padding:12px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button class="btn primary" id="pnl-pull" ${WIM_IS_DESKTOP?'':'disabled'}>Pull New Listings</button>
+        <span class="smallhint">${DB.ebay&&DB.ebay.lastPullAt?("Last pulled "+new Date(DB.ebay.lastPullAt).toLocaleString()+" · "):""}${list.length} listing(s) waiting to be filed</span>
+        <span style="flex:1;"></span><span class="smallhint">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span></div>
+      <div id="pnl-msg" class="smallhint" style="padding:0 14px 6px;"></div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:150px;">eBay Condition</th><th style="width:80px;">Price</th><th style="width:50px;">Qty</th><th style="width:90px;"></th></tr></thead><tbody id="pnl-tb"></tbody></table></div>`;
+    body.querySelector("#pnl-pull").onclick=()=>pullNewListings(()=>render());
+    const tb=body.querySelector("#pnl-tb");
+    if(!list.length){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">Nothing waiting. Click <b>Pull New Listings</b> to fetch active eBay listings that haven't been filed in WIM yet.</td></tr>`; return; }
+    list.forEach((c)=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${c.thumb?`<img src="${esc(c.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
+        <td style="font-size:12px;">${esc(c.title)}</td><td>${esc(c.condLabel||"—")}</td><td>${c.price?("$"+esc(c.price)):"—"}</td><td class="cc">${esc(c.qty||"1")}</td>`;
+      const tdF=document.createElement("td"); tdF.className="cc"; const f=document.createElement("button"); f.className="btn sm"; f.textContent="File…"; f.onclick=()=>fileListing(c,()=>render()); tdF.appendChild(f); tr.appendChild(tdF);
+      tb.appendChild(tr); });
+  }
+  function fileListing(c,done){
+    const dupe=findDupeCandidate(null, c.title, c.condLabel);
+    const proceedNew=()=>{
+      const prefill={ desc:c.title, condition:c.condLabel||"", image:c.images[0]||"", images:c.images.slice(), imageFeatured:0,
+        _pendingListing:{ status:"listed", title:c.title, price:c.price||"", qty:c.qty||"1", ebaySku:c.ebaySku, ebayOfferId:c.offerId, ebayImageUrls:c.images.slice() } };
+      // remove from the pending list once the user opens it to file (it'll be re-added on next pull only if still unmatched)
+      DB.pulledListings=(DB.pulledListings||[]).filter(x=>x.ebaySku!==c.ebaySku); save();
+      openItemDetail(prefill,"new"); if(done) done();
+    };
+    if(dupe){
+      uiChoose(`This looks like another copy of "<b>${esc(dupe.desc)}</b>" (SKU ${esc(dupe.sku)}, ${esc(dupe.condition||"—")}). File it as another quantity there, or as a brand-new item?`,
+        [ {label:"Add as quantity to "+dupe.sku, onClick:()=>{ const add=Math.max(1,parseInt(c.qty,10)||1); dupe.onHand=String((parseInt(dupe.onHand,10)||0)+add);
+             if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[]; if(!DB.ebay.filedSkus.includes(c.ebaySku)) DB.ebay.filedSkus.push(c.ebaySku);
+             DB.pulledListings=(DB.pulledListings||[]).filter(x=>x.ebaySku!==c.ebaySku);
+             addHistory(dupe,"Added "+add+" qty from pulled eBay listing (eBay SKU "+c.ebaySku+")"); save(); refreshSearchWindows&&refreshSearchWindows();
+             uiAlert("Added "+add+" to "+dupe.sku+" ("+dupe.desc+"). Now "+dupe.onHand+" on hand."); if(done) done(); } },
+          {label:"File as new item", onClick:proceedNew} ], "Possible duplicate");
+    } else proceedNew();
+  }
+  render();
 }
 
 async function pullActiveListings(after){
