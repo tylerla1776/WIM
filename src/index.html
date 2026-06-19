@@ -141,6 +141,81 @@
   ::-webkit-scrollbar{width:14px;height:14px;}
   ::-webkit-scrollbar-thumb{background:#c4c4c4;border:3px solid #f0f0f0;border-radius:8px;}
   ::-webkit-scrollbar-thumb:hover{background:#a8a8a8;}
+  /* ============================================================ MODERN SKIN (v2.6.1) ============================================================ */
+  :root{--chrome:#ffffff;--field:#ffffff;--field-border:#d7dce3;--link:#3b6fd4;--accent:#4f7cf7;--accent-d:#3f6ae0;--line:#eaedf3;--muted:#7b828e;}
+  body{font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:#1f2733;background:#e9edf4;}
+  #desktop{background:radial-gradient(120% 90% at 85% 10%,#f4f7fc 0%,#e7ecf5 45%,#dfe5f0 100%);}
+  #desktop::before{background:radial-gradient(100% 70% at 80% 15%,rgba(255,255,255,.5),transparent 60%);}
+  .window{background:#fff;border:1px solid #e3e7ef;border-radius:14px;box-shadow:0 18px 50px rgba(31,45,71,.20),0 2px 8px rgba(31,45,71,.08);}
+  .titlebar{height:42px;background:#fff;border-bottom:1px solid var(--line);border-radius:14px 14px 0 0;padding:0 8px 0 14px;}
+  .titlebar .ttl{font-size:14px;font-weight:600;color:#28313f;}
+  .winbtn{border-radius:8px;color:#5b6270;}
+  .winbtn:hover{background:#f0f3f8;}.winbtn.close:hover{background:#ef4d52;color:#fff;}
+  .toolbar{background:#fff;border-bottom:1px solid var(--line);padding:7px 12px;gap:4px;}
+  .tbtn{border-radius:8px;color:#5b6270;}
+  .tbtn:hover{border-color:transparent;background:#eef2fb;color:var(--accent-d);}
+  .tbar-sep{background:var(--line);}
+  input.txt,select.cmb{border:1px solid var(--field-border);border-radius:8px;height:30px;padding:4px 10px;font-size:13px;background:#fff;transition:border-color .12s,box-shadow .12s;}
+  input.txt:focus,select.cmb:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,124,247,.15);}
+  input.txt[readonly]{background:#f4f6fa;color:#5b6270;}
+  input.txt:disabled,select.cmb:disabled{background:#f1f3f7;color:#a3a9b4;}
+  select.cmb{padding:4px 8px;}
+  fieldset.gb{border:1px solid var(--line);border-radius:12px;background:#fbfcfe;padding:14px 16px;}
+  fieldset.gb>legend{font-size:11.5px;font-weight:600;letter-spacing:.02em;color:#6b7280;text-transform:uppercase;padding:0 6px;}
+  .btn{background:#fff;border:1px solid #d7dce3;border-radius:9px;padding:7px 18px;font-size:13px;font-weight:500;color:#33404f;box-shadow:0 1px 2px rgba(31,45,71,.06);transition:all .12s;}
+  .btn:hover{border-color:#c2cbe0;background:#f7f9fc;box-shadow:0 2px 6px rgba(31,45,71,.10);}
+  .btn:active{background:#eef1f6;transform:translateY(1px);}
+  .btn:disabled{opacity:.5;background:#f4f6fa;box-shadow:none;transform:none;}
+  .btn.primary{background:linear-gradient(180deg,#5b85f8,#4f7cf7);border-color:#3f6ae0;color:#fff;font-weight:600;box-shadow:0 2px 8px rgba(79,124,247,.35);}
+  .btn.primary:hover{background:linear-gradient(180deg,#6a90fa,#4a76f0);}
+  .btn.sm{padding:5px 13px;border-radius:8px;}
+  .btn.danger{color:#d23f3f;border-color:#f0c4c4;background:#fff;}
+  .btn.danger:hover{background:#fdf2f2;border-color:#e7a9a9;}
+  .chk{border-radius:5px;border-color:#c4cad3;}
+  .chk.on{background:var(--accent);border-color:var(--accent);}
+  .launcher{border-radius:16px;}
+  .launcher .body,.launcher .tree-pane,.launcher .detail-pane{background:#fff;}
+  .launcher .panes{border-radius:0 0 16px 16px;overflow:hidden;}
+  .tree-pane{border-right:1px solid var(--line);}
+  .launcher-foot{border-top:1px solid var(--line);background:#fbfcfe;border-radius:0 0 16px 16px;color:var(--muted);}
+  .node{border-radius:8px;padding:5px 7px;}
+  .node:hover{background:#f1f5fd;}.node.sel{background:#e6eefc;color:var(--accent-d);font-weight:600;}
+  .node .exp{border-radius:5px;border-color:#cbd2dc;color:#6b7280;}
+  .action{border-radius:8px;padding:6px 8px;}
+  .action:hover{background:#f1f5fd;text-decoration:none;color:var(--accent-d);}
+  .tabs{background:#fff;border-bottom:1px solid var(--line);padding:0 14px;gap:4px;}
+  .tab{border:none;border-radius:8px 8px 0 0;color:#6b7280;font-weight:500;padding:9px 16px;}
+  .tab.sel{background:#eef2fb;color:var(--accent-d);font-weight:600;border:none;top:0;}
+  .tab:not(.sel):hover{background:#f5f7fb;}
+  .resultwrap{border:1px solid var(--line);border-radius:12px;background:#fff;}
+  table.res th{background:#f7f9fc;border:none;border-bottom:1px solid #e5e9f0;padding:10px 12px;font-weight:600;color:#5b6270;font-size:12px;}
+  table.res th:hover{background:#eef2f8;}
+  table.res th .arr{color:var(--accent);}
+  table.res td{border:none;border-bottom:1px solid #f0f2f6;padding:9px 12px;color:#2b3340;}
+  table.res tbody tr:nth-child(even){background:#fbfcfe;}
+  table.res tbody tr:hover{background:#f1f5fd;}table.res tbody tr.sel{background:#e6eefc;}
+  .badge{font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:#eaeef6;color:#5b6270;letter-spacing:.02em;}
+  .badge.warn{background:#fdecec;color:#d23f3f;}.badge.ok{background:#e6f6ed;color:#1f9d57;}.badge.rev{background:#f1e9fc;color:#7a45c4;}
+  .statusbar{background:#fff;border-top:1px solid var(--line);border-radius:0 0 14px 14px;color:#5b6270;}
+  .banner{background:#eef4ff;border:1px solid #d4e1f8;border-radius:10px;color:#2c4f86;}
+  .note{color:#b06a00;}
+  .reccount{border:1px solid var(--line);border-radius:8px;color:#5b6270;}
+  .imgbox{border:1px solid #e3e7ef;border-radius:12px;background:#f8fafc;}
+  .listbox{border:1px solid var(--line);border-radius:10px;}
+  .listbox .li{border-bottom:1px solid #f0f2f6;}
+  .listbox .li:hover{background:#f1f5fd;}.listbox .li.sel{background:#e6eefc;}
+  .login{border-radius:16px;}
+  .login .help{background:var(--accent);}
+  .taskbar{background:rgba(255,255,255,.88);border-top:1px solid var(--line);backdrop-filter:blur(10px);}
+  .tb-item{border-radius:8px;}.tb-item:hover{background:#eef2fb;}
+  .ui-modal{border:1px solid #e3e7ef;border-radius:14px;box-shadow:0 24px 60px rgba(31,45,71,.28);}
+  .ui-modal .pickrow{border:1px solid var(--line);border-radius:9px;}
+  .ui-modal .pickrow.on{background:#eef4ff;border-color:#bcd0f5;}
+  ::-webkit-scrollbar{width:11px;height:11px;}
+  ::-webkit-scrollbar-thumb{background:#cdd4df;border:3px solid transparent;background-clip:padding-box;border-radius:8px;}
+  ::-webkit-scrollbar-thumb:hover{background:#b3bcca;background-clip:padding-box;}
+  body.popout .window{border-radius:0;box-shadow:none;border:none;}
+  body.popout .titlebar{border-radius:0;}
 </style>
 </head>
 <body>
@@ -176,7 +251,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.0", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -235,6 +310,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.1","Modern visual refresh (phase 1): white rounded cards with soft shadows, a friendlier font, an indigo accent, pill-shaped status badges, cleaner tables with more breathing room, and softer buttons and fields throughout — while keeping WIM's draggable floating-window workflow. Same screens, fresh look."],
   ["2.6.0","Listed, no SKU (Phase 1): new Discrepancies > Listed, no SKU screen in Warehouse mode. 'Pull New Listings' fetches your active eBay listings, hides the ones already filed in WIM, and shows the rest. Click File on one and it opens Add Inventory pre-filled with the listing's title, condition, price and photos so you just assign a slot/SKU; it's saved as Listed. If a pulled listing looks like a copy of something already filed (similar title + condition within your tolerance), WIM offers to file it as another quantity next to the existing item instead. Never merges automatically."],
   ["2.5.1","Condition-match tolerance is now configurable in Listing Configuration and defaults to Relaxed (within 2 steps on the category's eBay scale), so e.g. a Like new book listing can match an existing Good copy. Switch to Strict (1 step) anytime."],
   ["2.5.0","Foundation for pulling your own listings: WIM now uses eBay's official categories and each category's official condition scale (e.g. Books: Brand new -> Like new -> Very good -> Good -> Acceptable). Replaces the old placeholder categories/conditions. New Listing Configuration screen under Configuration (eBay seller name + fuzzy-title-match toggle). Adds the duplicate-match engine (same category, condition within one step on that scale, fuzzy title) that the upcoming Pull New Listings feature will use."],
