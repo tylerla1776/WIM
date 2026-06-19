@@ -251,7 +251,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.2", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -310,6 +310,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.2","Dashboard home screen (modern UI phase 2): the launcher now opens to a Dashboard with summary cards (Active Items, Units on Hand, Listed on eBay, Sold This Month), an Items-Sold chart for the last 6 months, a Top Categories breakdown, and inventory value at cost. Click a menu option to open a tool, or click the WIM title to return to the Dashboard."],
   ["2.6.1","Modern visual refresh (phase 1): white rounded cards with soft shadows, a friendlier font, an indigo accent, pill-shaped status badges, cleaner tables with more breathing room, and softer buttons and fields throughout — while keeping WIM's draggable floating-window workflow. Same screens, fresh look."],
   ["2.6.0","Listed, no SKU (Phase 1): new Discrepancies > Listed, no SKU screen in Warehouse mode. 'Pull New Listings' fetches your active eBay listings, hides the ones already filed in WIM, and shows the rest. Click File on one and it opens Add Inventory pre-filled with the listing's title, condition, price and photos so you just assign a slot/SKU; it's saved as Listed. If a pulled listing looks like a copy of something already filed (similar title + condition within your tolerance), WIM offers to file it as another quantity next to the existing item instead. Never merges automatically."],
   ["2.5.1","Condition-match tolerance is now configurable in Listing Configuration and defaults to Relaxed (within 2 steps on the category's eBay scale), so e.g. a Like new book listing can match an existing Good copy. Switch to Strict (1 step) anytime."],
@@ -955,6 +956,62 @@ function showLauncher(){
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
+  try{ if(!treeState.sel) renderDashboard(); }catch(e){ console.error("renderDashboard failed:",e); }
+  const homeGo=()=>{ treeState.sel=null; renderTree(); renderDashboard(); };
+  const ttlEl=win.querySelector(".ttl"); if(ttlEl){ ttlEl.style.cursor="pointer"; ttlEl.title="Back to Dashboard"; ttlEl.onclick=homeGo; }
+}
+function renderDashboard(){
+  const dp=document.getElementById("detail-pane"); if(!dp) return;
+  const items=DB.items||[];
+  const active=items.filter(i=>!i.sold);
+  const units=active.reduce((s,i)=>s+(parseInt(i.onHand,10)||0),0);
+  const listed=items.filter(i=>i.listing&&i.listing.status==="listed").length;
+  const now=new Date(), mKey=d=>d?(new Date(d)).getFullYear()+"-"+((new Date(d)).getMonth()+1):"";
+  const thisM=now.getFullYear()+"-"+(now.getMonth()+1);
+  const soldThisMonth=items.filter(i=>i.soldAt && mKey(i.soldAt)===thisM).length;
+  const invValue=active.reduce((s,i)=>s+((parseFloat(i.unitCost)||0)*(parseInt(i.onHand,10)||0)),0);
+  // last 6 months sold counts
+  const months=[]; for(let k=5;k>=0;k--){ const d=new Date(now.getFullYear(),now.getMonth()-k,1); months.push({key:d.getFullYear()+"-"+(d.getMonth()+1),label:d.toLocaleString(undefined,{month:"short"})}); }
+  const soldByM={}; months.forEach(m=>soldByM[m.key]=0); items.forEach(i=>{ if(i.soldAt){ const k=mKey(i.soldAt); if(k in soldByM) soldByM[k]++; } });
+  const series=months.map(m=>soldByM[m.key]); const maxV=Math.max(1,...series);
+  // top categories by active count
+  const catCount={}; active.forEach(i=>{ const c=i.section||"—"; catCount[c]=(catCount[c]||0)+1; });
+  const topCats=Object.entries(catCount).sort((a,b)=>b[1]-a[1]).slice(0,5); const maxCat=Math.max(1,...topCats.map(c=>c[1]));
+  const card=(label,val,accent,sub)=>`<div style="flex:1;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 2px 8px rgba(31,45,71,.06);">
+      <div style="font-size:12px;color:#7b828e;font-weight:500;">${label}</div>
+      <div style="font-size:26px;font-weight:700;color:#28313f;margin-top:4px;line-height:1.1;">${val}</div>
+      ${sub?`<div style="font-size:11px;color:${accent};margin-top:4px;font-weight:600;">${sub}</div>`:""}</div>`;
+  // build SVG area chart
+  const W=520,H=150,pad=24, n=series.length, iw=W-pad*2, ih=H-pad*2;
+  const xs=i=> pad + (n===1?iw/2:(iw*i/(n-1))), ys=v=> pad + ih - (v/maxV)*ih;
+  const pts=series.map((v,i)=>[xs(i),ys(v)]);
+  const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const area=line+" L"+xs(n-1).toFixed(1)+" "+(pad+ih)+" L"+xs(0).toFixed(1)+" "+(pad+ih)+" Z";
+  const dots=pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#4f7cf7"/>`).join("");
+  const xlabels=months.map((m,i)=>`<text x="${xs(i).toFixed(1)}" y="${H-6}" font-size="10" fill="#9aa3ad" text-anchor="middle">${m.label}</text>`).join("");
+  const vlabels=series.map((v,i)=> v>0?`<text x="${xs(i).toFixed(1)}" y="${(ys(v)-8).toFixed(1)}" font-size="10" fill="#5b6270" text-anchor="middle" font-weight="600">${v}</text>`:"").join("");
+  dp.innerHTML=`
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;"><div style="font-size:18px;font-weight:700;color:#28313f;">Dashboard</div><div style="font-size:12px;color:#9aa3ad;">${isLive()?"Live (eBay)":"Warehouse"} · ${now.toLocaleDateString()}</div></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+      ${card("Active Items",active.length.toLocaleString(),"#4f7cf7")}
+      ${card("Units on Hand",units.toLocaleString(),"#1f9d57")}
+      ${card("Listed on eBay",listed.toLocaleString(),"#7a45c4")}
+      ${card("Sold This Month",soldThisMonth.toLocaleString(),"#e08a1f")}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div style="flex:2;min-width:300px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);">
+        <div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Items Sold</div>
+        <div style="font-size:11px;color:#9aa3ad;margin-bottom:8px;">Last 6 months</div>
+        <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;"><defs><linearGradient id="dashg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4f7cf7" stop-opacity="0.22"/><stop offset="100%" stop-color="#4f7cf7" stop-opacity="0"/></linearGradient></defs>
+          <path d="${area}" fill="url(#dashg)"/><path d="${line}" fill="none" stroke="#4f7cf7" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}${vlabels}${xlabels}</svg>
+      </div>
+      <div style="flex:1;min-width:200px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);">
+        <div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Top Categories</div>
+        <div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">Active items by category</div>
+        ${topCats.length?topCats.map(([c,v])=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;">${esc(c)}</span><span style="font-weight:600;">${v}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(v/maxCat*100)}%;background:linear-gradient(90deg,#5b85f8,#4f7cf7);border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No active items yet.</div>'}
+      </div>
+    </div>
+    <div style="margin-top:14px;font-size:12px;color:#9aa3ad;">Pick an option on the left to get started, or click a tile to open a tool.${invValue>0?` &nbsp;·&nbsp; Inventory value (at cost): <b style="color:#3b434f;">$${invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b>`:""}</div>`;
 }
 async function checkLiveStatus(){
   const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
