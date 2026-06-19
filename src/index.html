@@ -147,11 +147,11 @@
   #desktop{background:radial-gradient(120% 90% at 85% 10%,#f4f7fc 0%,#e7ecf5 45%,#dfe5f0 100%);}
   #desktop::before{background:radial-gradient(100% 70% at 80% 15%,rgba(255,255,255,.5),transparent 60%);}
   .window{background:#fff;border:1px solid #e3e7ef;border-radius:14px;box-shadow:0 18px 50px rgba(31,45,71,.20),0 2px 8px rgba(31,45,71,.08);}
-  .titlebar{height:42px;background:#fff;border-bottom:1px solid var(--line);border-radius:14px 14px 0 0;padding:0 8px 0 14px;}
+  .titlebar{height:42px;background:#edf2fc;border-bottom:1px solid #dde6f5;border-radius:14px 14px 0 0;padding:0 8px 0 14px;}
   .titlebar .ttl{font-size:14px;font-weight:600;color:#28313f;}
   .winbtn{border-radius:8px;color:#5b6270;}
   .winbtn:hover{background:#f0f3f8;}.winbtn.close:hover{background:#ef4d52;color:#fff;}
-  .toolbar{background:#fff;border-bottom:1px solid var(--line);padding:7px 12px;gap:4px;}
+  .toolbar{background:#f5f8fe;border-bottom:1px solid #e7edf9;padding:7px 12px;gap:4px;}
   .tbtn{border-radius:8px;color:#5b6270;}
   .tbtn:hover{border-color:transparent;background:#eef2fb;color:var(--accent-d);}
   .tbar-sep{background:var(--line);}
@@ -204,7 +204,10 @@
   .listbox{border:1px solid var(--line);border-radius:10px;}
   .listbox .li{border-bottom:1px solid #f0f2f6;}
   .listbox .li:hover{background:#f1f5fd;}.listbox .li.sel{background:#e6eefc;}
-  .login{border-radius:16px;}
+  .login{border-radius:0;width:100%;height:100%;max-width:none;max-height:none;border:none;box-shadow:none;}
+  .window.login>.titlebar{border-radius:0;}
+  .window.login>.titlebar .winbtns{display:none;}
+  .window.login .body{max-width:600px;width:100%;margin:0 auto;padding-top:38px;}
   .login .help{background:var(--accent);}
   .taskbar{background:rgba(255,255,255,.88);border-top:1px solid var(--line);backdrop-filter:blur(10px);}
   .tb-item{border-radius:8px;}.tb-item:hover{background:#eef2fb;}
@@ -251,7 +254,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.2", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -310,6 +313,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.3","UI refinement: window title bars and toolbars now have a subtle indigo tint so they read as distinct bands instead of an all-white sheet (applied to every window). The login screen now fills the whole app surface instead of appearing as a small floating window sitting on a blank background."],
   ["2.6.2","Dashboard home screen (modern UI phase 2): the launcher now opens to a Dashboard with summary cards (Active Items, Units on Hand, Listed on eBay, Sold This Month), an Items-Sold chart for the last 6 months, a Top Categories breakdown, and inventory value at cost. Click a menu option to open a tool, or click the WIM title to return to the Dashboard."],
   ["2.6.1","Modern visual refresh (phase 1): white rounded cards with soft shadows, a friendlier font, an indigo accent, pill-shaped status badges, cleaner tables with more breathing room, and softer buttons and fields throughout — while keeping WIM's draggable floating-window workflow. Same screens, fresh look."],
   ["2.6.0","Listed, no SKU (Phase 1): new Discrepancies > Listed, no SKU screen in Warehouse mode. 'Pull New Listings' fetches your active eBay listings, hides the ones already filed in WIM, and shows the rest. Click File on one and it opens Add Inventory pre-filled with the listing's title, condition, price and photos so you just assign a slot/SKU; it's saved as Listed. If a pulled listing looks like a copy of something already filed (similar title + condition within your tolerance), WIM offers to file it as another quantity next to the existing item instead. Never merges automatically."],
