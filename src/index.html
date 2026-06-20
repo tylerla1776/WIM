@@ -315,7 +315,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.9", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.10", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +374,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.10","Enhanced messages diagnostics: now shows the masked App ID, Cert ID and token with their lengths and a check for stray spaces/newlines, plus the token prefix — to pinpoint why the user token is rejected (refresh vs access token, wrong cert, hidden whitespace)."],
   ["2.6.9","Messages diagnostics: added a Diagnose button that tests your token and probes the eBay messaging endpoints, plus made all eBay error/raw output selectable with a Copy button so it can be shared easily. This is to pinpoint why the inbox returns an error."],
   ["2.6.8","Fix: the Messages window crashed on open (the Load Inbox button lives in the toolbar but was being looked up in the body), which also showed as a pop-out failure. Now opens correctly."],
   ["2.6.7","Messages, phase 1 (read): the Communication tool is now an in-app inbox. Click Load Inbox to pull your eBay buyer conversations, click one to read the full thread, and if the message is about an item already in WIM the matching item card (photo, SKU, price) shows alongside with an Open item button. Read-only for now; replying from WIM comes next. Uses the commerce.message scope."],
@@ -3353,8 +3354,16 @@ function openCommunication(){
     if(!EBAY.ready()){ uiAlert("Set up your eBay keys first (Configuration → eBay Connection)."); return; }
     if(!WIM_IS_DESKTOP){ uiAlert("Diagnostics run in the desktop app."); return; }
     const env=(DB.ebay.env||"sandbox");
+    const ap=DB.ebay.appId||"", ce=DB.ebay.certId||"", tk=DB.ebay.refreshToken||"";
+    const ws=s=>{ const issues=[]; if(s!==s.trim()) issues.push("has leading/trailing spaces"); if(/\s/.test(s)) issues.push("contains a space/newline inside"); return issues.length?(" ⚠ "+issues.join(", ")):" (clean)"; };
+    const mask=s=> s? (s.slice(0,6)+"…"+s.slice(-4)+" [len "+s.length+"]") : "(blank)";
     let out="WIM Messages diagnostics\n=========================\n";
-    out+="Environment: "+env+"\nApp ID: "+(DB.ebay.appId||"(blank)")+"\nMarketplace: "+EBAY.mkt()+"\nToken present: "+(DB.ebay.refreshToken?("yes, starts "+DB.ebay.refreshToken.slice(0,8)+"…"):"NO")+"\n\n";
+    out+="Environment: "+env+"\n";
+    out+="App ID:  "+mask(ap)+ws(ap)+"\n";
+    out+="Cert ID: "+mask(ce)+ws(ce)+"\n";
+    out+="Token:   "+mask(tk)+ws(tk)+"\n";
+    out+="Token prefix: "+(tk?tk.slice(0,10):"(none)")+"   (a refresh token usually starts v^1.1#i^1#... and is ~400+ chars; an access token is shorter)\n";
+    out+="Marketplace: "+EBAY.mkt()+"\n\n";
     // Step 1: does the USER token work at all (known-good inventory scope)?
     out+="[1] User-token test (sell.inventory) — proves the token itself is valid:\n";
     try{ const r=await EBAY.user("/sell/inventory/v1/inventory_item?limit=1", EBAY_SCOPE_INV); out+="    HTTP "+r.status+"  "+(r.ok?"OK":"FAIL")+"\n    "+(r.body||"").slice(0,200)+"\n\n"; }
