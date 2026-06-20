@@ -315,7 +315,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.10", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.11", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +374,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.11","Likely fix for the eBay user-token 'invalid_grant' error: if a refresh token was generated from a URL-encoded authorization code (containing %23/%5E/%3D instead of #/^/=), it looks valid but always fails. WIM now auto-decodes URL-encoded tokens when you save them, and the Diagnose tool detects and tests this case."],
   ["2.6.10","Enhanced messages diagnostics: now shows the masked App ID, Cert ID and token with their lengths and a check for stray spaces/newlines, plus the token prefix — to pinpoint why the user token is rejected (refresh vs access token, wrong cert, hidden whitespace)."],
   ["2.6.9","Messages diagnostics: added a Diagnose button that tests your token and probes the eBay messaging endpoints, plus made all eBay error/raw output selectable with a Copy button so it can be shared easily. This is to pinpoint why the inbox returns an error."],
   ["2.6.8","Fix: the Messages window crashed on open (the Load Inbox button lives in the toolbar but was being looked up in the body), which also showed as a pop-out failure. Now opens correctly."],
@@ -1557,7 +1558,8 @@ function openEbayConfig(){
   const envSel=body.querySelector("#eb-env"), appI=body.querySelector("#eb-app"), certI=body.querySelector("#eb-cert"), tokI=body.querySelector("#eb-tok");
   if(!DB.ebay.creds) DB.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:""}, production:{appId:"",certId:"",refreshToken:""} };
   let shownEnv=envSel.value;
-  function stash(env){ DB.ebay.creds[env]={ appId:appI.value.trim(), certId:certI.value.trim(), refreshToken:tokI.value.trim() }; }
+  function deUrl(t){ if(t && t.indexOf("%")>=0){ try{ return decodeURIComponent(t); }catch(e){ return t; } } return t; }
+  function stash(env){ DB.ebay.creds[env]={ appId:appI.value.trim(), certId:certI.value.trim(), refreshToken:deUrl(tokI.value.trim()) }; }
   function loadEnv(env){ const c=DB.ebay.creds[env]||{appId:"",certId:"",refreshToken:""}; appI.value=c.appId||""; certI.value=c.certId||""; tokI.value=c.refreshToken||""; }
   envSel.onchange=()=>{ stash(shownEnv); shownEnv=envSel.value; loadEnv(shownEnv); msg.style.color="#555"; msg.textContent='Showing '+shownEnv+' keys. Press Save to keep them.'; };
   body.querySelector("#eb-save").onclick=()=>{ const env=envSel.value; stash(env);
@@ -3381,6 +3383,16 @@ function openCommunication(){
       try{ const r=await EBAY.user(path, EBAY_SCOPE_MSG); out+="    "+path+"\n      HTTP "+r.status+"  "+(r.ok?"OK ✓":"")+"\n      "+(r.body||"").slice(0,180)+"\n"; }
       catch(e){ out+="    "+path+"\n      threw: "+(e&&e.message?e.message:e)+"\n"; }
     }
+    // Step 3: in case the token has URL-encoded characters (%23 etc.), retry decoded
+    out+="\n[3] URL-encoding check (a token minted from an un-decoded auth code fails like this):\n";
+    const hasPct = tk.indexOf("%")>=0;
+    out+="    Token contains '%': "+(hasPct?"YES → likely URL-encoded, this is probably the cause":"no")+"\n";
+    let dec=tk; try{ if(hasPct) dec=decodeURIComponent(tk); }catch(e){ dec=tk; out+="    (decode failed: "+e+")\n"; }
+    if(dec!==tk){
+      try{ const r=await wimDesktop.invoke("ebay_get_user",{env,appId:ap,certId:ce,refreshToken:dec,scope:EBAY_SCOPE_INV,marketplace:EBAY.mkt(),path:"/sell/inventory/v1/inventory_item?limit=1"});
+        out+="    decoded-token test: HTTP "+r.status+(r.ok?"  ✓✓ DECODING FIXES IT — WIM will auto-fix this on save":" still failing")+"\n    "+(r.body||"").slice(0,160)+"\n"; }
+      catch(e){ out+="    decoded test threw: "+(e&&e.message?e.message:e)+"\n"; }
+    } else { out+="    (no % found, so URL-encoding is not the cause here)\n"; }
     showCopyable("Messages diagnostics (copy & paste this to me)", out);
   }
 }
