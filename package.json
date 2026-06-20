@@ -1,6 +1,6 @@
 {
   "name": "wim",
-  "version": "2.6.8",
+  "version": "2.6.9",
   "private": true,
   "description": "WIM — Warehouse Inventory Management (desktop build)",
   "scripts": {
