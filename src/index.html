@@ -227,59 +227,59 @@
   ::-webkit-scrollbar-thumb:hover{background:#b3bcca;background-clip:padding-box;}
   body.popout .window{border-radius:0;box-shadow:none;border:none;}
   body.popout .titlebar{border-radius:0;}
-  /* ============================================================ PURPLE THEME (v2.6.5) ============================================================ */
-  :root{--accent:#9D00FF;--accent-d:#8400d6;--link:#8400d6;--line:#ece6f4;}
-  body{background:#efe9f7;color:#241a2e;}
-  #desktop{background:radial-gradient(120% 90% at 85% 8%,#f6f0fd 0%,#ece2f7 48%,#e3d7f2 100%);}
-  /* bold purple header band */
-  .titlebar{background:linear-gradient(180deg,#a722ff,#9D00FF);border-bottom:1px solid #8400d6;}
+  /* ============================================================ GRAY THEME (v2.6.6) ============================================================ */
+  :root{--accent:#3f74d6;--accent-d:#2f60bf;--link:#2f60bf;--line:#e4e7ec;}
+  body{background:#e7e9ee;color:#262b33;}
+  #desktop{background:radial-gradient(120% 90% at 85% 8%,#f3f5f8 0%,#e6e9ee 48%,#dde1e8 100%);}
+  /* medium-gray header band */
+  .titlebar{background:linear-gradient(180deg,#646d7a,#5b6470);border-bottom:1px solid #4d5562;}
   .titlebar .ttl{color:#ffffff;font-weight:600;}
-  .titlebar .appicon{filter:brightness(0) invert(1);opacity:.95;}
+  .titlebar .appicon{filter:brightness(0) invert(1);opacity:.92;}
   .titlebar .winbtn{color:#ffffff;}
-  .titlebar .winbtn:hover{background:rgba(255,255,255,.20);}
+  .titlebar .winbtn:hover{background:rgba(255,255,255,.18);}
   .titlebar .winbtn.close:hover{background:#ef4d52;color:#fff;}
-  .titlebar .btn{background:rgba(255,255,255,.92);border-color:rgba(255,255,255,.5);color:#5a2a86;}
+  .titlebar .btn{background:rgba(255,255,255,.94);border-color:rgba(255,255,255,.45);color:#3c4350;}
   .titlebar .btn:hover{background:#fff;}
-  .titlebar .btn.close{color:#7a2cb5;}
-  /* lighter purple surfaces */
-  .toolbar{background:#f6eefe;border-bottom:1px solid #ecd9fb;}
-  .tbtn{color:#6b4a86;}
-  .tbtn:hover{background:#f1e3fd;color:var(--accent-d);}
-  .body,.pane-tabbody,.statusbar{background:#f4eefb;}
-  .searchform,.imd-top,.resultwrap{border-color:#ece6f4;}
-  input.txt:focus,select.cmb:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(157,0,255,.16);}
-  fieldset.gb{background:#faf6fe;border-color:#ece6f4;}
-  fieldset.gb>legend{color:#7a5a96;}
-  .btn.primary{background:linear-gradient(180deg,#ab2bff,#9D00FF);border-color:#8400d6;box-shadow:0 2px 8px rgba(157,0,255,.32);}
-  .btn.primary:hover{background:linear-gradient(180deg,#b647ff,#9410ee);}
+  .titlebar .btn.close{color:#5b6470;}
+  /* lighter gray surfaces */
+  .toolbar{background:#eef0f3;border-bottom:1px solid #e0e3e8;}
+  .tbtn{color:#5b6470;}
+  .tbtn:hover{background:#e6e9ee;color:var(--accent-d);}
+  .body,.pane-tabbody,.statusbar{background:#eceef2;}
+  .searchform,.imd-top,.resultwrap{border-color:#e4e7ec;}
+  input.txt:focus,select.cmb:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(63,116,214,.15);}
+  fieldset.gb{background:#f6f7f9;border-color:#e4e7ec;}
+  fieldset.gb>legend{color:#6b7280;}
+  .btn.primary{background:linear-gradient(180deg,#4f81de,#3f74d6);border-color:#2f60bf;box-shadow:0 2px 8px rgba(63,116,214,.30);}
+  .btn.primary:hover{background:linear-gradient(180deg,#5a8ce6,#3a6ed0);}
   .chk.on{background:var(--accent);border-color:var(--accent);}
-  table.res th{background:#f1e6fd;border-bottom:1px solid #e3cef7;color:#6f1aa6;}
-  table.res th:hover{background:#e9d8fb;}
+  table.res th{background:#edeff3;border-bottom:1px solid #dde0e6;color:#4a525e;}
+  table.res th:hover{background:#e3e6ec;}
   table.res th .arr{color:var(--accent);}
-  table.res tbody tr:nth-child(even){background:#faf6fe;}
-  table.res tbody tr:hover{background:#f4ebfd;}table.res tbody tr.sel{background:#eddcfb;}
+  table.res tbody tr:nth-child(even){background:#f7f8fa;}
+  table.res tbody tr:hover{background:#eef2fb;}table.res tbody tr.sel{background:#e2ebf9;}
   .tabs{background:transparent;}
-  .tab{color:#7a5a96;}
-  .tab.sel{background:#f1e6fd;color:var(--accent-d);}
-  .tab:not(.sel):hover{background:#f7f0fd;}
-  .node:hover{background:#f4ebfd;}.node.sel{background:#eddcfb;color:var(--accent-d);}
-  .node .exp{border-color:#cdbce0;color:#7a5a96;}
-  .action:hover{background:#f4ebfd;color:var(--accent-d);}
-  .launcher .detail-pane{background:#f5eefc;}
-  .launcher .tree-pane{background:#fff;border-right:1px solid #ece6f4;}
-  .launcher-foot{background:#faf6fe;border-top:1px solid #ece6f4;}
-  .badge{background:#f1e6fd;color:#6f1aa6;}
-  .badge.rev{background:#efe0fc;color:#7a45c4;}
-  .banner{background:#f5ecff;border:1px solid #e4cffa;color:#6a2a9c;}
-  .reccount{border-color:#ece6f4;color:#6b4a86;}
-  .imgbox{border-color:#ece6f4;background:#faf6fe;}
-  .listbox{border-color:#ece6f4;}
-  .listbox .li:hover{background:#f4ebfd;}.listbox .li.sel{background:#eddcfb;}
+  .tab{color:#6b7280;}
+  .tab.sel{background:#e9eef8;color:var(--accent-d);}
+  .tab:not(.sel):hover{background:#f1f3f6;}
+  .node:hover{background:#eef2fb;}.node.sel{background:#e2ebf9;color:var(--accent-d);}
+  .node .exp{border-color:#c8cdd5;color:#6b7280;}
+  .action:hover{background:#eef2fb;color:var(--accent-d);}
+  .launcher .detail-pane{background:#eef0f4;}
+  .launcher .tree-pane{background:#fff;border-right:1px solid #e4e7ec;}
+  .launcher-foot{background:#f6f7f9;border-top:1px solid #e4e7ec;}
+  .badge{background:#e9ebef;color:#5b6470;}
+  .badge.rev{background:#ece6f6;color:#6a4fa0;}
+  .banner{background:#eef4ff;border:1px solid #d4e1f8;color:#2c4f86;}
+  .reccount{border-color:#e4e7ec;color:#5b6470;}
+  .imgbox{border-color:#e4e7ec;background:#f6f7f9;}
+  .listbox{border-color:#e4e7ec;}
+  .listbox .li:hover{background:#eef2fb;}.listbox .li.sel{background:#e2ebf9;}
   .login .help{background:var(--accent);}
-  .tb-item:hover{background:#f1e3fd;}
-  .ui-modal .pickrow.on{background:#f5ecff;border-color:#dcc1f6;}
-  ::-webkit-scrollbar-thumb{background:#d7c8e8;}
-  ::-webkit-scrollbar-thumb:hover{background:#c2acdd;}
+  .tb-item:hover{background:#e6e9ee;}
+  .ui-modal .pickrow.on{background:#eef4ff;border-color:#c5d7f4;}
+  ::-webkit-scrollbar-thumb{background:#cbd0d8;}
+  ::-webkit-scrollbar-thumb:hover{background:#b3bbc6;}
 </style>
 </head>
 <body>
@@ -315,7 +315,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.5", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +374,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.6","Replaced the purple theme with a professional gray theme: a medium-gray header band with white titles on every window, lighter grays through the toolbars and content backdrops, and a subtle blue accent for buttons, links, selected rows and tabs."],
   ["2.6.5","Purple theme: bold #9D00FF header bands across every window with white titles, and lighter purple tints throughout — toolbars, table headers, tabs, selected rows, buttons, and content backdrops — for stronger color and clearer separation between sections (less white wash)."],
   ["2.6.4","More color and less white: window title bars are a richer indigo, table headers are tinted indigo, and window bodies now have a soft tinted backdrop so the forms and tables read as white cards floating on it instead of one big white sheet. New Find by Photo tool (under Item Maintenance / Manage Listings): pick a photo, search eBay for visually similar listings, tick the ones that match, and get a median price and range."],
   ["2.6.3","UI refinement: window title bars and toolbars now have a subtle indigo tint so they read as distinct bands instead of an all-white sheet (applied to every window). The login screen now fills the whole app surface instead of appearing as a small floating window sitting on a blank background."],
