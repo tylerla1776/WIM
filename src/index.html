@@ -315,7 +315,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.7", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +374,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.7","Messages, phase 1 (read): the Communication tool is now an in-app inbox. Click Load Inbox to pull your eBay buyer conversations, click one to read the full thread, and if the message is about an item already in WIM the matching item card (photo, SKU, price) shows alongside with an Open item button. Read-only for now; replying from WIM comes next. Uses the commerce.message scope."],
   ["2.6.6","Replaced the purple theme with a professional gray theme: a medium-gray header band with white titles on every window, lighter grays through the toolbars and content backdrops, and a subtle blue accent for buttons, links, selected rows and tabs."],
   ["2.6.5","Purple theme: bold #9D00FF header bands across every window with white titles, and lighter purple tints throughout — toolbars, table headers, tabs, selected rows, buttons, and content backdrops — for stronger color and clearer separation between sections (less white wash)."],
   ["2.6.4","More color and less white: window title bars are a richer indigo, table headers are tinted indigo, and window bodies now have a soft tinted backdrop so the forms and tables read as white cards floating on it instead of one big white sheet. New Find by Photo tool (under Item Maintenance / Manage Listings): pick a photo, search eBay for visually similar listings, tick the ones that match, and get a median price and range."],
@@ -2865,6 +2866,7 @@ function openDiscrepancies(){
 /* ============================================================ eBay READ API (v2.2.4) ============================================================ */
 const EBAY_SCOPE_APP="https://api.ebay.com/oauth/api_scope";
 const EBAY_SCOPE_INV="https://api.ebay.com/oauth/api_scope/sell.inventory";
+const EBAY_SCOPE_MSG="https://api.ebay.com/oauth/api_scope/commerce.message";
 const EBAY={
   ready(){ return WIM_IS_DESKTOP && DB.ebay && DB.ebay.appId && DB.ebay.certId && DB.ebay.refreshToken; },
   mkt(){ return (DB.ebay&&DB.ebay.marketplace)||"EBAY_US"; },
@@ -3263,14 +3265,81 @@ function openManageListings(){
 /* ============================================================ LIVE: COMMUNICATION (view/launch) ============================================================ */
 function openCommunication(){
   if(openWindows["comm"]){ focusWin(openWindows["comm"].el); return; }
-  const {body}=buildWindow({id:"comm",title:"Communication",width:620,height:420,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Buyer messages open on eBay</span>`});
-  const url = (DB.ebay&&DB.ebay.env==="production") ? "https://mesg.ebay.com/mesgweb/ViewMessages/0" : "https://mesg.sandbox.ebay.com/mesgweb/ViewMessages/0";
-  body.innerHTML=`<div style="padding:18px;font-size:13px;line-height:1.6;">
-    <p>eBay restricts automated buyer–seller messaging, so WIM opens your eBay message center directly rather than embedding it.</p>
-    <button class="btn primary" id="cm-open">Open eBay Messages</button>
-    <p class="smallhint" style="margin-top:14px;">Environment: <b>${esc((DB.ebay&&DB.ebay.env)||"sandbox")}</b>. A future update can surface message counts here once eBay grants the needed access.</p></div>`;
-  body.querySelector("#cm-open").onclick=()=>{ if(WIM_IS_DESKTOP && window.__TAURI__ && window.__TAURI__.opener){ try{ window.__TAURI__.opener.openUrl(url); return; }catch(e){} } window.open(url,"_blank"); };
+  const {body}=buildWindow({id:"comm",title:"Messages",width:980,height:620,popoutKey:"comm",
+    toolbar:`<button class="btn sm" id="cm-load">Load Inbox</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
+  let convos=[], current=null, lastRaw="";
+  body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
+      <div id="cm-list" style="flex:0 0 320px;border-right:1px solid var(--line);overflow:auto;background:#fff;"></div>
+      <div id="cm-thread" style="flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;min-width:0;"></div>
+    </div>`;
+  const listEl=body.querySelector("#cm-list"), threadEl=body.querySelector("#cm-thread");
+  listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">Click <b>Load Inbox</b> to pull your eBay buyer messages.</div>`;
+  threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a conversation to read it.</div>`;
+
+  function fld(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
+  function counterparty(c){ return fld(c,["username","buyerUsername","otherParty","participant","sender","fromUsername","memberUsername"],"eBay member"); }
+  function subjectOf(c){ return fld(c,["subject","title","topic","lastMessageSubject"],"(no subject)"); }
+  function snippetOf(c){ return fld(c,["lastMessagePreview","preview","snippet","lastMessage","summary"],""); }
+  function itemIdOf(c){ return fld(c,["itemId","legacyItemId","listingId"],""); }
+  function unreadOf(c){ const u=fld(c,["unreadCount","unread","hasUnread"],0); return (u===true)||(parseInt(u,10)>0); }
+  function dateOf(o){ const d=fld(o,["lastMessageDate","creationDate","lastModifiedDate","date","createdDate"],""); if(!d) return ""; const dt=new Date(d); return isNaN(dt)?"":dt.toLocaleString(); }
+
+  async function loadInbox(){
+    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first (Configuration → eBay Connection)."); return; }
+    if(!WIM_IS_DESKTOP){ uiAlert("Messages run in the desktop app."); return; }
+    listEl.innerHTML=`<div style="padding:16px;color:#555;font-size:13px;">Loading conversations…</div>`;
+    try{
+      const r=await EBAY.user("/commerce/message/v1/conversation?limit=50", EBAY_SCOPE_MSG);
+      lastRaw=r.body||"";
+      if(!r.ok){ listEl.innerHTML=`<div style="padding:16px;font-size:12.5px;color:#c0392b;">Couldn't load messages (HTTP ${r.status}).<br><br>${esc((r.body||"").slice(0,400))}<br><br><span style="color:#7b828e;">If this is a scope/permission error, your eBay <b>User Token</b> needs to be regenerated with the <b>commerce.message</b> scope checked (Configuration → eBay Connection → paste the new token).</span></div>`; renderRawButton(); return; }
+      let data={}; try{ data=JSON.parse(r.body); }catch(e){}
+      convos = data.conversations || data.conversationSummaries || data.messages || [];
+      paintList();
+    }catch(e){ listEl.innerHTML=`<div style="padding:16px;color:#c0392b;font-size:12.5px;">Could not reach eBay: ${esc(e&&e.message?e.message:String(e))}</div>`; }
+  }
+  function renderRawButton(){ const b=document.createElement("div"); b.style.cssText="padding:0 16px 16px;"; const btn=document.createElement("button"); btn.className="btn sm"; btn.textContent="Show raw response"; btn.onclick=()=>uiModal("Raw eBay response",`<pre style="max-height:380px;overflow:auto;font-size:11px;white-space:pre-wrap;">${esc(lastRaw||"(empty)")}</pre>`,[{label:"Close"}]); listEl.appendChild(btn); }
+  function paintList(){
+    listEl.innerHTML="";
+    if(!convos.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">No conversations came back.</div>`; renderRawButton(); return; }
+    convos.forEach((c,i)=>{ const row=document.createElement("div");
+      row.style.cssText="padding:11px 14px;border-bottom:1px solid #f0f2f6;cursor:pointer;"+(current===i?"background:#e2ebf9;":"");
+      row.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:99px;background:${unreadOf(c)?'#3f74d6':'transparent'};flex:0 0 auto;"></span><span style="font-weight:600;font-size:13px;color:#28313f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(counterparty(c))}</span><span style="flex:1;"></span><span style="font-size:10.5px;color:#9aa3ad;">${esc(dateOf(c))}</span></div>
+        <div style="font-size:12px;color:#3b434f;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(subjectOf(c))}</div>
+        <div style="font-size:11.5px;color:#8a919c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(snippetOf(c))}</div>`;
+      row.onclick=()=>{ current=i; paintList(); openThread(c); };
+      listEl.appendChild(row); });
+    renderRawButton();
+  }
+  async function openThread(c){
+    const cid=fld(c,["conversationId","id","threadId"],"");
+    const linked = itemIdOf(c) ? (DB.items||[]).find(it=> it.listing && (it.listing.ebayOfferId===itemIdOf(c) || it.listing.ebaySku===itemIdOf(c) || it.upc===itemIdOf(c))) : null;
+    const linkCard = linked ? `<div style="margin:12px 14px;padding:10px 12px;background:#eef2fb;border:1px solid #d7e2f6;border-radius:10px;display:flex;gap:10px;align-items:center;">
+        ${linked.image?`<img src="${esc(linked.image)}" style="width:42px;height:42px;object-fit:contain;border:1px solid #eee;background:#fff;border-radius:6px;">`:""}
+        <div style="font-size:12px;"><div style="font-weight:600;color:#28313f;">${esc((linked.listing&&linked.listing.title)||linked.desc)}</div>
+        <div style="color:#5b6470;">SKU ${esc(linked.sku||"—")} · ${esc(linked.condition||"")} ${linked.listing&&linked.listing.price?("· $"+esc(linked.listing.price)):""}</div></div>
+        <span style="flex:1;"></span><button class="btn sm" id="cm-openitem">Open item</button></div>` : "";
+    threadEl.innerHTML=`<div style="padding:14px 16px;border-bottom:1px solid var(--line);"><div style="font-weight:600;font-size:14px;color:#28313f;">${esc(subjectOf(c))}</div><div style="font-size:12px;color:#7b828e;">with ${esc(counterparty(c))}</div></div>${linkCard}<div id="cm-msgs" style="flex:1;overflow:auto;padding:8px 16px;">Loading…</div>
+      <div style="border-top:1px solid var(--line);padding:10px 14px;background:#f6f7f9;"><div class="smallhint">Replying from WIM arrives in the next phase. For now this is read-only.</div></div>`;
+    if(linked){ const oi=threadEl.querySelector("#cm-openitem"); if(oi) oi.onclick=()=>openItemDetail(linked,"edit"); }
+    const msgsEl=threadEl.querySelector("#cm-msgs");
+    if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; return; }
+    try{
+      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid), EBAY_SCOPE_MSG);
+      if(!r.ok){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Couldn't load this conversation (HTTP ${r.status}).<br>${esc((r.body||"").slice(0,300))}</div>`; return; }
+      let data={}; try{ data=JSON.parse(r.body); }catch(e){}
+      const msgs = data.messages || data.messageDetails || (data.conversation&&data.conversation.messages) || [];
+      if(!msgs.length){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No messages in this conversation (or fields differ — check raw response).</div>`; return; }
+      msgsEl.innerHTML="";
+      msgs.forEach(m=>{ const fromMe = !!fld(m,["fromSeller","isSeller","sentByMe"],false);
+        const text = fld(m,["body","text","message","content","messageBody"],"(no text)");
+        const wrap=document.createElement("div"); wrap.style.cssText="display:flex;margin:8px 0;"+(fromMe?"justify-content:flex-end;":"");
+        wrap.innerHTML=`<div style="max-width:74%;background:${fromMe?'#e2ebf9':'#f1f3f6'};border:1px solid ${fromMe?'#cfe0f7':'#e6e9ee'};border-radius:12px;padding:8px 12px;">
+            <div style="font-size:13px;color:#26303d;white-space:pre-wrap;">${esc(text)}</div>
+            <div style="font-size:10px;color:#9aa3ad;margin-top:4px;">${esc(fld(m,["sender","fromUsername","author"],fromMe?"You":counterparty(c)))} · ${esc(dateOf(m))}</div></div>`;
+        msgsEl.appendChild(wrap); });
+    }catch(e){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Could not reach eBay: ${esc(e&&e.message?e.message:String(e))}</div>`; }
+  }
+  body.querySelector("#cm-load").onclick=loadInbox;
 }
 
 /* ============================================================ LIVE: LISTING REPORT ============================================================ */
