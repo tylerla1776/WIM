@@ -315,7 +315,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.7", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.8", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +374,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.8","Fix: the Messages window crashed on open (the Load Inbox button lives in the toolbar but was being looked up in the body), which also showed as a pop-out failure. Now opens correctly."],
   ["2.6.7","Messages, phase 1 (read): the Communication tool is now an in-app inbox. Click Load Inbox to pull your eBay buyer conversations, click one to read the full thread, and if the message is about an item already in WIM the matching item card (photo, SKU, price) shows alongside with an Open item button. Read-only for now; replying from WIM comes next. Uses the commerce.message scope."],
   ["2.6.6","Replaced the purple theme with a professional gray theme: a medium-gray header band with white titles on every window, lighter grays through the toolbars and content backdrops, and a subtle blue accent for buttons, links, selected rows and tabs."],
   ["2.6.5","Purple theme: bold #9D00FF header bands across every window with white titles, and lighter purple tints throughout — toolbars, table headers, tabs, selected rows, buttons, and content backdrops — for stronger color and clearer separation between sections (less white wash)."],
@@ -3339,7 +3340,8 @@ function openCommunication(){
         msgsEl.appendChild(wrap); });
     }catch(e){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Could not reach eBay: ${esc(e&&e.message?e.message:String(e))}</div>`; }
   }
-  body.querySelector("#cm-load").onclick=loadInbox;
+  const loadBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-load"):body.querySelector("#cm-load"));
+  if(loadBtn) loadBtn.onclick=loadInbox;
 }
 
 /* ============================================================ LIVE: LISTING REPORT ============================================================ */
