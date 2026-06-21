@@ -329,7 +329,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.7.4", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.7.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -388,6 +388,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.7.6","Category windows: opening a category's Sub Categories editor (and double-clicking a category or group to see its items) now opens in its own window, like item landing pages do — closing out the windowing for these screens. This completes the feedback fixes from the 2.7.1-2.7.3 round."],
+  ["2.7.5","Windowing + dropdown fixes: pop-out app windows are now locked to fill their own window (you can no longer drag the app around inside an empty window — dragging the title bar moves the whole window like a normal app), so Previous/Next on the item page reloads in the same spot every time. The Category, Condition, Group and Slot fields on the Item Maintenance and Catalog search screens are now proper dropdowns that match the rest of the app."],
   ["2.7.4","Item Number system: every item now gets a category-based Item Number in the form CategoryID-UniqueID (e.g. a Books & Magazines item becomes 3-73200-xxxxxx). Each individual unit gets its own unique number, generated automatically when the item is created. The Item Number field is now locked and grayed on the item page (it can't be changed even if the category or manual-slot setting changes). You can search by item number without typing the dashes (e.g. 373200301840). Existing items are migrated to the new format."],
   ["2.7.3","Windowing (batch 2): opening an existing item from Item Maintenance or the Catalog now opens that item's landing page in its own separate window, instead of nesting it inside the search window. This fixes the bug where the item landing page couldn't be closed. Previous/Next still page through records within that window. (Applies when floating windows are on, in the desktop app.)"],
   ["2.7.2","UI fixes (batch 1, part 2): Next/Previous record buttons now work on the item page (they were being looked up in the wrong place). Saving shows clear feedback — a 'Saved' toast and the changed fields briefly flash green. Adding warehouse inventory now asks if you want to create SKU tag(s) to print. The Groups tab has a search box to filter the assignable groups. And the app no longer follows Windows dark mode (forced light rendering). Note: the auto-update 'error opening file for writing' message still needs a dedicated fix."],
@@ -549,6 +551,28 @@ async function popOut(appKey){
   }catch(e){ uiAlert("Could not open a separate window: "+(e&&e.message?e.message:e)); }
 }
 let WIM_ITEMDETAIL_WIN=false;
+let WIM_ACTION_WIN=false;
+const ACTION_POPOUTS={
+  subcatmgr:(arg)=>openSubcatManager(arg),
+  listitems:(arg)=>openListItems(arg.kind, arg.name)
+};
+function popOutAction(actionKey, arg, title){
+  const T=window.__TAURI__||{}; const WW=(T.webviewWindow&&T.webviewWindow.WebviewWindow)||(T.window&&T.window.WebviewWindow)||null;
+  if(typeof WW!=="function") return false;
+  try{
+    try{ localStorage.setItem("WIM_POPOUT_SESSION", JSON.stringify({ userId:(SESSION.user&&SESSION.user.id)||"", mode:SESSION.mode||"warehouse" })); }catch(e){}
+    try{ localStorage.setItem("WIM_ACTION_PENDING", JSON.stringify({ actionKey, arg })); }catch(e){}
+    const label="popout-act-"+Date.now().toString(36);
+    new WW(label, { url:"index.html#popout=action&t="+Date.now().toString(36), title:"WIM — "+(title||"WIM"), width:900, height:640, resizable:true, center:true });
+    return true;
+  }catch(e){ console.warn("popOutAction failed",e); return false; }
+}
+function maybePopOutAction(actionKey, arg, title){
+  if(WIM_ACTION_WIN || WIM_ITEMDETAIL_WIN) return false;
+  if(!WIM_IS_DESKTOP || (DB.meta&&DB.meta.floatWindows===false)) return false;
+  if(!((window.__TAURI__&&window.__TAURI__.webviewWindow&&window.__TAURI__.webviewWindow.WebviewWindow)||(window.__TAURI__&&window.__TAURI__.window&&window.__TAURI__.window.WebviewWindow))) return false;
+  return popOutAction(actionKey, arg, title);
+}
 function popOutItem(item, mode, nav){
   const T=window.__TAURI__||{};
   const WW = (T.webviewWindow && T.webviewWindow.WebviewWindow) || (T.window && T.window.WebviewWindow) || null;
@@ -742,6 +766,14 @@ function bootPopout(){
     else { SESSION.user=DB.users[0]; SESSION.mode="warehouse"; } }
   catch(e){ SESSION.user=DB.users[0]; SESSION.mode="warehouse"; }
   document.body.classList.add("popout"); clearScreen();
+  if(WIM_POPOUT_KEY==="action"){
+    try{ const pend=JSON.parse(localStorage.getItem("WIM_ACTION_PENDING")||"{}");
+      WIM_ACTION_WIN=true; const fn=ACTION_POPOUTS[pend.actionKey];
+      if(fn) fn(pend.arg); else document.body.innerHTML="<pre style='padding:20px;font-family:Segoe UI,sans-serif;'>Unknown action.</pre>";
+    }catch(e){ document.body.innerHTML="<pre style='padding:20px;'>Action window failed: "+String(e&&e.stack||e)+"</pre>"; }
+    const fillA=()=>{ const win=modalsEl.querySelector(".window"); if(win){ win.style.left="0px"; win.style.top="0px"; win.style.width=window.innerWidth+"px"; win.style.height=window.innerHeight+"px"; } };
+    setTimeout(fillA,30); window.addEventListener("resize",fillA); return;
+  }
   if(WIM_POPOUT_KEY==="itemdetail"){
     try{ const pend=JSON.parse(localStorage.getItem("WIM_ITEMDETAIL_PENDING")||"{}");
       const it=DB.items.find(x=>x.id===pend.id);
@@ -877,7 +909,15 @@ const screenEl=document.getElementById("screen"),modalsEl=document.getElementByI
 const openWindows={};
 function clearScreen(){ screenEl.innerHTML=""; }
 function closeAllModals(){ modalsEl.innerHTML=""; for(const k in openWindows) delete openWindows[k]; renderTaskbar(); }
-function makeDraggable(win,h){ let sx,sy,ox,oy,drag=false;
+function makeDraggable(win,h){
+  if(WIM_POPOUT_MODE){
+    // Pop-out apps are locked to fill their OS window. Dragging the title bar moves the whole OS window (like a normal app).
+    h.style.cursor="default";
+    h.addEventListener("mousedown",(e)=>{ if(e.target.closest(".winbtn")||e.target.closest("button")||e.target.closest("input")||e.target.closest("select")) return;
+      try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.startDragging) cw.startDragging(); }catch(err){} });
+    return;
+  }
+  let sx,sy,ox,oy,drag=false;
   h.addEventListener("mousedown",(e)=>{ if(e.target.closest(".winbtn"))return; drag=true;sx=e.clientX;sy=e.clientY;const r=win.getBoundingClientRect();ox=r.left;oy=r.top;win.style.zIndex=++zTop;e.preventDefault(); });
   window.addEventListener("mousemove",(e)=>{ if(!drag)return; let nl=ox+(e.clientX-sx),nt=oy+(e.clientY-sy); nt=Math.max(0,Math.min(nt,window.innerHeight-50)); nl=Math.max(-200,Math.min(nl,window.innerWidth-120)); win.style.left=nl+"px";win.style.top=nt+"px";win.style.transform="none"; });
   window.addEventListener("mouseup",()=>{drag=false;}); }
@@ -892,6 +932,7 @@ function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top
   if(center){ win.style.left=Math.max(8,(window.innerWidth-w)/2)+"px"; win.style.top=Math.max(8,(window.innerHeight-h)/2)+"px"; }
   else { win.style.left=Math.max(8,Math.min(left||120, window.innerWidth-w-8))+"px"; win.style.top=Math.max(8,Math.min(top||80, window.innerHeight-h-8))+"px"; }
   win.style.transform="none"; win.style.zIndex=++zTop;
+  if(WIM_POPOUT_MODE){ const fillWin=()=>{ win.style.left="0px"; win.style.top="0px"; win.style.width=window.innerWidth+"px"; win.style.height=window.innerHeight+"px"; }; fillWin(); window.addEventListener("resize",fillWin); }
   const tb=document.createElement("div"); tb.className="titlebar"; tb.innerHTML=`<span class="appicon"></span><span class="ttl">${title}</span>`;
   const popBtn = (popoutKey && WIM_IS_DESKTOP && !WIM_POPOUT_MODE) ? `<button class="winbtn" title="Open in its own window" data-popout="${popoutKey}">&#10696;</button>` : "";
   const ctr=document.createElement("div"); ctr.className="winbtns"; ctr.innerHTML=`${popBtn}<button class="winbtn" title="Minimize">&#8211;</button><button class="winbtn" title="Maximize">&#9633;</button><button class="winbtn close" title="Close">&#10005;</button>`;
@@ -900,7 +941,8 @@ function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top
   if(toolbar){ const t=document.createElement("div"); t.className="toolbar"; t.innerHTML=toolbar; win.appendChild(t); }
   const body=document.createElement("div"); body.className="body"; win.appendChild(body);
   const winbtnList=ctr.querySelectorAll(".winbtn:not([data-popout])"); const [minB,maxB,closeB]=winbtnList;
-  const doClose=()=>{ win.remove(); delete openWindows[id]; renderTaskbar(); if(onClose)onClose(); };
+  const doClose=()=>{ win.remove(); delete openWindows[id]; renderTaskbar(); if(onClose)onClose();
+    if(WIM_POPOUT_MODE && WIM_ACTION_WIN && !modalsEl.querySelector(".window")){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
   let prev=null;
   const toggleMax=()=>{ if(win.dataset.max==="1"){ Object.assign(win.style, prev); win.dataset.max="0"; }
     else { prev={left:win.style.left,top:win.style.top,width:win.style.width,height:win.style.height};
@@ -1494,6 +1536,7 @@ function openListMaintenance(kind){
   render();
 }
 function openListItems(kind,name){
+  if(maybePopOutAction("listitems", {kind,name}, (kind==="section"?"Category":"Group")+": "+name)) return;
   const id="li-"+kind+"-"+name; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:(kind==="section"?"Category":"Group")+": "+name,width:820,height:520,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Active items in this ${kind==="section"?"category":"group"} — double-click to open</span>`});
@@ -1775,16 +1818,20 @@ function buildSearchUI(body,{scope,cols,winId}){
   const dlSlot=`<datalist id="dl-slot-${winId}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}"></option>`).join("")+`</datalist>`;
   const dlGrp=`<datalist id="dl-grp-${winId}"><option value="None"></option>`+DB.groups.map(g=>`<option value="${esc(g)}"></option>`).join("")+`</datalist>`;
   const dlCon=`<datalist id="dl-con-${winId}"><option value="None"></option>`+allConditions().map(c=>`<option value="${esc(c)}"></option>`).join("")+`</datalist>`;
+  const optSlot=`<option value="">(any)</option><option value="None">None (no slot)</option>`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${esc(s.id)}">${esc(s.id)}</option>`).join("");
+  const optSec=`<option value="">(any)</option>`+DB.sections.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  const optGrp=`<option value="">(any)</option><option value="None">None</option>`+DB.groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join("");
+  const optCon=`<option value="">(any)</option><option value="None">None</option>`+allConditions().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
   body.innerHTML=`
     ${dlSec}${dlSlot}${dlGrp}${dlCon}
     <div class="searchform">
       <div class="ff"><label>Item Number</label><input class="txt" id="s-upc"></div>
       <div class="ff"><label>Warehouse SKU</label><input class="txt" id="s-sku"></div>
-      <div class="ff"><label>Slot</label><input class="txt" id="s-slot" list="dl-slot-${winId}" placeholder="(any)"></div>
+      <div class="ff"><label>Slot</label><select class="cmb" id="s-slot">${optSlot}</select></div>
       <div class="ff"><label>Description</label><input class="txt" id="s-desc"></div>
-      <div class="ff"><label>Category</label><input class="txt" id="s-sec" list="dl-sec-${winId}" placeholder="(any) — type None for blank"></div>
-      <div class="ff"><label>Group</label><input class="txt" id="s-grp" list="dl-grp-${winId}" placeholder="(any) — type None for blank"></div>
-      <div class="ff"><label>Condition</label><input class="txt" id="s-con" list="dl-con-${winId}" placeholder="(any) — type None for blank"></div>
+      <div class="ff"><label>Category</label><select class="cmb" id="s-sec">${optSec}</select></div>
+      <div class="ff"><label>Group</label><select class="cmb" id="s-grp">${optGrp}</select></div>
+      <div class="ff"><label>Condition</label><select class="cmb" id="s-con">${optCon}</select></div>
       ${isCat?`<div class="ff"><label>Added on/after</label><input class="txt" id="s-added" type="date"></div>
       <div class="ff"><label>Sold on/after</label><input class="txt" id="s-soldon" type="date"></div>`:'<div></div>'}
     </div>
@@ -1852,12 +1899,9 @@ function buildSearchUI(body,{scope,cols,winId}){
     if(st.searched){ run(); } updateSoldBtn(); };
 
   body.querySelector("#s-go").onclick=run;
-  body.querySelector("#s-clear").onclick=()=>{ body.querySelectorAll(".searchform input").forEach(i=>i.value="");
+  body.querySelector("#s-clear").onclick=()=>{ body.querySelectorAll(".searchform input,.searchform select").forEach(i=>i.value="");
     st.results=[]; st.searched=false; st.pending.clear(); body.querySelector("#s-tbody").innerHTML=""; renderHead(); body.querySelector("#s-count").textContent="Records: 0"; body.querySelector("#s-status").textContent="Enter search criteria, then press Search."; updateSoldBtn(); };
   body.querySelectorAll(".searchform input").forEach(el=>el.addEventListener("keydown",e=>{ if(e.key==="Enter") run(); }));
-  attachAutofill(body.querySelector("#s-sec"), ()=>["None",...DB.sections]);
-  attachAutofill(body.querySelector("#s-grp"), ()=>["None",...DB.groups]);
-  attachAutofill(body.querySelector("#s-con"), ()=>["None",...allConditions()]);
   const w=openWindows[winId];
   if(w){ const rb=w.el.querySelector('[data-act="Run Search"]'); if(rb) rb.onclick=run;
     const nb=w.el.querySelector('[data-act="New Search"]'); if(nb) nb.onclick=()=>body.querySelector("#s-clear").click();
@@ -2839,6 +2883,7 @@ function openAbout(){
 
 /* ============================================================ SUB-CATEGORY MANAGER ============================================================ */
 function openSubcatManager(cat){
+  if(maybePopOutAction("subcatmgr", cat, "Sub Categories — "+cat)) return;
   const id="subcat-"+cat; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   if(!DB.subcats[cat]) DB.subcats[cat]=[{name:cat,ebayId:"",ebayName:"",aspects:[]}];
   const {body,close}=buildWindow({id,title:"Sub Categories — "+cat,width:680,height:560,
