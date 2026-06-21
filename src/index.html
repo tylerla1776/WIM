@@ -280,6 +280,20 @@
   .ui-modal .pickrow.on{background:#eef4ff;border-color:#c5d7f4;}
   ::-webkit-scrollbar-thumb{background:#cbd0d8;}
   ::-webkit-scrollbar-thumb:hover{background:#b3bbc6;}
+  /* ============================================================ BATCH 1 (v2.7.1) ============================================================ */
+  /* Always render in light mode regardless of the OS theme (fixes the dark-mode flip) */
+  :root{color-scheme:light;}
+  html,body{color-scheme:light;background:#e7e9ee;}
+  /* Restore the WIM header icon as a clear white chip on the gray header */
+  .titlebar .appicon{filter:none;opacity:1;background-color:#ffffff;background-image:var(--icon);background-size:13px;background-position:center;background-repeat:no-repeat;border-radius:5px;width:22px;height:22px;}
+  /* Fill the whole OS window — no desktop gap above the title bar or below the footer */
+  .window.launcher{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;border-radius:0;box-shadow:none;border:none;}
+  .window.launcher .panes{border-radius:0;}
+  .window.launcher .launcher-foot{border-radius:0;}
+  body.popout .window{position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;border-radius:0;box-shadow:none;border:none;}
+  body.popout .window>.statusbar{border-radius:0;}
+  /* Consistent dropdowns everywhere (squared, same font/size) */
+  select,select.cmb{border-radius:6px;font-family:inherit;font-size:13px;height:30px;border:1px solid var(--field-border);background:#fff;padding:4px 8px;}
 </style>
 </head>
 <body>
@@ -315,7 +329,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.12", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.7.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +388,9 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.7.3","Windowing (batch 2): opening an existing item from Item Maintenance or the Catalog now opens that item's landing page in its own separate window, instead of nesting it inside the search window. This fixes the bug where the item landing page couldn't be closed. Previous/Next still page through records within that window. (Applies when floating windows are on, in the desktop app.)"],
+  ["2.7.2","UI fixes (batch 1, part 2): Next/Previous record buttons now work on the item page (they were being looked up in the wrong place). Saving shows clear feedback — a 'Saved' toast and the changed fields briefly flash green. Adding warehouse inventory now asks if you want to create SKU tag(s) to print. The Groups tab has a search box to filter the assignable groups. And the app no longer follows Windows dark mode (forced light rendering). Note: the auto-update 'error opening file for writing' message still needs a dedicated fix."],
+  ["2.7.1","UI fixes (batch 1, part 1): restored the WIM icon in window headers (now a clear chip on the gray bar); windows fill the whole app area so there's no gap above the title bar or below the footer (removes the 'app in front of another app' look); the Search/Location info moved up inline with the toolbar row instead of sitting on its own row; and dropdowns are now consistently styled everywhere."],
   ["2.6.12","Added a 'Support info' button in Messages that runs the eBay token exchange and shows the full request (including the Base64 Authorization header), the HTTP status, the response body, and the rlogid / request-id response headers — all copyable — so eBay Developer Support gets exactly what they asked for."],
   ["2.6.11","Likely fix for the eBay user-token 'invalid_grant' error: if a refresh token was generated from a URL-encoded authorization code (containing %23/%5E/%3D instead of #/^/=), it looks valid but always fails. WIM now auto-decodes URL-encoded tokens when you save them, and the Diagnose tool detects and tests this case."],
   ["2.6.10","Enhanced messages diagnostics: now shows the masked App ID, Cert ID and token with their lengths and a check for stray spaces/newlines, plus the token prefix — to pinpoint why the user token is rejected (refresh vs access token, wrong cert, hidden whitespace)."],
@@ -530,6 +547,21 @@ async function popOut(appKey){
     }
   }catch(e){ uiAlert("Could not open a separate window: "+(e&&e.message?e.message:e)); }
 }
+let WIM_ITEMDETAIL_WIN=false;
+function popOutItem(item, mode, nav){
+  const T=window.__TAURI__||{};
+  const WW = (T.webviewWindow && T.webviewWindow.WebviewWindow) || (T.window && T.window.WebviewWindow) || null;
+  if(typeof WW!=="function") return false;
+  try{
+    try{ localStorage.setItem("WIM_POPOUT_SESSION", JSON.stringify({ userId:(SESSION.user&&SESSION.user.id)||"", mode:SESSION.mode||"warehouse" })); }catch(e){}
+    try{ localStorage.setItem("WIM_ITEMDETAIL_PENDING", JSON.stringify({ id:item.id, mode:mode||"edit",
+      navIds:(nav&&nav.list&&nav.list.length)?nav.list.map(x=>x.id):null, navIndex:(nav&&typeof nav.index==="number")?nav.index:0 })); }catch(e){}
+    const label="popout-item-"+Date.now().toString(36);
+    const title="WIM — "+((item.desc||item.sku||"Item")+"");
+    const w=new WW(label, { url:"index.html#popout=itemdetail&t="+Date.now().toString(36), title, width:1040, height:760, resizable:true, center:true });
+    return true;
+  }catch(e){ console.warn("popOutItem failed",e); return false; }
+}
 function wimRefreshAll(){ try{ if(typeof refreshSearchWindows==="function") refreshSearchWindows(); }catch(e){}
   try{ document.querySelectorAll(".body").forEach(b=>{ if(b._refresh) b._refresh(); }); }catch(e){} }
 async function wimReloadFromStore(){ try{ let st=await idbGet(); if(!st){ const ls=localStorage.getItem(KEY); if(ls) st=JSON.parse(ls); } if(st){ DB=migrate(st); DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits; wimRefreshAll(); } }catch(e){ console.warn("WIM sync reload failed",e); } }
@@ -674,6 +706,19 @@ function bootPopout(){
     else { SESSION.user=DB.users[0]; SESSION.mode="warehouse"; } }
   catch(e){ SESSION.user=DB.users[0]; SESSION.mode="warehouse"; }
   document.body.classList.add("popout"); clearScreen();
+  if(WIM_POPOUT_KEY==="itemdetail"){
+    try{ const pend=JSON.parse(localStorage.getItem("WIM_ITEMDETAIL_PENDING")||"{}");
+      const it=DB.items.find(x=>x.id===pend.id);
+      if(!it){ document.body.innerHTML="<pre style='padding:20px;font-family:Segoe UI,sans-serif;'>This item is no longer available.</pre>"; return; }
+      let nav=null;
+      if(pend.navIds && pend.navIds.length){ const list=pend.navIds.map(id=>DB.items.find(x=>x.id===id)).filter(Boolean);
+        const idx=Math.max(0, list.findIndex(x=>x.id===it.id)); if(list.length) nav={list,index:idx>=0?idx:0}; }
+      WIM_ITEMDETAIL_WIN=true;
+      openItemDetail(it, pend.mode||"edit", nav);
+    }catch(e){ document.body.innerHTML="<pre style='padding:20px;'>Item window failed: "+String(e&&e.stack||e)+"</pre>"; }
+    const fill0=()=>{ const win=modalsEl.querySelector(".window"); if(win){ win.style.left="0px"; win.style.top="0px"; win.style.width=window.innerWidth+"px"; win.style.height=window.innerHeight+"px"; } };
+    setTimeout(fill0,30); window.addEventListener("resize",fill0); return;
+  }
   const meta=POPOUT_APPS[WIM_POPOUT_KEY];
   if(!meta){ document.body.innerHTML="<pre style='padding:20px;font-family:Segoe UI,sans-serif;'>Unknown pop-out app.</pre>"; return; }
   try{ meta.open(); }catch(e){ document.body.innerHTML="<pre style='padding:20px;'>Pop-out failed: "+String(e&&e.stack||e)+"</pre>"; return; }
@@ -1695,7 +1740,6 @@ function buildSearchUI(body,{scope,cols,winId}){
   const dlGrp=`<datalist id="dl-grp-${winId}"><option value="None"></option>`+DB.groups.map(g=>`<option value="${esc(g)}"></option>`).join("")+`</datalist>`;
   const dlCon=`<datalist id="dl-con-${winId}"><option value="None"></option>`+allConditions().map(c=>`<option value="${esc(c)}"></option>`).join("")+`</datalist>`;
   body.innerHTML=`
-    <div class="topbar"><span style="font-size:12.5px;">Search <b>${isCat?'Catalog (sold)':'Active inventory'}</b></span><span style="font-size:12.5px;">Location <b>Main Warehouse</b></span></div>
     ${dlSec}${dlSlot}${dlGrp}${dlCon}
     <div class="searchform">
       <div class="ff"><label>Item Number</label><input class="txt" id="s-upc"></div>
@@ -1714,6 +1758,10 @@ function buildSearchUI(body,{scope,cols,winId}){
     </div>
     <div class="resultwrap"><table class="res"><thead><tr id="s-head"></tr></thead><tbody id="s-tbody"></tbody></table></div>
     <div class="statusbar"><span id="s-status">Enter search criteria, then press Search.</span><span id="s-count">Records: 0</span></div>`;
+  try{ const win=body.closest(".window"); const tbar=win&&win.querySelector(".toolbar");
+    if(tbar && !tbar.querySelector(".sf-loc")){ const info=document.createElement("div"); info.className="sf-loc";
+      info.style.cssText="margin-left:auto;display:flex;gap:16px;align-items:center;font-size:12.5px;color:#5b6470;padding-right:4px;";
+      info.innerHTML=`<span>Search <b>${isCat?'Catalog (sold)':'Active inventory'}</b></span><span>Location <b>Main Warehouse</b></span>`; tbar.appendChild(info); } }catch(e){}
 
   const pool=()=> isCat?soldItems():activeItems();
   function run(){
@@ -1903,8 +1951,21 @@ function openInvoiceDetail(inv){
 }
 
 /* ============================================================ ITEM DETAIL ============================================================ */
+function wimToast(msg){
+  try{ let t=document.getElementById("wim-toast"); if(!t){ t=document.createElement("div"); t.id="wim-toast";
+      t.style.cssText="position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:#2f3a4a;color:#fff;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:99999;opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;"; document.body.appendChild(t); }
+    t.textContent=msg; requestAnimationFrame(()=>{ t.style.opacity="1"; t.style.transform="translateX(-50%) translateY(0)"; });
+    clearTimeout(t._h); t._h=setTimeout(()=>{ t.style.opacity="0"; t.style.transform="translateX(-50%) translateY(20px)"; },1600);
+  }catch(e){}
+}
 function openItemDetail(item,mode,nav){
   const isNew=mode==="new", isCat=mode==="catalog", ro=isCat;
+  // Open existing-item landing pages in their own OS window (when floating is on), so each level is its own window and closes cleanly.
+  if(!isNew && item && item.id && !WIM_ITEMDETAIL_WIN && WIM_IS_DESKTOP
+     && !(DB.meta && DB.meta.floatWindows===false)
+     && ((window.__TAURI__&&window.__TAURI__.webviewWindow&&window.__TAURI__.webviewWindow.WebviewWindow)||(window.__TAURI__&&window.__TAURI__.window&&window.__TAURI__.window.WebviewWindow))){
+    if(popOutItem(item, mode, nav)) return;
+  }
   const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:"HYVEE DISTRIBUTION",condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
     unitCost:"0.000",retail:"0.00",onHand:"1",groups:[],category:"FRUIT",subCategory:"",image:"",slot:"",placement:null,sku:"",
     manualSlot:false,sold:false,createdAt:null,soldAt:null,soldBy:null,caseCost:"0.00",casePack:"",base:"0.00",mixMatch:"None - 0",
@@ -1914,7 +1975,9 @@ function openItemDetail(item,mode,nav){
   const navHtml = (nav && nav.list && nav.list.length) ? `<span class="tbar-sep"></span><button class="tbtn" id="d-prev" title="Previous record" ${nav.index<=0?'disabled':''}>&#8249;</button><span style="font-size:12px;align-self:center;padding:0 6px;white-space:nowrap;">${nav.index+1} / ${nav.list.length}</span><button class="tbtn" id="d-next" title="Next record" ${nav.index>=nav.list.length-1?'disabled':''}>&#8250;</button>` : "";
   const tbar= (ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
     : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${tbtn(I.cash,'List on eBay')}`) + navHtml;
-  const {body,close}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48});
+  const {body,close:_closeWin}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48});
+  const close=()=>{ try{ _closeWin(); }catch(e){}
+    if(WIM_ITEMDETAIL_WIN){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
   let dirty=false;
   const secOpts=DB.sections.map(s=>`<option ${s===it.section?'selected':''}>${esc(s)}</option>`).join("");
   const dl=`<datalist id="sl-${it.id}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}">`).join("")+`</datalist>`
@@ -2155,11 +2218,14 @@ function openItemDetail(item,mode,nav){
   }
   function groupsTab(){ const avail=DB.groups.filter(g=>!assigned.includes(g));
     tabbody.innerHTML=`<div class="groups3">
-      <div><div class="grp-h">Can be assigned to these groups</div><div class="listbox" id="g-avail" style="min-height:170px;"></div></div>
+      <div><div class="grp-h">Can be assigned to these groups</div><input class="txt" id="g-search" placeholder="Search groups…" style="width:100%;margin-bottom:6px;"><div class="listbox" id="g-avail" style="min-height:170px;"></div></div>
       <div class="mid-btns"><button class="btn sm" id="g-add" ${ro?'disabled':''}>&#9654;</button><button class="btn sm" id="g-rem" ${ro?'disabled':''}>&#9664;</button></div>
-      <div><div class="grp-h">Assigned to these groups</div><div class="listbox" id="g-assigned" style="min-height:170px;"></div></div></div>`;
+      <div><div class="grp-h">Assigned to these groups</div><div class="listbox" id="g-assigned" style="min-height:170px;margin-top:30px;"></div></div></div>`;
     const av=tabbody.querySelector("#g-avail"),asg=tabbody.querySelector("#g-assigned"); let selA=null,selB=null;
-    avail.forEach(g=>{ const li=document.createElement("div"); li.className="li"; li.textContent=g; li.onclick=()=>{ av.querySelectorAll(".li").forEach(x=>x.classList.remove("sel")); li.classList.add("sel"); selA=g; }; av.appendChild(li); });
+    function paintAvail(filter){ av.innerHTML=""; const f=(filter||"").toLowerCase();
+      avail.filter(g=>!f||g.toLowerCase().includes(f)).forEach(g=>{ const li=document.createElement("div"); li.className="li"; li.textContent=g; li.onclick=()=>{ av.querySelectorAll(".li").forEach(x=>x.classList.remove("sel")); li.classList.add("sel"); selA=g; }; av.appendChild(li); }); }
+    paintAvail("");
+    const gs=tabbody.querySelector("#g-search"); if(gs) gs.oninput=()=>{ selA=null; paintAvail(gs.value); };
     assigned.forEach(g=>{ const li=document.createElement("div"); li.className="li"; li.textContent=g; li.onclick=()=>{ asg.querySelectorAll(".li").forEach(x=>x.classList.remove("sel")); li.classList.add("sel"); selB=g; }; asg.appendChild(li); });
     if(!ro){ tabbody.querySelector("#g-add").onclick=()=>{ if(selA){ assigned.push(selA); markDirty(); groupsTab(); } };
       tabbody.querySelector("#g-rem").onclick=()=>{ if(selB){ assigned=assigned.filter(x=>x!==selB); markDirty(); groupsTab(); } }; }
@@ -2190,8 +2256,9 @@ function openItemDetail(item,mode,nav){
   }
   showTab("groups");
   if(nav && nav.list && nav.list.length){
-    const pv=body.querySelector("#d-prev"), nx=body.querySelector("#d-next");
-    const go=(ni)=>{ if(ni<0||ni>=nav.list.length) return; const open=()=>{ close(); openItemDetail(nav.list[ni], mode, {list:nav.list, index:ni}); };
+    const navRoot=(openWindows[wid]&&openWindows[wid].el)?openWindows[wid].el:body;
+    const pv=navRoot.querySelector("#d-prev"), nx=navRoot.querySelector("#d-next");
+    const go=(ni)=>{ if(ni<0||ni>=nav.list.length) return; const open=()=>{ _closeWin(); openItemDetail(nav.list[ni], mode, {list:nav.list, index:ni}); };
       if(dirty){ uiConfirm("Discard unsaved changes and move to the other record?", open); } else open(); };
     if(pv) pv.onclick=()=>go(nav.index-1);
     if(nx) nx.onclick=()=>go(nav.index+1);
@@ -2258,8 +2325,9 @@ function openItemDetail(item,mode,nav){
       else if(it.slot && slotById(it.slot) && it.placement){ placements=[{slot:it.slot,placement:it.placement}]; }
       else { const r=autoSlot(it.id,cat); if(!r){ status.textContent="No slot for Category \""+cat+"\" is available. Add one in Warehouse Maintenance, or tick Manually slot."; return; } placements=[{slot:r.slot,placement:r.placement}]; }
     }
+    let savedNew=null;
     if(isNew){
-      const created=[];
+      const created=[]; savedNew=created;
       placements.forEach((pl,i)=>{ const ni=(i===0)?it:Object.assign({},it,{id:crypto.randomUUID()});
         Object.assign(ni, base, {slot:pl.slot,placement:pl.placement,sku:skuOf(pl.slot,pl.placement),onHand:(qty>1?"1":base.onHand),createdAt:new Date().toISOString(),sold:false,soldAt:null,soldBy:null});
         ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
@@ -2284,9 +2352,16 @@ function openItemDetail(item,mode,nav){
       ch.forEach(c=>addHistory(it,c));
     }
     save(); refreshSearchWindows(); refreshInvoices();
-    if(isNew || !keepOpen){ close(); }
-    else { dirty=false; updateBtn(); status.style.color="#1f7244"; status.textContent="Saved."; showTab(curTab); }
+    if(isNew){
+      const made=(savedNew||[]).slice(); close();
+      if(made.length && !isLive() && !it._pendingListing){
+        uiConfirm("Added "+made.length+" item"+(made.length>1?"s":"")+" to inventory. Create SKU tag"+(made.length>1?"s":"")+" to print now?", ()=>{ try{ printLabelsFor(made); }catch(e){ uiAlert("Couldn't open the label print: "+(e&&e.message?e.message:e)); } });
+      }
+    }
+    else if(!keepOpen){ close(); }
+    else { dirty=false; updateBtn(); status.style.color="#1f7244"; status.textContent="Saved \u2713"; wimToast("Saved \u2713"); flashSaved(); showTab(curTab); }
   }
+  function flashSaved(){ try{ ["#d-desc","#d-price","#d-cost","#d-section","#d-condition","#d-onhand"].forEach(sel=>{ const e=body.querySelector(sel); if(e){ e.style.transition="background-color .15s"; const prev=e.style.backgroundColor; e.style.backgroundColor="#e2f3e6"; setTimeout(()=>{ e.style.backgroundColor=prev||""; },450); } }); }catch(e){} }
   dirty=false;
   const bottomBtn=body.querySelector("#d-save");
   function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"List Inventory":"Add Item"):(dirty?"Save":"Okay"); }
