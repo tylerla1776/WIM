@@ -329,7 +329,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.7.6", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.7.8", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -388,6 +388,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.7.8","Print finish (batch 4 pt.2): new SL-100 label layout (no borders) that prints the Warehouse SKU large and bold, then the Item Number, then the Description — sized to the real SL-100 sheet (2.625in x 1in, 3 across x 10 down, 30 per sheet). Printing now opens an on-screen Print Preview with a Print button (set Margins=None, Scale=100% in the print dialog). Print Configuration has a layout chooser (SL-100 or custom fields); SL-100 is the default. The Print Queue's Print uses the preview and marks rows Printed once you print."],
+  ["2.7.7","Modes & Print (batch 4 pt.1): refreshed the left-tree icons (Configuration=gear, Discrepancies=warning triangle, Reports=clipboard, Records=file cabinet) and added a new Print section with a printer icon. Print Configuration moved under Print, and a new Print Queue lives there too. Printing no longer uses a blocked browser pop-up — SKU tags now go to the Print Queue (Queue/Printed/Deleted, select rows and Print). In Warehouse mode you can no longer list directly to eBay: the item page shows 'Send to Live' instead of 'List on eBay', and the Add screen has a new 'Add & Send' button that adds the item and sends it to Live (Ready to List)."],
   ["2.7.6","Category windows: opening a category's Sub Categories editor (and double-clicking a category or group to see its items) now opens in its own window, like item landing pages do — closing out the windowing for these screens. This completes the feedback fixes from the 2.7.1-2.7.3 round."],
   ["2.7.5","Windowing + dropdown fixes: pop-out app windows are now locked to fill their own window (you can no longer drag the app around inside an empty window — dragging the title bar moves the whole window like a normal app), so Previous/Next on the item page reloads in the same spot every time. The Category, Condition, Group and Slot fields on the Item Maintenance and Catalog search screens are now proper dropdowns that match the rest of the app."],
   ["2.7.4","Item Number system: every item now gets a category-based Item Number in the form CategoryID-UniqueID (e.g. a Books & Magazines item becomes 3-73200-xxxxxx). Each individual unit gets its own unique number, generated automatically when the item is created. The Item Number field is now locked and grayed on the item page (it can't be changed even if the category or manual-slot setting changes). You can search by item number without typing the dashes (e.g. 373200301840). Existing items are migrated to the new format."],
@@ -474,6 +476,7 @@ const POPOUT_APPS={
   vendors:{ title:"Vendor Management", open:()=>openListMaintenance("vendor") },
   conditions:{ title:"Condition Maintenance", open:()=>openConditionMaintenance() },
   printcfg:{ title:"Print Configuration", open:()=>openPrintConfig() },
+  printqueue:{ title:"Print Queue", open:()=>openPrintQueue() },
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
@@ -618,7 +621,7 @@ function seed(){
   return { meta:{schemaVersion:10,createdAt:now,invoiceSeq:1000},
     users:[{id:ADMIN_ID,password:"1234",mustChange:true,isAdmin:true,role:"admin",shortName:"Admin",longName:"System Administrator"}],
     slots, items, sections, groups, vendors:["HYVEE DISTRIBUTION","LOCAL FARM","C&S WHOLESALE"], conditions:STATIC.conditions.slice(), conditionsByCat:condsByCat, adjustmentTypes:STATIC.adjustmentTypes.slice(),
-    printTemplate:{ fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" }, ebay:{ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false }, invoices:[] };
+    printTemplate:{ layout:"sl100", fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" }, ebay:{ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false }, invoices:[] };
 }
 /* ============================================================ ITEM NUMBER SYSTEM (v2.7.4) ============================================================ */
 const CAT_ID_MAP={
@@ -665,7 +668,8 @@ function migrate(d){
   if(!d.adjustmentTypes) d.adjustmentTypes=STATIC.adjustmentTypes.slice();
   if(!d.conditionsByCat || typeof d.conditionsByCat!=="object"){ d.conditionsByCat={}; }
   d.sections.forEach(s=>{ if(!Array.isArray(d.conditionsByCat[s])) d.conditionsByCat[s]=d.conditions.slice(); });
-  if(!d.printTemplate) d.printTemplate={ fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" };
+  if(!d.printTemplate) d.printTemplate={ layout:"sl100", fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" };
+  if(!d.printTemplate.layout) d.printTemplate.layout="sl100";
   if(!d.ebay) d.ebay={ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false };
   if(!d.ebay.creds){ d.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:""}, production:{appId:"",certId:"",refreshToken:""} };
     const ev=d.ebay.env||"sandbox"; d.ebay.creds[ev]={ appId:d.ebay.appId||"", certId:d.ebay.certId||"", refreshToken:d.ebay.refreshToken||"" }; }
@@ -708,6 +712,7 @@ function migrate(d){
   if(d.ebay.condTolerance!==1 && d.ebay.condTolerance!==2) d.ebay.condTolerance=2;
   if(!Array.isArray(d.ebay.filedSkus)) d.ebay.filedSkus=[];
   if(!Array.isArray(d.pulledListings)) d.pulledListings=[];
+  if(!Array.isArray(d.printQueue)) d.printQueue=[];
   // ---- V2.7.4 (schema 12): category-based Item Numbers (3-732XX-NNNNNN) ----
   if((d.meta.schemaVersion||0) < 12 && Array.isArray(d.items)){
     const taken=new Set();
@@ -970,7 +975,12 @@ const I={
   shield:`<svg viewBox="0 0 16 16" fill="#5b7fb5"><path d="M8 1l6 2v5c0 4-3 6-6 7-3-1-6-3-6-7V3z"/></svg>`,
   book:`<svg viewBox="0 0 16 16" fill="#6a8caf"><path d="M2 2h5a2 2 0 012 2v10a2 2 0 00-2-2H2z"/><path d="M14 2H9a2 2 0 00-2 2v10a2 2 0 012-2h5z" opacity=".7"/></svg>`,
   stop:`<svg viewBox="0 0 16 16"><polygon points="5,1 11,1 15,5 15,11 11,15 5,15 1,11 1,5" fill="#c0392b" stroke="#8f261d" stroke-width="0.6"/><text x="8" y="10.6" font-size="4.6" font-family="Arial,sans-serif" font-weight="bold" fill="#fff" text-anchor="middle">STOP</text></svg>`,
-  cash:`<svg viewBox="0 0 16 16" fill="none" stroke="#3a7d4f" stroke-width="1.1"><rect x="2" y="3" width="12" height="10" rx="1" fill="#e7f6ec"/><circle cx="8" cy="8" r="2.2" fill="#bfe6cc" stroke="#3a7d4f"/></svg>`
+  cash:`<svg viewBox="0 0 16 16" fill="none" stroke="#3a7d4f" stroke-width="1.1"><rect x="2" y="3" width="12" height="10" rx="1" fill="#e7f6ec"/><circle cx="8" cy="8" r="2.2" fill="#bfe6cc" stroke="#3a7d4f"/></svg>`,
+  warn:`<svg viewBox="0 0 16 16"><path d="M8 1.5l6.5 12H1.5z" fill="#f4c542" stroke="#c89a1e" stroke-width=".7" stroke-linejoin="round"/><path d="M8 6v3.5" stroke="#7a5b00" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".9" fill="#7a5b00"/></svg>`,
+  clipboard:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><rect x="3" y="2.5" width="10" height="12" rx="1" fill="#eef1f6"/><rect x="5.5" y="1.4" width="5" height="2.4" rx=".6" fill="#cdd6e2" stroke="#5b6470"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3" stroke-linecap="round"/></svg>`,
+  cabinet:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><rect x="2.5" y="2" width="11" height="12" rx="1" fill="#eef1f6"/><path d="M2.5 8h11" /><path d="M6.5 5h3M6.5 11h3" stroke-linecap="round"/></svg>`,
+  gear:`<svg viewBox="0 0 16 16" fill="#7a8696"><path d="M8 1l1 1.8 2-.6.3 2 2 .6-.9 1.8.9 1.8-2 .6-.3 2-2-.6L8 15l-1-1.8-2 .6-.3-2-2-.6.9-1.8L2.6 6.6l2-.6.3-2 2 .6z"/><circle cx="8" cy="8" r="2.3" fill="#eef1f6"/></svg>`,
+  printer:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><path d="M4.5 6V2.5h7V6" fill="#eef1f6"/><rect x="2.5" y="6" width="11" height="5" rx="1" fill="#cdd6e2"/><rect x="4.5" y="9.5" width="7" height="4" fill="#fff" stroke="#5b6470"/><circle cx="11.6" cy="8" r=".7" fill="#5b6470" stroke="none"/></svg>`
 };
 function tbtn(icon,label,cls=""){ return `<button class="tbtn ${cls}" title="${label}" data-act="${label}">${icon}</button>`; }
 function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -1094,23 +1104,25 @@ function showChangePassword(user,first){
 
 /* ============================================================ LAUNCHER ============================================================ */
 const TREE_WAREHOUSE=[
-  {key:"config",icon:I.folder,label:"Configuration"},
+  {key:"config",icon:I.gear,label:"Configuration"},
   {key:"security",icon:I.shield,label:"Security"},
   {key:"catalog",icon:I.book,label:"Catalog"},
   {key:"item",icon:I.find,label:"Item Maintenance"},
   {key:"addsell",icon:I.plus,label:"Manage Inventory"},
-  {key:"whdiscrep",icon:I.find,label:"Discrepancies"},
-  {key:"reports",icon:I.print,label:"Reports"},
-  {key:"invoices",icon:I.cash,label:"Records"}
+  {key:"whdiscrep",icon:I.warn,label:"Discrepancies"},
+  {key:"print",icon:I.printer,label:"Print"},
+  {key:"reports",icon:I.clipboard,label:"Reports"},
+  {key:"invoices",icon:I.cabinet,label:"Records"}
 ];
 const TREE_LIVE=[
-  {key:"config",icon:I.folder,label:"Configuration"},
+  {key:"config",icon:I.gear,label:"Configuration"},
   {key:"security",icon:I.shield,label:"Security"},
   {key:"listings",icon:I.book,label:"Manage Listings"},
   {key:"additems",icon:I.plus,label:"Add Items"},
-  {key:"discrepancies",icon:I.find,label:"Discrepancies"},
+  {key:"discrepancies",icon:I.warn,label:"Discrepancies"},
+  {key:"print",icon:I.printer,label:"Print"},
   {key:"comm",icon:I.cash,label:"Communication"},
-  {key:"livereports",icon:I.print,label:"Reports"}
+  {key:"livereports",icon:I.clipboard,label:"Reports"}
 ];
 function TREE(){ return SESSION.mode==="live"?TREE_LIVE:TREE_WAREHOUSE; }
 let treeState={ expanded:{}, sel:null };
@@ -1120,8 +1132,9 @@ function nodeVisible(node){ if(node.key==="security") return role()==="admin"||r
 function nodeActions(node){
   if(node.key==="config"){ 
     if(isLive()){ const a=["Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
-    const a=["Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Print Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
+    const a=["Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
   if(node.key==="security") return ["Modify Users"];
+  if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Find by Photo"];
   if(node.key==="addsell") return ["Add Inventory","Sell Inventory","Adjust Inventory"];
@@ -1254,6 +1267,8 @@ function handleAction(k,a){
   if(k==="config"&&a==="Vendor Management") return launchApp("vendors");
   if(k==="config"&&a==="Condition Maintenance") return launchApp("conditions");
   if(k==="config"&&a==="Print Configuration") return launchApp("printcfg");
+  if(k==="print"&&a==="Print Configuration") return launchApp("printcfg");
+  if(k==="print"&&a==="Print Queue") return launchApp("printqueue");
   if(k==="config"&&a==="eBay Connection") return launchApp("ebaycfg");
   if(k==="config"&&a==="Listing Configuration") return launchApp("listingcfg");
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
@@ -1598,7 +1613,9 @@ function openPrintConfig(){
   const t=DB.printTemplate;
   body.innerHTML=`<div style="display:flex;gap:14px;padding:14px;flex:1;min-height:0;">
       <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
-        <fieldset class="gb"><legend>Label size</legend><select class="cmb" id="pc-size">${LABEL_SIZES.map(([v,l])=>`<option value="${v}" ${t.size===v?'selected':''}>${l}</option>`).join("")}</select></fieldset>
+        <fieldset class="gb"><legend>Label layout</legend><select class="cmb" id="pc-layout"><option value="sl100" ${(t.layout||'sl100')==='sl100'?'selected':''}>SL-100 (2.625&quot; × 1&quot;, 30/sheet) — recommended</option><option value="custom" ${t.layout==='custom'?'selected':''}>Custom fields (below)</option></select>
+          <div class="smallhint" style="margin-top:6px;">SL-100 prints the Warehouse SKU large &amp; bold, then the Item Number, then the Description — no borders.</div></fieldset>
+        <fieldset class="gb"><legend>Label size <span class="smallhint">(Custom only)</span></legend><select class="cmb" id="pc-size">${LABEL_SIZES.map(([v,l])=>`<option value="${v}" ${t.size===v?'selected':''}>${l}</option>`).join("")}</select></fieldset>
         <fieldset class="gb"><legend>Title / store name</legend>
           <label class="chkrow"><span class="chk ${t.showTitle?'on':''}" id="pc-showtitle"></span> Show a title line</label>
           <input class="txt" id="pc-title" value="${esc(t.title||'')}" style="margin-top:6px;" placeholder="e.g. My Store"></fieldset>
@@ -1621,9 +1638,11 @@ function openPrintConfig(){
       box.appendChild(row); });
   }
   const sample={ sku:"A.2.01", desc:"Premium Honeycrisp Apple", condition:"New", upc:"00-00000-03283", section:"31002 - Produce: Apples", vendor:"HYVEE DISTRIBUTION", retail:"2.99" };
-  function preview(){ const p=body.querySelector("#pc-preview"); p.innerHTML=labelHTML(sample, {fields:order.filter(k=>enabled.has(k)), showTitle:showTitle.classList.contains("on"), title:body.querySelector("#pc-title").value, size:body.querySelector("#pc-size").value}); }
-  body.querySelector("#pc-title").oninput=preview; body.querySelector("#pc-size").onchange=preview;
-  body.querySelector("#pc-save").onclick=()=>{ DB.printTemplate={ fields:order.filter(k=>enabled.has(k)), size:body.querySelector("#pc-size").value, showTitle:showTitle.classList.contains("on"), title:body.querySelector("#pc-title").value.trim() }; save(); body.querySelector("#pc-msg").style.color="#1f7244"; body.querySelector("#pc-msg").textContent="Template saved."; };
+  function preview(){ const p=body.querySelector("#pc-preview"); const layout=body.querySelector("#pc-layout").value;
+    if(layout==="sl100"){ p.style.background="#fff"; p.innerHTML=`<div style="transform:scale(.95);transform-origin:top left;">${labelSL100(sample)}</div>`; }
+    else p.innerHTML=labelHTML(sample, {fields:order.filter(k=>enabled.has(k)), showTitle:showTitle.classList.contains("on"), title:body.querySelector("#pc-title").value, size:body.querySelector("#pc-size").value}); }
+  body.querySelector("#pc-title").oninput=preview; body.querySelector("#pc-size").onchange=preview; body.querySelector("#pc-layout").onchange=preview;
+  body.querySelector("#pc-save").onclick=()=>{ DB.printTemplate={ layout:body.querySelector("#pc-layout").value, fields:order.filter(k=>enabled.has(k)), size:body.querySelector("#pc-size").value, showTitle:showTitle.classList.contains("on"), title:body.querySelector("#pc-title").value.trim() }; save(); body.querySelector("#pc-msg").style.color="#1f7244"; body.querySelector("#pc-msg").textContent="Template saved."; };
   body.querySelector("#pc-close").onclick=close;
   renderFields(); preview();
 }
@@ -1637,10 +1656,92 @@ function labelHTML(it, t){ t=t||DB.printTemplate; const sz=t.size||"medium";
     ${t.showTitle&&t.title?`<div style="font-size:10px;letter-spacing:.5px;color:#555;border-bottom:1px solid #ccc;margin-bottom:3px;">${esc(t.title)}</div>`:''}
     ${(t.fields||[]).map(fld).join("")}</div>`;
 }
-function printLabelsFor(units){ if(!units||!units.length){ uiAlert("No labels selected."); return; }
-  const t=DB.printTemplate; const w=window.open("","_blank"); if(!w){ uiAlert("Your browser blocked the print window. Allow pop-ups for this page."); return; }
-  const cells=units.map(u=>`<div style="display:inline-block;margin:6px;vertical-align:top;">${labelHTML(u,t)}</div>`).join("");
-  w.document.write(`<html><head><title>WIM Labels</title></head><body onload="window.print()">${cells}</body></html>`); w.document.close();
+function labelSL100(it){
+  const sku=esc(it.sku||""); const num=esc(it.upc||""); const desc=esc(it.desc||"");
+  return `<div class="sl100" style="width:2.625in;height:1in;box-sizing:border-box;padding:0.05in 0.12in;font-family:Segoe UI,Arial,sans-serif;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
+    <div style="font-weight:800;font-size:23px;line-height:1.02;letter-spacing:.3px;">${sku}</div>
+    <div style="font-size:12px;font-weight:600;margin-top:1px;">${num}</div>
+    <div style="font-size:10px;color:#222;margin-top:1px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${desc}</div>
+  </div>`;
+}
+function renderLabelsSheet(units){
+  const layout=(DB.printTemplate&&DB.printTemplate.layout)||"sl100";
+  if(layout==="custom"){ const t=DB.printTemplate;
+    const cells=units.map(u=>`<div style="display:inline-block;margin:6px;vertical-align:top;">${labelHTML(u,t)}</div>`).join("");
+    return `<div style="padding:10px;">${cells}</div>`; }
+  const labels=units.map(u=>`<div class="cell">${labelSL100(u)}</div>`).join("");
+  return `<style>@page{size:letter;margin:0;}*{-webkit-print-color-adjust:exact;}.sheet{padding:0.5in 0.19in 0 0.19in;font-size:0;}.cell{display:inline-block;width:2.75in;height:1in;vertical-align:top;font-size:initial;}</style><div class="sheet">${labels}</div>`;
+}
+function doPrintLabels(units){ if(!units||!units.length){ uiAlert("No labels selected."); return; }
+  let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
+  ifr=document.createElement("iframe"); ifr.id="wim-print-frame"; ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(ifr);
+  const doc=ifr.contentWindow.document; doc.open();
+  doc.write(`<html><head><title>WIM Labels</title></head><body>${renderLabelsSheet(units)}</body></html>`); doc.close();
+  setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },300);
+}
+function openPrintPreview(units, onPrinted){ if(!units||!units.length){ uiAlert("Nothing to preview."); return; }
+  const id="print-preview"; if(openWindows[id]){ focusWin(openWindows[id].el); }
+  const {body,close}=buildWindow({id,title:"Print Preview ("+units.length+" label"+(units.length>1?"s":"")+")",width:780,height:660,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">SL-100 sheet &middot; 2.625&quot; &times; 1&quot; labels &middot; 30 per sheet</span>`});
+  body.innerHTML=`<div style="padding:10px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line,#dfe3ea);">
+      <button class="btn primary" id="pp-print">Print</button><button class="btn" id="pp-close">Close</button>
+      <span class="smallhint">In the print dialog, set Margins = None and Scale = 100% for correct SL-100 alignment.</span></div>
+    <div style="flex:1;overflow:auto;background:#e7e9ee;padding:16px;display:flex;justify-content:center;">
+      <div style="background:#fff;width:8.5in;min-height:11in;box-shadow:0 2px 10px rgba(0,0,0,.15);">${renderLabelsSheet(units)}</div></div>`;
+  body.querySelector("#pp-print").onclick=()=>{ doPrintLabels(units); if(onPrinted){ try{ onPrinted(); }catch(e){} } };
+  body.querySelector("#pp-close").onclick=close;
+}
+function printLabelsFor(units){ if(!units||!units.length){ uiAlert("No labels selected."); return; } openPrintPreview(units); }
+function enqueuePrint(units){ if(!units||!units.length) return; const now=new Date().toISOString();
+  const by=(SESSION.user?userLabel(SESSION.user.id):"system");
+  units.forEach(u=>{ DB.printQueue.push({ id:crypto.randomUUID(), itemId:u.id, itemNum:u.upc||"", desc:u.desc||"", sku:u.sku||"", category:u.section||"", retail:(u.retail||(u.listing&&u.listing.price)||""), user:by, status:"Queue", at:now }); });
+  save(); wimRefreshAll(); wimToast("Added "+units.length+" to Print Queue");
+}
+function pqPrintable(e){ const live=DB.items.find(i=>i.id===e.itemId); return live||{ sku:e.sku, upc:e.itemNum, desc:e.desc, section:e.category, slot:"", placement:"" }; }
+function openPrintQueue(){
+  const id="print-queue"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Print Queue",width:920,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Queued SKU tags — select rows, then Print. Printed/Deleted are kept for 7 days.</span>`});
+  let filter="Queue"; const picked=new Set();
+  body.innerHTML=`<div style="padding:10px 14px;display:flex;gap:10px;align-items:center;">
+      <label style="font-size:12.5px;">Show <select class="cmb" id="pq-filter"><option>Queue</option><option>Printed</option><option>Deleted (7 days)</option><option>All</option></select></label>
+      <span style="flex:1;"></span>
+      <button class="btn primary" id="pq-print">Print (0)</button>
+      <button class="btn" id="pq-printed">Mark Printed</button>
+      <button class="btn" id="pq-cancel">Cancel</button>
+      <button class="btn" id="pq-delete">Delete</button></div>
+    <div class="resultwrap" style="margin:0 14px 8px;"><table class="res"><thead><tr>
+      <th style="width:34px;"><input type="checkbox" id="pq-all"></th><th>Item Number</th><th>Description</th><th>User</th><th>Warehouse SKU</th><th>Category</th><th>Retail</th><th>Status</th></tr></thead>
+      <tbody id="pq-tb"></tbody></table></div>
+    <div class="statusbar"><span id="pq-status"></span></div>`;
+  const tb=body.querySelector("#pq-tb"), statusEl=body.querySelector("#pq-status");
+  const cutoff=Date.now()-7*864e5;
+  function rows(){ return DB.printQueue.filter(e=>{
+      if(filter==="All") return true;
+      if(filter==="Queue") return e.status==="Queue";
+      if(filter==="Printed") return e.status==="Printed";
+      if(filter==="Deleted (7 days)") return e.status==="Deleted" && new Date(e.at).getTime()>=cutoff;
+      return true; }).sort((a,b)=>new Date(b.at)-new Date(a.at)); }
+  function updBtns(){ body.querySelector("#pq-print").textContent="Print ("+picked.size+")"; }
+  function render(){ const list=rows(); tb.innerHTML="";
+    list.forEach(e=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td style="text-align:center;"><input type="checkbox" data-id="${e.id}" ${picked.has(e.id)?"checked":""}></td>
+        <td>${esc(e.itemNum)}</td><td>${esc(e.desc)}</td><td>${esc(e.user)}</td><td>${esc(e.sku)}</td><td>${esc(e.category)}</td><td>${e.retail?("$"+esc(e.retail)):""}</td><td>${esc(e.status)}</td>`;
+      tb.appendChild(tr); });
+    tb.querySelectorAll("input[type=checkbox]").forEach(c=>{ c.onchange=()=>{ if(c.checked) picked.add(c.dataset.id); else picked.delete(c.dataset.id); updBtns(); }; });
+    statusEl.textContent=list.length+" record(s) · "+DB.printQueue.filter(e=>e.status==="Queue").length+" queued";
+    updBtns(); }
+  body.querySelector("#pq-filter").onchange=(ev)=>{ filter=ev.target.value; picked.clear(); render(); };
+  body.querySelector("#pq-all").onchange=(ev)=>{ rows().forEach(e=>{ if(ev.target.checked) picked.add(e.id); else picked.delete(e.id); }); render(); };
+  const selected=()=>DB.printQueue.filter(e=>picked.has(e.id));
+  body.querySelector("#pq-print").onclick=()=>{ const sel=selected(); if(!sel.length){ uiAlert("Select at least one row to print."); return; }
+    openPrintPreview(sel.map(pqPrintable), ()=>{ sel.forEach(e=>{ e.status="Printed"; e.at=new Date().toISOString(); }); picked.clear(); save(); render(); }); };
+  body.querySelector("#pq-printed").onclick=()=>{ const sel=selected(); if(!sel.length) return; sel.forEach(e=>{ e.status="Printed"; e.at=new Date().toISOString(); }); picked.clear(); save(); render(); };
+  body.querySelector("#pq-cancel").onclick=()=>{ const sel=selected(); if(!sel.length) return; const ids=new Set(sel.map(e=>e.id)); DB.printQueue=DB.printQueue.filter(e=>!ids.has(e.id)); picked.clear(); save(); render(); };
+  body.querySelector("#pq-delete").onclick=()=>{ const sel=selected(); if(!sel.length) return;
+    uiConfirm("Delete "+sel.length+" record(s) from the queue? (kept 7 days under Deleted)",()=>{ sel.forEach(e=>{ e.status="Deleted"; e.at=new Date().toISOString(); }); picked.clear(); save(); render(); }); };
+  body._refresh=render; render();
 }
 function openPrintMenu(it){
   const units = it.sold? [it] : unitsOf(it);
@@ -2054,7 +2155,7 @@ function openItemDetail(item,mode,nav){
   if(openWindows[wid]){ focusWin(openWindows[wid].el); return; }
   const navHtml = (nav && nav.list && nav.list.length) ? `<span class="tbar-sep"></span><button class="tbtn" id="d-prev" title="Previous record" ${nav.index<=0?'disabled':''}>&#8249;</button><span style="font-size:12px;align-self:center;padding:0 6px;white-space:nowrap;">${nav.index+1} / ${nav.list.length}</span><button class="tbtn" id="d-next" title="Next record" ${nav.index>=nav.list.length-1?'disabled':''}>&#8250;</button>` : "";
   const tbar= (ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
-    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${tbtn(I.cash,'List on eBay')}`) + navHtml;
+    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${isLive()?tbtn(I.cash,'List on eBay'):tbtn(I.bolt,'Send to Live')}`) + navHtml;
   const {body,close:_closeWin}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48});
   const close=()=>{ try{ _closeWin(); }catch(e){}
     if(WIM_ITEMDETAIL_WIN){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
@@ -2097,7 +2198,7 @@ function openItemDetail(item,mode,nav){
     <div class="tabs"><div class="tab sel" id="d-tab-groups">Groups</div><div class="tab" id="d-tab-history">Item History</div><div class="tab" id="d-tab-listing">Listing Details</div><div class="tab" id="d-tab-compare">Price Compare</div></div>
     <div class="pane-tabbody" id="d-tabbody"></div>
     </div>
-    <div class="statusbar"><span id="d-status"></span><span>${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'List Inventory':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
+    <div class="statusbar"><span id="d-status"></span><span>${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}${(isNew&&!isLive())?'<button class="btn" id="d-addsend">Add &amp; Send</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'List Inventory':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
 
   if(!ro){ const file=body.querySelector("#d-imgfile");
     body.querySelector("#d-imgbtn").onclick=()=>file.click();
@@ -2369,7 +2470,7 @@ function openItemDetail(item,mode,nav){
   setManualUI();
 
   const saveBtn=body.querySelector("#d-save");
-  function doSave(keepOpen){ const status=body.querySelector("#d-status"); status.style.color="#c0392b";
+  function doSave(keepOpen, sendToLive){ const status=body.querySelector("#d-status"); status.style.color="#c0392b";
     const upc=body.querySelector("#d-upc").value.trim(), desc=body.querySelector("#d-desc").value.trim();
     if(!desc){ status.textContent="Description is required."; return; }
     const cat=body.querySelector("#d-section").value;
@@ -2418,6 +2519,7 @@ function openItemDetail(item,mode,nav){
         created[0].listing=Object.assign({status:"listed",title:desc,price:"",qty:String(qty),descriptionId:null,ebayOfferId:null,ebaySku:null,listedAt:new Date().toISOString(),delistedAt:null}, L);
         if(L.ebaySku){ if(!DB.ebay) DB.ebay={}; if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[]; if(!DB.ebay.filedSkus.includes(L.ebaySku)) DB.ebay.filedSkus.push(L.ebaySku); }
         addHistory(created[0],"Filed from eBay listing"+(L.ebaySku?(" (eBay SKU "+L.ebaySku+")"):"")); }
+      if(sendToLive){ created.forEach(ni=>{ if(!ni.listing) ni.listing={status:"none"}; ni.listing.readyToList=true; addHistory(ni,"Sent to Live (Ready to List)"); }); }
     } else {
       const pl=placements[0]; const newSku=skuOf(pl.slot,pl.placement); const ch=[];
       if((it.desc||"")!==desc) ch.push('Description changed: "'+(it.desc||"")+'" → "'+desc+'"');
@@ -2435,8 +2537,9 @@ function openItemDetail(item,mode,nav){
     save(); refreshSearchWindows(); refreshInvoices();
     if(isNew){
       const made=(savedNew||[]).slice(); close();
-      if(made.length && !isLive() && !it._pendingListing){
-        uiConfirm("Added "+made.length+" item"+(made.length>1?"s":"")+" to inventory. Create SKU tag"+(made.length>1?"s":"")+" to print now?", ()=>{ try{ printLabelsFor(made); }catch(e){ uiAlert("Couldn't open the label print: "+(e&&e.message?e.message:e)); } });
+      if(sendToLive){ wimToast("Added "+made.length+" & sent to Live \u2192 Ready to List"); }
+      else if(made.length && !isLive() && !it._pendingListing){
+        uiConfirm("Added "+made.length+" item"+(made.length>1?"s":"")+" to inventory. Send SKU tag"+(made.length>1?"s":"")+" to the Print Queue?", ()=>{ try{ enqueuePrint(made); }catch(e){ uiAlert("Couldn't queue the label: "+(e&&e.message?e.message:e)); } });
       }
     }
     else if(!keepOpen){ close(); }
@@ -2451,12 +2554,14 @@ function openItemDetail(item,mode,nav){
   body.addEventListener("input",markDirty); body.addEventListener("change",markDirty);
   const origManualClick=manual.onclick; manual.onclick=()=>{ origManualClick(); markDirty(); };
   bottomBtn.onclick=()=>doSave(false);
+  const addSendBtn=body.querySelector("#d-addsend"); if(addSendBtn) addSendBtn.onclick=()=>doSave(false,true);
   const topSave=body.parentElement? null:null; const tsv=openWindows[wid].el.querySelector('[data-act="Save"]'); if(tsv) tsv.onclick=()=>doSave(true);
   body.querySelector("#d-close").onclick=()=>{ if(dirty){ uiModal("Save changes?","<div style=\"font-size:13px;\">You have unsaved changes. Save them?</div>",[{label:"Yes, save",primary:true,onClick:()=>doSave(false)},{label:"No, discard",onClick:()=>close()},{label:"Keep editing"}]); } else close(); };
   const db=openWindows[wid].el.querySelector('[data-act="Delete"]'); if(db) db.onclick=()=>{ if(isNew){ close(); return; }
     openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); close(); }); };
   const pbtn=openWindows[wid].el.querySelector('[data-act="Print"]'); if(pbtn) pbtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first — labels print once a Warehouse SKU is assigned."); return; } openPrintMenu(it); };
   const ebtn=openWindows[wid].el.querySelector('[data-act="List on eBay"]'); if(ebtn) ebtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first, then list it on eBay."); return; } openEbayList(it); };
+  const s2live=openWindows[wid].el.querySelector('[data-act="Send to Live"]'); if(s2live) s2live.onclick=()=>{ if(isNew){ uiAlert("Save the item first (or use Add & Send), then send it to Live."); return; } if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Live (Ready to List)"); save(); wimRefreshAll(); wimToast("Sent to Live \u2192 Ready to List"); };
   updateBtn();
 }
 function deleteItems(units,userId){ // soft-delete: out of active, reversible from Records
