@@ -329,7 +329,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.7.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.7.4", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -388,6 +388,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.7.4","Item Number system: every item now gets a category-based Item Number in the form CategoryID-UniqueID (e.g. a Books & Magazines item becomes 3-73200-xxxxxx). Each individual unit gets its own unique number, generated automatically when the item is created. The Item Number field is now locked and grayed on the item page (it can't be changed even if the category or manual-slot setting changes). You can search by item number without typing the dashes (e.g. 373200301840). Existing items are migrated to the new format."],
   ["2.7.3","Windowing (batch 2): opening an existing item from Item Maintenance or the Catalog now opens that item's landing page in its own separate window, instead of nesting it inside the search window. This fixes the bug where the item landing page couldn't be closed. Previous/Next still page through records within that window. (Applies when floating windows are on, in the desktop app.)"],
   ["2.7.2","UI fixes (batch 1, part 2): Next/Previous record buttons now work on the item page (they were being looked up in the wrong place). Saving shows clear feedback — a 'Saved' toast and the changed fields briefly flash green. Adding warehouse inventory now asks if you want to create SKU tag(s) to print. The Groups tab has a search box to filter the assignable groups. And the app no longer follows Windows dark mode (forced light rendering). Note: the auto-update 'error opening file for writing' message still needs a dedicated fix."],
   ["2.7.1","UI fixes (batch 1, part 1): restored the WIM icon in window headers (now a clear chip on the gray bar); windows fill the whole app area so there's no gap above the title bar or below the footer (removes the 'app in front of another app' look); the Search/Location info moved up inline with the toolbar row instead of sitting on its own row; and dropdowns are now consistently styled everywhere."],
@@ -595,6 +596,29 @@ function seed(){
     slots, items, sections, groups, vendors:["HYVEE DISTRIBUTION","LOCAL FARM","C&S WHOLESALE"], conditions:STATIC.conditions.slice(), conditionsByCat:condsByCat, adjustmentTypes:STATIC.adjustmentTypes.slice(),
     printTemplate:{ fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" }, ebay:{ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false }, invoices:[] };
 }
+/* ============================================================ ITEM NUMBER SYSTEM (v2.7.4) ============================================================ */
+const CAT_ID_MAP={
+  "Books & Magazines":"3-73200","General":"3-73201","None":"3-73202","Baby":"3-73203","Collectibles":"3-73204",
+  "Crafts":"3-73205","Dolls & Babies":"3-73206","Pet Supplies":"3-73207","Toys & Hobbies":"3-73208","Business & Industrial":"3-73209",
+  "Cameras & Photo":"3-73210","Cell Phones & Accessories":"3-73211","Computers/Tablets & Networking":"3-73212","Electronics":"3-73213","Home & Garden":"3-73214",
+  "Musical Instruments & Gear":"3-73215","Headphones":"3-73216","Portable audio & Home Audio":"3-73217","Video Game Consoles":"3-73218","Smart Home":"3-73219",
+  "Clothing":"3-73220","Shoes":"3-73221","Jewelry & Watches":"3-73222","Sporting Goods":"3-73223","Underwear":"3-73224",
+  "Coins & Paper Money":"3-73225","Movies & TV":"3-73226","Music":"3-73227","Video Games":"3-73228","Food & Beverages":"3-73229",
+  "Health & Beauty":"3-73230","Motors: Cars & Trucks":"3-73231","Motors: Parts & Accessories":"3-73232","Tires":"3-73233","NFT":"3-73234",
+  "Trading Cards":"3-73235","Bulk":"3-73236","NONE":"3-73238"
+};
+const CAT_ID_DEFAULT="3-73201"; // General
+function catIdFor(cat){ if(cat==null) return CAT_ID_DEFAULT; if(CAT_ID_MAP[cat]) return CAT_ID_MAP[cat];
+  const f=Object.keys(CAT_ID_MAP).find(k=>k.toLowerCase()===String(cat).toLowerCase()); return f?CAT_ID_MAP[f]:CAT_ID_DEFAULT; }
+function normItemNum(s){ return String(s||"").replace(/\D/g,""); }
+function isNewFmtItemNum(s){ return /^3-732\d\d-\d{6}$/.test(String(s||"")); }
+function uniqueIdInUse(uid){ return DB.items.some(i=>{ const m=/^3-732\d\d-(\d{6})$/.exec(i.upc||""); return m && m[1]===uid; }); }
+function itemNumberInUse(num){ const n=normItemNum(num); return DB.items.some(i=>normItemNum(i.upc)===n); }
+function genItemNumber(cat, extraTaken){ const catId=catIdFor(cat); let uid, full, tries=0;
+  do{ uid=String(Math.floor(100000+Math.random()*900000)); full=catId+"-"+uid; tries++; }
+  while((uniqueIdInUse(uid) || itemNumberInUse(full) || (extraTaken&&extraTaken.has(uid))) && tries<20000);
+  if(extraTaken) extraTaken.add(uid); return full; }
+
 function migrate(d){
   if(!d.meta) d.meta={schemaVersion:1,createdAt:new Date().toISOString()};
   if(d.meta.invoiceSeq==null) d.meta.invoiceSeq=1000;
@@ -660,6 +684,18 @@ function migrate(d){
   if(d.ebay.condTolerance!==1 && d.ebay.condTolerance!==2) d.ebay.condTolerance=2;
   if(!Array.isArray(d.ebay.filedSkus)) d.ebay.filedSkus=[];
   if(!Array.isArray(d.pulledListings)) d.pulledListings=[];
+  // ---- V2.7.4 (schema 12): category-based Item Numbers (3-732XX-NNNNNN) ----
+  if((d.meta.schemaVersion||0) < 12 && Array.isArray(d.items)){
+    const taken=new Set();
+    d.items.forEach(i=>{ const m=/^3-732\d\d-(\d{6})$/.exec(i.upc||""); if(m) taken.add(m[1]); });
+    const catIdLocal=(cat)=>{ if(cat==null) return CAT_ID_DEFAULT; if(CAT_ID_MAP[cat]) return CAT_ID_MAP[cat];
+      const f=Object.keys(CAT_ID_MAP).find(k=>k.toLowerCase()===String(cat).toLowerCase()); return f?CAT_ID_MAP[f]:CAT_ID_DEFAULT; };
+    d.items.forEach(i=>{ if(/^3-732\d\d-\d{6}$/.test(i.upc||"")) return;
+      const catId=catIdLocal(i.section); let uid,t=0;
+      do{ uid=String(Math.floor(100000+Math.random()*900000)); t++; }while(taken.has(uid)&&t<20000);
+      taken.add(uid); const old=i.upc; i.upc=catId+"-"+uid;
+      if(Array.isArray(i.history)) i.history.push({at:new Date().toISOString(),desc:"Item Number assigned: "+i.upc+(old?(" (was "+old+")"):""),by:"system"}); });
+  }
   d.meta.schemaVersion=SCHEMA_VERSION; return d;
 }
 let DB=null;
@@ -1771,7 +1807,7 @@ function buildSearchUI(body,{scope,cols,winId}){
     const addedAfter=isCat?g("s-added"):"", soldAfter=isCat?g("s-soldon"):"";
     const eqi=(a,b)=>String(a||"").trim().toLowerCase()===String(b||"").trim().toLowerCase();
     st.results=pool().filter(it=>{
-      if(upc&&!it.upc.toLowerCase().includes(upc)) return false;
+      if(upc){ const qn=normItemNum(upc); if(qn){ if(!normItemNum(it.upc).includes(qn)) return false; } else if(!it.upc.toLowerCase().includes(upc)) return false; }
       if(sku&&!(it.sku||"").toLowerCase().includes(sku)) return false;
       if(slot){ if(slot.toLowerCase()==="none"){ if(it.slot) return false; } else if(!eqi(it.slot,slot)) return false; }
       if(desc&&!(it.desc.toLowerCase().includes(desc))) return false;
@@ -1991,7 +2027,7 @@ function openItemDetail(item,mode,nav){
       <div class="imgcell"><div class="imgbox" id="d-imgbox">${it.image?`<img src="${it.image}">`:'<span class="ph">📦</span>'}</div>
         ${ro?'':`<input type="file" id="d-imgfile" accept="image/*" style="display:none;"><div style="display:flex;gap:6px;"><button class="btn sm" id="d-imgbtn">Add Photo</button><button class="btn sm" id="d-imgclr">Remove</button></div>`}</div>
       <div style="display:grid;gap:10px;">
-        <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" ${dis}></div>
+        <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" readonly title="Item Number is auto-generated from the category and locked" ${isNew?'placeholder="(auto-generated on save)"':''} style="background:#f1f3f7;color:#5b6470;cursor:default;"></div>
         <div class="ff"><label class="blue" style="text-align:left;">Item Description</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
         <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
         <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${(ro||(!isNew&&!it.manualSlot))?'disabled':''}>${secOpts}</select></div>
@@ -2327,10 +2363,11 @@ function openItemDetail(item,mode,nav){
     }
     let savedNew=null;
     if(isNew){
-      const created=[]; savedNew=created;
+      const created=[]; savedNew=created; const _itnTaken=new Set();
       placements.forEach((pl,i)=>{ const ni=(i===0)?it:Object.assign({},it,{id:crypto.randomUUID()});
         Object.assign(ni, base, {slot:pl.slot,placement:pl.placement,sku:skuOf(pl.slot,pl.placement),onHand:(qty>1?"1":base.onHand),createdAt:new Date().toISOString(),sold:false,soldAt:null,soldBy:null});
-        ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
+        ni.upc=genItemNumber(cat, _itnTaken);
+        ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+", Item # "+ni.upc+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
         DB.items.push(ni); created.push(ni); });
       recordAdds(created, SESSION.user.id, "Add");
       if(it._pendingListing && created[0]){ const L=it._pendingListing;
@@ -2484,7 +2521,7 @@ function openBulkAdd(){
   const tbTopPlus=openWindows["bulk-add"].el.querySelector('[data-act="Add Record"]'); if(tbTopPlus) tbTopPlus.onclick=addRow;
   function doCreate(){
    try{
-    let made=0, errors=0; const batch=[];
+    let made=0, errors=0; const batch=[]; const _bulkItn=new Set();
     rows.forEach(r=>{ if(r.created) return; r.error=""; r.skus=[]; r._items=[];
       if(!r.desc.trim() && !r.upc.trim() && !r.section.trim() && !r.slot.trim()) return; // skip empty rows
       if(!r.desc.trim()){ r.error="needs description"; errors++; return; }
@@ -2497,7 +2534,7 @@ function openBulkAdd(){
         if(!slotHasCat(slotById(slotV),cat)){ r.error="slot ≠ category"; errors++; return; }
         alloc=allocateInSlot(slotV,qty,null); if(!alloc){ r.error="slot can't fit "+qty; errors++; return; } }
       else { alloc=allocateMulti(qty,null,cat); if(alloc.length<qty){ r.error="no "+cat+" space ("+alloc.length+")"; errors++; return; } }
-      alloc.forEach(pl=>{ const it={ id:crypto.randomUUID(), upc:r.upc.trim(), desc:r.desc.trim(),
+      alloc.forEach(pl=>{ const it={ id:crypto.randomUUID(), upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
         vendor:(DB.vendors[0]||"HYVEE DISTRIBUTION"), condition:r.condition.trim(),
         section:cat,
         unitCost:"0.000", retail:"0.00", onHand:"1", groups:[],
