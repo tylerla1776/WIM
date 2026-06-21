@@ -315,7 +315,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.6.11", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.6.12", BUILD_DATE="2026-06-14", SCHEMA_VERSION=11, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -374,6 +374,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.6.12","Added a 'Support info' button in Messages that runs the eBay token exchange and shows the full request (including the Base64 Authorization header), the HTTP status, the response body, and the rlogid / request-id response headers — all copyable — so eBay Developer Support gets exactly what they asked for."],
   ["2.6.11","Likely fix for the eBay user-token 'invalid_grant' error: if a refresh token was generated from a URL-encoded authorization code (containing %23/%5E/%3D instead of #/^/=), it looks valid but always fails. WIM now auto-decodes URL-encoded tokens when you save them, and the Diagnose tool detects and tests this case."],
   ["2.6.10","Enhanced messages diagnostics: now shows the masked App ID, Cert ID and token with their lengths and a check for stray spaces/newlines, plus the token prefix — to pinpoint why the user token is rejected (refresh vs access token, wrong cert, hidden whitespace)."],
   ["2.6.9","Messages diagnostics: added a Diagnose button that tests your token and probes the eBay messaging endpoints, plus made all eBay error/raw output selectable with a Copy button so it can be shared easily. This is to pinpoint why the inbox returns an error."],
@@ -3271,7 +3272,7 @@ function openManageListings(){
 function openCommunication(){
   if(openWindows["comm"]){ focusWin(openWindows["comm"].el); return; }
   const {body}=buildWindow({id:"comm",title:"Messages",width:980,height:620,popoutKey:"comm",
-    toolbar:`<button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-diag">Diagnose</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
+    toolbar:`<button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
   let convos=[], current=null, lastRaw="";
   body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
       <div id="cm-list" style="flex:0 0 320px;border-right:1px solid var(--line);overflow:auto;background:#fff;"></div>
@@ -3348,6 +3349,32 @@ function openCommunication(){
   if(loadBtn) loadBtn.onclick=loadInbox;
   const diagBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-diag"):body.querySelector("#cm-diag"));
   if(diagBtn) diagBtn.onclick=runDiagnostics;
+  const supBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-support"):body.querySelector("#cm-support"));
+  if(supBtn) supBtn.onclick=runSupportInfo;
+  async function runSupportInfo(){
+    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first."); return; }
+    if(!WIM_IS_DESKTOP){ uiAlert("Runs in the desktop app."); return; }
+    let p;
+    try{ p=await wimDesktop.invoke("ebay_token_probe",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:EBAY_SCOPE_INV}); }
+    catch(e){ uiAlert("Probe failed: "+(e&&e.message?e.message:e)); return; }
+    const out=
+"eBay token-exchange — full request + response for support\n"+
+"=========================================================\n"+
+"App ID (Client ID): "+(DB.ebay.appId||"")+"\n"+
+"Cert ID (Client Secret): "+(DB.ebay.certId||"")+"\n"+
+"   (Base64 of 'AppID:CertID' is in the Authorization header below — you can verify the encoding)\n\n"+
+"REQUEST\n"+
+"POST "+p.request_url+"\n"+
+"Authorization: "+p.auth_header+"\n"+
+"Content-Type: application/x-www-form-urlencoded\n"+
+"Body: "+p.request_body+"\n\n"+
+"RESPONSE\n"+
+"HTTP "+p.status+"\n"+
+"rlogid: "+(p.rlogid||"(none returned)")+"\n"+
+"x-ebay-c-request-id: "+(p.request_id||"(none returned)")+"\n"+
+"Body: "+p.body+"\n";
+    showCopyable("Support info — copy ALL of this to eBay (includes rlogid + auth header)", out);
+  }
   function showCopyable(title, text){
     uiModal(title, `<textarea id="cm-copytext" readonly style="width:100%;height:340px;font-size:11px;font-family:monospace;white-space:pre;overflow:auto;border:1px solid #ccc;border-radius:6px;padding:8px;">${esc(text)}</textarea>`,
       [{label:"Copy", primary:true, onClick:()=>{ const t=document.getElementById("cm-copytext"); if(t){ t.select(); try{ document.execCommand("copy"); }catch(e){} try{ navigator.clipboard.writeText(text); }catch(e){} } }},{label:"Close"}]);

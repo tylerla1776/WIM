@@ -13,6 +13,17 @@ struct ApiResult {
     body: String,
 }
 
+#[derive(Serialize)]
+struct TokenProbe {
+    status: u16,
+    body: String,
+    rlogid: String,
+    request_id: String,
+    auth_header: String,
+    request_url: String,
+    request_body: String,
+}
+
 fn base_url(env: &str) -> &'static str {
     if env == "production" {
         "https://api.ebay.com"
@@ -56,6 +67,51 @@ async fn get_user_token(
         }
     } else {
         Err((status, text))
+    }
+}
+
+// Diagnostic: run the refresh_token exchange and return status, body, rlogid and the
+// exact Base64 Authorization header, so the values can be shared with eBay support.
+#[tauri::command]
+async fn ebay_token_probe(env: String, app_id: String, cert_id: String, refresh_token: String, scope: String) -> TokenProbe {
+    let url = format!("{}/identity/v1/oauth2/token", base_url(&env));
+    let basic = general_purpose::STANDARD.encode(format!("{}:{}", app_id, cert_id));
+    let sc = if scope.is_empty() { "https://api.ebay.com/oauth/api_scope/sell.inventory".to_string() } else { scope };
+    let req_body = format!("grant_type=refresh_token&refresh_token={}&scope={}", refresh_token, sc);
+    let params = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token.as_str()),
+        ("scope", sc.as_str()),
+    ];
+    let client = reqwest::Client::new();
+    match client
+        .post(&url)
+        .header("Authorization", format!("Basic {}", basic))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&params)
+        .send()
+        .await
+    {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let hv = |name: &str| r.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+            let rlogid = hv("rlogid");
+            let request_id = {
+                let a = hv("x-ebay-c-request-id");
+                if a.is_empty() { hv("x-ebay-request-id") } else { a }
+            };
+            let body = r.text().await.unwrap_or_default();
+            TokenProbe {
+                status, body, rlogid, request_id,
+                auth_header: format!("Basic {}", basic),
+                request_url: url,
+                request_body: req_body,
+            }
+        }
+        Err(e) => TokenProbe {
+            status: 0, body: e.to_string(), rlogid: String::new(), request_id: String::new(),
+            auth_header: format!("Basic {}", basic), request_url: url, request_body: req_body,
+        },
     }
 }
 
@@ -291,7 +347,8 @@ fn main() {
             ebay_get_user,
             ebay_put_inventory_item,
             ebay_upload_picture,
-            ebay_search_by_image
+            ebay_search_by_image,
+            ebay_token_probe
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");
