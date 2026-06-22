@@ -294,6 +294,9 @@
   body.popout .window>.statusbar{border-radius:0;}
   /* Consistent dropdowns everywhere (squared, same font/size) */
   select,select.cmb{border-radius:6px;font-family:inherit;font-size:13px;height:30px;border:1px solid var(--field-border);background:#fff;padding:4px 8px;}
+  .dash-tile{flex:1;min-width:150px;background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:16px 18px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
+  .dash-tile.dash-tile:hover{box-shadow:0 3px 12px rgba(31,45,71,.12);}
+  .dash-card{background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
 </style>
 </head>
 <body>
@@ -329,7 +332,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.7.8", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.8.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -388,6 +391,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.8.1","Capacity & utilization widgets (batch 5 pt.2): five new dashboard widgets driven by each slot's capacity (the SKU limit set in Warehouse Maintenance) versus how full it is — Warehouse Utilization, Category Utilization (top 3), Slot Utilization (top 3), Slot Open Capacity (top 3), and Category Open Capacity (top 3). Add them from Configuration > Dashboard Widgets."],
+  ["2.7.9","Dashboard widgets (batch 5 pt.1): the home dashboard is now built from configurable widgets. New Dashboard Widget Maintenance (Configuration > Dashboard Widgets) lets you pick which widgets show on the Warehouse and Live dashboards and their order, each with a description; widgets marked * (Inventory Value, Highest Value SKU) are leadership/admin only. Widgets included: Items Sold and Items Added (today/week/month/year), Active Items, Units on Hand, Discrepancies, Average Time Listed, Inventory Value*, Highest Value SKU*, plus 30-day Sold/Listed graphs and Top Categories. Items Needing SKU and New Messages are placeholders until the eBay connection is restored."],
   ["2.7.8","Print finish (batch 4 pt.2): new SL-100 label layout (no borders) that prints the Warehouse SKU large and bold, then the Item Number, then the Description — sized to the real SL-100 sheet (2.625in x 1in, 3 across x 10 down, 30 per sheet). Printing now opens an on-screen Print Preview with a Print button (set Margins=None, Scale=100% in the print dialog). Print Configuration has a layout chooser (SL-100 or custom fields); SL-100 is the default. The Print Queue's Print uses the preview and marks rows Printed once you print."],
   ["2.7.7","Modes & Print (batch 4 pt.1): refreshed the left-tree icons (Configuration=gear, Discrepancies=warning triangle, Reports=clipboard, Records=file cabinet) and added a new Print section with a printer icon. Print Configuration moved under Print, and a new Print Queue lives there too. Printing no longer uses a blocked browser pop-up — SKU tags now go to the Print Queue (Queue/Printed/Deleted, select rows and Print). In Warehouse mode you can no longer list directly to eBay: the item page shows 'Send to Live' instead of 'List on eBay', and the Add screen has a new 'Add & Send' button that adds the item and sends it to Live (Ready to List)."],
   ["2.7.6","Category windows: opening a category's Sub Categories editor (and double-clicking a category or group to see its items) now opens in its own window, like item landing pages do — closing out the windowing for these screens. This completes the feedback fixes from the 2.7.1-2.7.3 round."],
@@ -477,6 +482,7 @@ const POPOUT_APPS={
   conditions:{ title:"Condition Maintenance", open:()=>openConditionMaintenance() },
   printcfg:{ title:"Print Configuration", open:()=>openPrintConfig() },
   printqueue:{ title:"Print Queue", open:()=>openPrintQueue() },
+  dashwidgets:{ title:"Dashboard Widgets", open:()=>openDashWidgets() },
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
@@ -713,6 +719,7 @@ function migrate(d){
   if(!Array.isArray(d.ebay.filedSkus)) d.ebay.filedSkus=[];
   if(!Array.isArray(d.pulledListings)) d.pulledListings=[];
   if(!Array.isArray(d.printQueue)) d.printQueue=[];
+  if(!d.meta.dashboards||typeof d.meta.dashboards!=="object") d.meta.dashboards={};
   // ---- V2.7.4 (schema 12): category-based Item Numbers (3-732XX-NNNNNN) ----
   if((d.meta.schemaVersion||0) < 12 && Array.isArray(d.items)){
     const taken=new Set();
@@ -1131,8 +1138,8 @@ function isLive(){ return SESSION.mode==="live"; }
 function nodeVisible(node){ if(node.key==="security") return role()==="admin"||role()==="leadership"; return true; }
 function nodeActions(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
-    const a=["Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
+    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
   if(node.key==="security") return ["Modify Users"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
@@ -1171,58 +1178,158 @@ function showLauncher(){
   const homeGo=()=>{ treeState.sel=null; renderTree(); renderDashboard(); };
   const ttlEl=win.querySelector(".ttl"); if(ttlEl){ ttlEl.style.cursor="pointer"; ttlEl.title="Back to Dashboard"; ttlEl.onclick=homeGo; }
 }
+const DASH_WIDGETS={
+  activeCount:{title:"Active Items",desc:"Count of active (unsold) items in inventory.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Active Items",c.active.length.toLocaleString(),"#4f7cf7")},
+  unitsOnHand:{title:"Units on Hand",desc:"Total quantity on hand across active items.",role:"all",modes:["warehouse"],
+    render:c=>c.tile("Units on Hand",c.units.toLocaleString(),"#1f9d57")},
+  soldToday:{title:"Items Sold — Today",desc:"Items marked sold since midnight.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Sold — Today",c.soldSince(c.startToday),"#e08a1f")},
+  soldWeek:{title:"Items Sold — This Week",desc:"Items sold since Sunday.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Sold — This Week",c.soldSince(c.startWeek),"#e08a1f")},
+  soldMonth:{title:"Items Sold — This Month",desc:"Items sold since the 1st of the month.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Sold — This Month",c.soldSince(c.startMonth),"#e08a1f")},
+  soldYear:{title:"Items Sold — This Year",desc:"Items sold since January 1.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Sold — This Year",c.soldSince(c.startYear),"#e08a1f")},
+  addedToday:{title:"Items Added — Today",desc:"Items created since midnight.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Added — Today",c.addedSince(c.startToday),"#3b7dd8")},
+  addedWeek:{title:"Items Added — This Week",desc:"Items created since Sunday.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Added — This Week",c.addedSince(c.startWeek),"#3b7dd8")},
+  addedMonth:{title:"Items Added — This Month",desc:"Items created since the 1st of the month.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Added — This Month",c.addedSince(c.startMonth),"#3b7dd8")},
+  discrepancies:{title:"Discrepancies",desc:"Active items with a Warehouse SKU that aren't listed on eBay.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Discrepancies",c.discrep,"#c0392b","needs listing →",()=>launchApp(isLive()?"discrepancies":"whdiscrep"))},
+  avgTimeListed:{title:"Average Time Listed",desc:"Average number of days currently-listed items have been live on eBay.",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Avg Time Listed",c.avgListed==null?"—":(c.avgListed+" days"),"#7a45c4")},
+  invValue:{title:"Inventory Value *",desc:"Total value of inventory at cost. Leadership only.",role:"leadership",modes:["warehouse","live"],
+    render:c=>c.tile("Inventory Value","$"+c.invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}),"#1f9d57")},
+  highestSku:{title:"Highest Value SKU *",desc:"The single highest-value unit currently on hand. Leadership only.",role:"leadership",modes:["warehouse"],
+    render:c=>{ const h=c.highest; return c.tile("Highest Value SKU", h?("$"+h.val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—","#1f9d57", h?(esc(h.sku)+" · "+esc((h.desc||"").slice(0,22))):""); }},
+  itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM. Requires an eBay connection (coming in a later update).",role:"all",modes:["warehouse","live"],
+    render:c=>c.tile("Items Needing SKU","—","#9aa3ad","connect eBay")},
+  newMessages:{title:"New Messages",desc:"Unread eBay messages. Requires an eBay connection (coming in a later update).",role:"all",modes:["live"],
+    render:c=>c.tile("New Messages","—","#9aa3ad","connect eBay",()=>launchApp("comm"))},
+  soldChart:{title:"Items Sold — last 30 days",desc:"Daily sold count over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,
+    render:c=>c.chart("Items Sold","Last 30 days",c.sold30,"#4f7cf7")},
+  listedChart:{title:"Items Listed — last 30 days",desc:"Daily count of items marked listed over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,
+    render:c=>c.chart("Items Listed","Last 30 days",c.listed30,"#1f9d57")},
+  topCats:{title:"Top Categories",desc:"Active items grouped by category.",role:"all",modes:["warehouse","live"],wide:true,
+    render:c=>c.topcats()},
+  whUtil:{title:"Warehouse Utilization",desc:"Overall slot utilization: occupied placements ÷ total slot capacity.",role:"all",modes:["warehouse"],
+    render:c=>c.tile("Warehouse Utilization",c.pct(c.whUtil),"#3b7dd8",c.whOcc+" of "+c.whCap+" placements used")},
+  catUtil:{title:"Category Utilization (top 3)",desc:"Categories with the highest slot utilization.",role:"all",modes:["warehouse"],wide:true,
+    render:c=>c.listcard("Category Utilization","Top 3 most-full categories",c.catStats.filter(s=>s.cap>0).sort((a,b)=>b.util-a.util).slice(0,3).map(s=>({label:s.cat,value:c.pct(s.util)+" ("+s.occ+"/"+s.cap+")",pct:s.util,color:"#5b85f8",color2:"#4f7cf7"})))},
+  slotUtil:{title:"Slot Utilization (top 3)",desc:"Individual slots with the highest utilization.",role:"all",modes:["warehouse"],wide:true,
+    render:c=>c.listcard("Slot Utilization","Top 3 most-full slots",c.slotStats.filter(s=>s.cap>0).sort((a,b)=>b.util-a.util).slice(0,3).map(s=>({label:s.id+" ("+s.cats.join(", ")+")",value:c.pct(s.util)+" ("+s.occ+"/"+s.cap+")",pct:s.util,color:"#e0915b",color2:"#e08a1f"})))},
+  slotOpen:{title:"Slot Open Capacity (top 3)",desc:"Slots with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,
+    render:c=>{ const mx=Math.max(1,...c.slotStats.map(s=>s.open)); return c.listcard("Slot Open Capacity","Top 3 slots with the most room",c.slotStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.id+" ("+s.cats.join(", ")+")",value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }},
+  catOpen:{title:"Category Open Capacity (top 3)",desc:"Categories with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,
+    render:c=>{ const mx=Math.max(1,...c.catStats.map(s=>s.open)); return c.listcard("Category Open Capacity","Top 3 categories with the most room",c.catStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.cat,value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }}
+};
+const DASH_DEFAULT={
+  warehouse:["itemsNeedingSku","soldWeek","addedWeek","discrepancies","listedChart","topCats"],
+  live:["soldWeek","newMessages","addedToday","soldChart","topCats"]
+};
+function dashCanSee(w){ return w.role==="all" || role()==="admin" || role()==="leadership"; }
+function dashLayout(mode){ const d=(DB.meta&&DB.meta.dashboards&&DB.meta.dashboards[mode]); return (Array.isArray(d)&&d.length)?d.slice():DASH_DEFAULT[mode].slice(); }
 function renderDashboard(){
   const dp=document.getElementById("detail-pane"); if(!dp) return;
-  const items=DB.items||[];
-  const active=items.filter(i=>!i.sold);
+  const mode=isLive()?"live":"warehouse"; const items=DB.items||[]; const active=items.filter(i=>!i.sold);
+  const now=new Date();
+  const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const startWeek=new Date(startToday); startWeek.setDate(startToday.getDate()-startToday.getDay());
+  const startMonth=new Date(now.getFullYear(),now.getMonth(),1); const startYear=new Date(now.getFullYear(),0,1);
+  const dayMs=864e5;
+  const soldSince=(d)=>items.filter(i=>i.soldAt && new Date(i.soldAt)>=d).length;
+  const addedSince=(d)=>items.filter(i=>i.createdAt && new Date(i.createdAt)>=d).length;
   const units=active.reduce((s,i)=>s+(parseInt(i.onHand,10)||0),0);
-  const listed=items.filter(i=>i.listing&&i.listing.status==="listed").length;
-  const now=new Date(), mKey=d=>d?(new Date(d)).getFullYear()+"-"+((new Date(d)).getMonth()+1):"";
-  const thisM=now.getFullYear()+"-"+(now.getMonth()+1);
-  const soldThisMonth=items.filter(i=>i.soldAt && mKey(i.soldAt)===thisM).length;
   const invValue=active.reduce((s,i)=>s+((parseFloat(i.unitCost)||0)*(parseInt(i.onHand,10)||0)),0);
-  // last 6 months sold counts
-  const months=[]; for(let k=5;k>=0;k--){ const d=new Date(now.getFullYear(),now.getMonth()-k,1); months.push({key:d.getFullYear()+"-"+(d.getMonth()+1),label:d.toLocaleString(undefined,{month:"short"})}); }
-  const soldByM={}; months.forEach(m=>soldByM[m.key]=0); items.forEach(i=>{ if(i.soldAt){ const k=mKey(i.soldAt); if(k in soldByM) soldByM[k]++; } });
-  const series=months.map(m=>soldByM[m.key]); const maxV=Math.max(1,...series);
-  // top categories by active count
-  const catCount={}; active.forEach(i=>{ const c=i.section||"—"; catCount[c]=(catCount[c]||0)+1; });
-  const topCats=Object.entries(catCount).sort((a,b)=>b[1]-a[1]).slice(0,5); const maxCat=Math.max(1,...topCats.map(c=>c[1]));
-  const card=(label,val,accent,sub)=>`<div style="flex:1;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 2px 8px rgba(31,45,71,.06);">
-      <div style="font-size:12px;color:#7b828e;font-weight:500;">${label}</div>
+  const discrep=active.filter(i=>i.sku && !(i.listing&&i.listing.status==="listed")).length;
+  // highest value unit
+  let highest=null; active.forEach(i=>{ const val=(parseFloat(i.retail)||parseFloat(i.unitCost)||0)*(parseInt(i.onHand,10)||1); if(!highest||val>highest.val) highest={val,sku:i.sku||i.upc||"",desc:i.desc||""}; });
+  if(highest&&highest.val<=0) highest=null;
+  // avg time listed (currently-listed items)
+  const listedItems=items.filter(i=>i.listing&&i.listing.status==="listed"&&i.listing.listedAt);
+  let avgListed=null; if(listedItems.length){ const tot=listedItems.reduce((s,i)=>s+Math.max(0,(now-new Date(i.listing.listedAt))/dayMs),0); avgListed=Math.round(tot/listedItems.length); }
+  // 30-day daily series
+  const days=[]; for(let k=29;k>=0;k--){ const d=new Date(startToday.getTime()-k*dayMs); days.push(d); }
+  const sameDay=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+  const sold30=days.map(d=>items.filter(i=>i.soldAt&&sameDay(new Date(i.soldAt),d)).length);
+  const listed30=days.map(d=>items.filter(i=>i.listing&&i.listing.listedAt&&sameDay(new Date(i.listing.listedAt),d)).length);
+  const catCount={}; active.forEach(i=>{ const cc=i.section||"—"; catCount[cc]=(catCount[cc]||0)+1; });
+  const topCats=Object.entries(catCount).sort((a,b)=>b[1]-a[1]).slice(0,6); const maxCat=Math.max(1,...topCats.map(x=>x[1]));
+  // slot & category capacity/utilization (skuLimit = capacity, activeInSlot = occupancy)
+  const slotStats=(DB.slots||[]).map(s=>{ const cap=parseInt(s.skuLimit,10)||0; const occ=activeInSlot(s.id).length; return {id:s.id,cats:slotCats(s),cap,occ,open:Math.max(0,cap-occ),util:cap>0?occ/cap:0}; });
+  const whCap=slotStats.reduce((a,s)=>a+s.cap,0), whOcc=slotStats.reduce((a,s)=>a+s.occ,0);
+  const whUtil=whCap>0?whOcc/whCap:0;
+  const catAgg={}; slotStats.forEach(s=>{ s.cats.forEach(cc=>{ if(!catAgg[cc]) catAgg[cc]={cap:0,occ:0}; catAgg[cc].cap+=s.cap; catAgg[cc].occ+=s.occ; }); });
+  const catStats=Object.entries(catAgg).map(([cc,v])=>({cat:cc,cap:v.cap,occ:v.occ,open:Math.max(0,v.cap-v.occ),util:v.cap>0?v.occ/v.cap:0}));
+  const pct=v=>Math.round(v*100)+"%";
+  const listcard=(title,subtitle,rows)=>`<div class="dash-card" style="flex:1;min-width:240px;"><div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">${esc(title)}</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">${esc(subtitle)}</div>
+      ${rows.length?rows.map((r,i)=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;">${i+1}. ${esc(r.label)}</span><span style="font-weight:600;">${esc(r.value)}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round((r.pct||0)*100)}%;background:linear-gradient(90deg,${r.color||"#5b85f8"},${r.color2||"#4f7cf7"});border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No data yet.</div>'}</div>`;
+  const clickWires=[];
+  const tile=(label,val,accent,sub,onClick)=>{ const cid=onClick?("dw-"+(clickWires.length)):""; if(onClick) clickWires.push({cid,onClick});
+    return `<div ${cid?`id="${cid}" style="cursor:pointer;"`:'style=""'} class="dash-tile"><div style="font-size:12px;color:#7b828e;font-weight:500;">${esc(label)}</div>
       <div style="font-size:26px;font-weight:700;color:#28313f;margin-top:4px;line-height:1.1;">${val}</div>
-      ${sub?`<div style="font-size:11px;color:${accent};margin-top:4px;font-weight:600;">${sub}</div>`:""}</div>`;
-  // build SVG area chart
-  const W=520,H=150,pad=24, n=series.length, iw=W-pad*2, ih=H-pad*2;
-  const xs=i=> pad + (n===1?iw/2:(iw*i/(n-1))), ys=v=> pad + ih - (v/maxV)*ih;
-  const pts=series.map((v,i)=>[xs(i),ys(v)]);
-  const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
-  const area=line+" L"+xs(n-1).toFixed(1)+" "+(pad+ih)+" L"+xs(0).toFixed(1)+" "+(pad+ih)+" Z";
-  const dots=pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#4f7cf7"/>`).join("");
-  const xlabels=months.map((m,i)=>`<text x="${xs(i).toFixed(1)}" y="${H-6}" font-size="10" fill="#9aa3ad" text-anchor="middle">${m.label}</text>`).join("");
-  const vlabels=series.map((v,i)=> v>0?`<text x="${xs(i).toFixed(1)}" y="${(ys(v)-8).toFixed(1)}" font-size="10" fill="#5b6270" text-anchor="middle" font-weight="600">${v}</text>`:"").join("");
+      ${sub?`<div style="font-size:11px;color:${accent};margin-top:4px;font-weight:600;">${esc(sub)}</div>`:""}</div>`; };
+  const chart=(title,subtitle,series,color)=>{ const W=560,H=150,pad=24,n=series.length,iw=W-pad*2,ih=H-pad*2,maxV=Math.max(1,...series);
+    const xs=i=>pad+(n===1?iw/2:(iw*i/(n-1))), ys=v=>pad+ih-(v/maxV)*ih;
+    const pts=series.map((v,i)=>[xs(i),ys(v)]); const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+    const area=line+" L"+xs(n-1).toFixed(1)+" "+(pad+ih)+" L"+xs(0).toFixed(1)+" "+(pad+ih)+" Z";
+    const gid="g"+Math.random().toString(36).slice(2,7);
+    const lbl=days.map((d,i)=> (i%6===0||i===n-1)?`<text x="${xs(i).toFixed(1)}" y="${H-6}" font-size="9" fill="#9aa3ad" text-anchor="middle">${d.getMonth()+1}/${d.getDate()}</text>`:"").join("");
+    return `<div class="dash-card" style="flex:2;min-width:320px;"><div style="font-size:13px;font-weight:600;color:#28313f;">${esc(title)}</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:6px;">${esc(subtitle)} · ${series.reduce((a,b)=>a+b,0)} total</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+        <path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${lbl}</svg></div>`; };
+  const topcats=()=>`<div class="dash-card" style="flex:1;min-width:220px;"><div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Top Categories</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">Active items by category</div>
+      ${topCats.length?topCats.map(([cc,v])=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;">${esc(cc)}</span><span style="font-weight:600;">${v}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(v/maxCat*100)}%;background:linear-gradient(90deg,#5b85f8,#4f7cf7);border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No active items yet.</div>'}</div>`;
+  const ctx={active,items,units,invValue,discrep,highest,avgListed,sold30,listed30,now,startToday,startWeek,startMonth,startYear,soldSince,addedSince,tile,chart,topcats,slotStats,catStats,whUtil,whCap,whOcc,pct,listcard};
+  const layout=dashLayout(mode).filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode)&&dashCanSee(DASH_WIDGETS[k]));
+  const tiles=layout.filter(k=>!DASH_WIDGETS[k].wide), wides=layout.filter(k=>DASH_WIDGETS[k].wide);
   dp.innerHTML=`
-    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;"><div style="font-size:18px;font-weight:700;color:#28313f;">Dashboard</div><div style="font-size:12px;color:#9aa3ad;">${isLive()?"Live (eBay)":"Warehouse"} · ${now.toLocaleDateString()}</div></div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
-      ${card("Active Items",active.length.toLocaleString(),"#4f7cf7")}
-      ${card("Units on Hand",units.toLocaleString(),"#1f9d57")}
-      ${card("Listed on eBay",listed.toLocaleString(),"#7a45c4")}
-      ${card("Sold This Month",soldThisMonth.toLocaleString(),"#e08a1f")}
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;"><div style="font-size:18px;font-weight:700;color:#28313f;">Dashboard</div><div style="font-size:12px;color:#9aa3ad;">${isLive()?"Live (eBay)":"Warehouse"} · ${now.toLocaleDateString()}</div><span style="flex:1;"></span><button class="btn sm" id="dash-config">⚙ Configure widgets</button></div>
+    ${tiles.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">${tiles.map(k=>DASH_WIDGETS[k].render(ctx)).join("")}</div>`:""}
+    ${wides.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;">${wides.map(k=>DASH_WIDGETS[k].render(ctx)).join("")}</div>`:""}
+    ${layout.length?"":'<div style="font-size:13px;color:#9aa3ad;padding:20px;">No widgets on your dashboard. Click "Configure widgets" to add some.</div>'}`;
+  clickWires.forEach(w=>{ const el=document.getElementById(w.cid); if(el) el.onclick=w.onClick; });
+  const cfgBtn=document.getElementById("dash-config"); if(cfgBtn) cfgBtn.onclick=()=>launchApp("dashwidgets");
+}
+function openDashWidgets(){
+  const id="dash-widgets"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Dashboard Widget Maintenance",width:780,height:620,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Choose which widgets show on each mode's dashboard, and their order. * = leadership/admin only.</span>`});
+  let mode="warehouse";
+  body.innerHTML=`<div style="padding:12px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line,#e3e7ee);">
+      <label style="font-size:12.5px;">Dashboard <select class="cmb" id="dw-mode"><option value="warehouse">Warehouse</option><option value="live">Live</option></select></label>
+      <span style="flex:1;"></span><button class="btn sm" id="dw-reset">Reset to default</button></div>
+    <div style="display:flex;gap:14px;padding:14px;flex:1;min-height:0;">
+      <div style="flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">On the dashboard (in order)</div><div class="listbox" id="dw-on" style="flex:1;"></div></div>
+      <div style="flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">Available widgets</div><div class="listbox" id="dw-off" style="flex:1;"></div></div>
     </div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;">
-      <div style="flex:2;min-width:300px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);">
-        <div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Items Sold</div>
-        <div style="font-size:11px;color:#9aa3ad;margin-bottom:8px;">Last 6 months</div>
-        <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;"><defs><linearGradient id="dashg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4f7cf7" stop-opacity="0.22"/><stop offset="100%" stop-color="#4f7cf7" stop-opacity="0"/></linearGradient></defs>
-          <path d="${area}" fill="url(#dashg)"/><path d="${line}" fill="none" stroke="#4f7cf7" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}${vlabels}${xlabels}</svg>
-      </div>
-      <div style="flex:1;min-width:200px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);">
-        <div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Top Categories</div>
-        <div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">Active items by category</div>
-        ${topCats.length?topCats.map(([c,v])=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;">${esc(c)}</span><span style="font-weight:600;">${v}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(v/maxCat*100)}%;background:linear-gradient(90deg,#5b85f8,#4f7cf7);border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No active items yet.</div>'}
-      </div>
-    </div>
-    <div style="margin-top:14px;font-size:12px;color:#9aa3ad;">Pick an option on the left to get started, or click a tile to open a tool.${invValue>0?` &nbsp;·&nbsp; Inventory value (at cost): <b style="color:#3b434f;">$${invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</b>`:""}</div>`;
+    <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;"><span class="err" id="dw-msg" style="flex:1;"></span><button class="btn primary" id="dw-save">Save</button></div>`;
+  let layout=dashLayout(mode);
+  function allForMode(){ return Object.keys(DASH_WIDGETS).filter(k=>DASH_WIDGETS[k].modes.includes(mode)); }
+  function render(){ const on=body.querySelector("#dw-on"), off=body.querySelector("#dw-off"); on.innerHTML=""; off.innerHTML="";
+    layout=layout.filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode));
+    layout.forEach((k,idx)=>{ const w=DASH_WIDGETS[k]; const row=document.createElement("div"); row.className="li"; row.style.cssText="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;";
+      row.innerHTML=`<div style="flex:1;"><div style="font-weight:600;font-size:13px;">${esc(w.title)}</div><div class="smallhint" style="line-height:1.35;">${esc(w.desc)}</div></div>
+        <div style="display:flex;gap:4px;flex-shrink:0;"><button class="btn sm" data-up="${idx}">▲</button><button class="btn sm" data-dn="${idx}">▼</button><button class="btn sm" data-rm="${k}">✕</button></div>`;
+      on.appendChild(row); });
+    if(!layout.length) on.innerHTML='<div class="smallhint" style="padding:8px;">No widgets — add some from the right.</div>';
+    allForMode().filter(k=>!layout.includes(k)).forEach(k=>{ const w=DASH_WIDGETS[k]; const row=document.createElement("div"); row.className="li"; row.style.cssText="display:flex;align-items:flex-start;gap:8px;padding:6px 4px;";
+      row.innerHTML=`<div style="flex:1;"><div style="font-weight:600;font-size:13px;">${esc(w.title)}</div><div class="smallhint" style="line-height:1.35;">${esc(w.desc)}</div></div><button class="btn sm" data-add="${k}" style="flex-shrink:0;">+ Add</button>`;
+      off.appendChild(row); });
+    on.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.up; if(i>0){ [layout[i-1],layout[i]]=[layout[i],layout[i-1]]; render(); } });
+    on.querySelectorAll("[data-dn]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.dn; if(i<layout.length-1){ [layout[i+1],layout[i]]=[layout[i],layout[i+1]]; render(); } });
+    on.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ layout=layout.filter(x=>x!==b.dataset.rm); render(); });
+    off.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{ layout.push(b.dataset.add); render(); });
+  }
+  body.querySelector("#dw-mode").onchange=(e)=>{ mode=e.target.value; layout=dashLayout(mode); body.querySelector("#dw-msg").textContent=""; render(); };
+  body.querySelector("#dw-reset").onclick=()=>{ layout=DASH_DEFAULT[mode].slice(); render(); };
+  body.querySelector("#dw-save").onclick=()=>{ if(!DB.meta.dashboards) DB.meta.dashboards={}; DB.meta.dashboards[mode]=layout.slice(); save();
+    body.querySelector("#dw-msg").style.color="#1f7244"; body.querySelector("#dw-msg").textContent="Saved — the "+mode+" dashboard is updated.";
+    try{ if(!treeState.sel) renderDashboard(); }catch(e){} };
+  render();
 }
 async function checkLiveStatus(){
   const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
@@ -1274,6 +1381,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
   if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
   if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
+  if(k==="config"&&a==="Dashboard Widgets") return launchApp("dashwidgets");
   if(k==="config"&&a==="About / Version") return launchApp("about");
   if(k==="security"&&a==="Modify Users") return launchApp("users");
   if(k==="catalog"&&a==="Catalog Maintenance") return launchApp("catalog");
