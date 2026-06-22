@@ -294,24 +294,38 @@
   body.popout .window>.statusbar{border-radius:0;}
   /* Consistent dropdowns everywhere (squared, same font/size) */
   select,select.cmb{border-radius:6px;font-family:inherit;font-size:13px;height:30px;border:1px solid var(--field-border);background:#fff;padding:4px 8px;}
-  .dash-tile{flex:1;min-width:150px;background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:16px 18px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
+  .dash-tile{position:relative;flex:1;min-width:150px;background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:16px 18px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
   .dash-tile.dash-tile:hover{box-shadow:0 3px 12px rgba(31,45,71,.12);}
-  .dash-card{background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
+  .dash-card{position:relative;background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
+  .ico{display:inline-flex;align-items:center;justify-content:center;}
+  .ico svg{width:100%;height:100%;display:block;}
+  .gear-btn{position:absolute;top:6px;left:6px;width:20px;height:20px;border:none;background:#eef1f6;color:#7a8696;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;z-index:2;}
+  .gear-btn:hover{background:#dde4f0;}
+  .gear-btn svg{width:12px;height:12px;display:block;}
+  .widget-popover{background:#fff;border:1px solid #d8deea;border-radius:10px;box-shadow:0 8px 28px rgba(31,45,71,.22);width:230px;overflow:hidden;font-size:12.5px;}
+  .widget-popover .wp-head{display:flex;align-items:center;gap:7px;padding:9px 10px;background:#f3f5f9;border-bottom:1px solid #e3e7ee;font-weight:600;color:#28313f;}
+  .widget-popover .wp-head .ico{width:13px;height:13px;color:#7a8696;}
+  .widget-popover .wp-x{margin-left:auto;border:none;background:transparent;cursor:pointer;color:#8a93a0;font-size:13px;padding:0 2px;}
+  .widget-popover .wp-x:hover{color:#28313f;}
+  .widget-popover .wp-body{padding:9px 10px;display:flex;flex-direction:column;gap:7px;max-height:220px;overflow:auto;}
+  .widget-popover .wp-opt{display:flex;align-items:center;gap:7px;cursor:pointer;color:#3b434f;}
+  .widget-popover .wp-foot{display:flex;justify-content:flex-end;gap:6px;padding:8px 10px;border-top:1px solid #e3e7ee;}
   .dw-dash{display:flex;flex-wrap:wrap;gap:10px;align-content:flex-start;flex:1;overflow:auto;background:#eef1f6;border:2px dashed #c7cfdb;border-radius:12px;padding:12px;}
   .dw-dash.drag-over{border-color:#4f7cf7;background:#e8eefc;}
   .dw-empty{width:100%;text-align:center;color:#9aa3ad;font-size:13px;padding:40px 0;}
-  .dw-tile{position:relative;background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:14px 16px 12px;box-shadow:0 2px 8px rgba(31,45,71,.06);cursor:grab;flex:1;min-width:150px;min-height:64px;}
+  .dw-tile{position:relative;background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:0;box-shadow:0 2px 8px rgba(31,45,71,.06);cursor:grab;flex:1;min-width:150px;min-height:64px;user-select:none;}
   .dw-tile.wide{flex-basis:100%;}
   .dw-tile.dragging{opacity:.4;}
   .dw-tile.drop-before{box-shadow:-3px 0 0 0 #4f7cf7,0 2px 8px rgba(31,45,71,.06);}
   .dw-tile-t{font-size:13px;font-weight:600;color:#28313f;}
   .dw-tile-m{font-size:11px;color:#9aa3ad;margin-top:8px;letter-spacing:1px;}
-  .dw-x{position:absolute;top:6px;right:6px;border:none;background:#eef1f6;color:#8a93a0;border-radius:50%;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;}
+  .dw-x{position:absolute;top:6px;right:6px;border:none;background:#eef1f6;color:#8a93a0;border-radius:50%;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;z-index:2;}
   .dw-x:hover{background:#e2535a;color:#fff;}
   .dw-avail{display:flex;flex-direction:column;gap:8px;flex:1;overflow:auto;border:2px dashed transparent;border-radius:12px;padding:4px;}
   .dw-avail.drag-over{border-color:#c7cfdb;background:#f6f8fb;}
-  .dw-chip{background:#fff;border:1px solid #e3e7ee;border-radius:10px;padding:8px 10px;cursor:grab;}
+  .dw-chip{background:#fff;border:1px solid #e3e7ee;border-radius:10px;padding:8px 10px;cursor:grab;user-select:none;}
   .dw-chip:hover{border-color:#b9c4d4;}
+  .dw-ghost{position:fixed;pointer-events:none;z-index:99999;background:#fff;border:1px solid #4f7cf7;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:#28313f;box-shadow:0 4px 14px rgba(31,45,71,.18);}
 </style>
 </head>
 <body>
@@ -347,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.8.3", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.8.4", BUILD_DATE="2026-06-21", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -406,6 +420,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.8.4","Dashboard Widget Maintenance fixes & gear-icon widget settings: the available-widgets list is now on the left and the dashboard preview on the right, and that preview now looks like the real dashboard (same cards/tiles) with sample data instead of placeholder boxes. Drag-and-drop was rebuilt from scratch (the old version could show a blocked no-entry cursor and stop working) -- dragging is now handled directly instead of relying on the browser native drag-and-drop, so it should be reliable. Widgets you can adjust (for example Items Sold, Items Added) now show a small gear icon in their top-left corner -- click it to choose Today / This Week / Last 7 Days / This Month / This Year in a small popup, and the widget name updates to match, e.g. \"Items Sold (this week)\". The same gear icon (replacing the old gear character) is now used for the Configure Widgets button and the Configuration tree icon for visual consistency."],
   ["2.8.3","Dashboard Widget Maintenance is now drag-and-drop: a live dashboard preview on the left and an available-widgets list on the right. Drag a widget onto the preview to add it, drag tiles to reorder, drag a tile back to the list to remove it, or click the small ✕ in a tile's corner to remove it (the next widgets shift up). Works per mode (Warehouse/Live); Save applies it."],
   ["2.8.2","Analytics (batch 5 pt.3): new Item Rank report (rank sold items by sales, units, or profit over any date range and category, top or bottom N) under Reports. New Listing Efficiency report (units sold per day over a range, by user, vs an expectation, with exclude-zero-days). New dashboard widgets: Hot Items (best sellers last 30 days, click opens Item Rank), Fastest Turning* and Most Profitable* (leadership), and a Listing Efficiency* tile. Sales/profit use each item's retail (or listing price) minus cost; this completes the internal-data dashboard work."],
   ["2.8.1","Capacity & utilization widgets (batch 5 pt.2): five new dashboard widgets driven by each slot's capacity (the SKU limit set in Warehouse Maintenance) versus how full it is — Warehouse Utilization, Category Utilization (top 3), Slot Utilization (top 3), Slot Open Capacity (top 3), and Category Open Capacity (top 3). Add them from Configuration > Dashboard Widgets."],
@@ -1197,68 +1212,124 @@ function showLauncher(){
   const homeGo=()=>{ treeState.sel=null; renderTree(); renderDashboard(); };
   const ttlEl=win.querySelector(".ttl"); if(ttlEl){ ttlEl.style.cursor="pointer"; ttlEl.title="Back to Dashboard"; ttlEl.onclick=homeGo; }
 }
+const PERIOD_OPTIONS=[
+  {key:"today",label:"Today"},
+  {key:"week",label:"This Week"},
+  {key:"7d",label:"Last 7 Days"},
+  {key:"month",label:"This Month"},
+  {key:"year",label:"This Year"}
+];
+function periodStart(period,now){ now=now||new Date();
+  const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  switch(period){
+    case "today": return startToday;
+    case "week": { const d=new Date(startToday); d.setDate(d.getDate()-d.getDay()); return d; }
+    case "7d": return new Date(startToday.getTime()-6*864e5);
+    case "month": return new Date(now.getFullYear(),now.getMonth(),1);
+    case "year": return new Date(now.getFullYear(),0,1);
+    default: return startToday;
+  } }
+function periodLabel(period){ const o=PERIOD_OPTIONS.find(p=>p.key===period); return o?o.label.toLowerCase():"this week"; }
+function widgetBaseTitle(w){ return w.title.replace(/\s*\*$/,''); }
+function widgetDisplayTitle(k,cfg){ const w=DASH_WIDGETS[k]; if(!w) return k; const base=widgetBaseTitle(w);
+  if(w.configurable && w.options){ const period=(cfg&&cfg.period)||(w.defaultConfig&&w.defaultConfig.period)||w.options[0].key;
+    return base+" ("+periodLabel(period)+")"; }
+  return base; }
+// Older dashboards stored a fixed widget per time period; map those onto the new configurable widgets.
+const DEPRECATED_WIDGET_MAP={
+  soldToday:{k:"itemsSold",cfg:{period:"today"}}, soldWeek:{k:"itemsSold",cfg:{period:"week"}},
+  soldMonth:{k:"itemsSold",cfg:{period:"month"}}, soldYear:{k:"itemsSold",cfg:{period:"year"}},
+  addedToday:{k:"itemsAdded",cfg:{period:"today"}}, addedWeek:{k:"itemsAdded",cfg:{period:"week"}},
+  addedMonth:{k:"itemsAdded",cfg:{period:"month"}}
+};
+function normalizeLayout(arr){
+  return (arr||[]).map(e=>{
+    if(typeof e==="string"){ if(DEPRECATED_WIDGET_MAP[e]){ const m=DEPRECATED_WIDGET_MAP[e]; return {k:m.k,cfg:Object.assign({},m.cfg)}; } return {k:e,cfg:{}}; }
+    if(e&&typeof e==="object"&&e.k) return {k:e.k,cfg:Object.assign({},e.cfg||{})};
+    return null;
+  }).filter(e=>e&&DASH_WIDGETS[e.k]);
+}
 const DASH_WIDGETS={
-  activeCount:{title:"Active Items",desc:"Count of active (unsold) items in inventory.",role:"all",modes:["warehouse","live"],
+  activeCount:{title:"Active Items",desc:"Count of active (unsold) items in inventory.",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Active Items",c.active.length.toLocaleString(),"#4f7cf7")},
-  unitsOnHand:{title:"Units on Hand",desc:"Total quantity on hand across active items.",role:"all",modes:["warehouse"],
+  unitsOnHand:{title:"Units on Hand",desc:"Total quantity on hand across active items.",role:"all",modes:["warehouse"],previewKind:"tile",
     render:c=>c.tile("Units on Hand",c.units.toLocaleString(),"#1f9d57")},
-  soldToday:{title:"Items Sold — Today",desc:"Items marked sold since midnight.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Sold — Today",c.soldSince(c.startToday),"#e08a1f")},
-  soldWeek:{title:"Items Sold — This Week",desc:"Items sold since Sunday.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Sold — This Week",c.soldSince(c.startWeek),"#e08a1f")},
-  soldMonth:{title:"Items Sold — This Month",desc:"Items sold since the 1st of the month.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Sold — This Month",c.soldSince(c.startMonth),"#e08a1f")},
-  soldYear:{title:"Items Sold — This Year",desc:"Items sold since January 1.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Sold — This Year",c.soldSince(c.startYear),"#e08a1f")},
-  addedToday:{title:"Items Added — Today",desc:"Items created since midnight.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Added — Today",c.addedSince(c.startToday),"#3b7dd8")},
-  addedWeek:{title:"Items Added — This Week",desc:"Items created since Sunday.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Added — This Week",c.addedSince(c.startWeek),"#3b7dd8")},
-  addedMonth:{title:"Items Added — This Month",desc:"Items created since the 1st of the month.",role:"all",modes:["warehouse","live"],
-    render:c=>c.tile("Items Added — This Month",c.addedSince(c.startMonth),"#3b7dd8")},
-  discrepancies:{title:"Discrepancies",desc:"Active items with a Warehouse SKU that aren't listed on eBay.",role:"all",modes:["warehouse","live"],
+  itemsSold:{title:"Items Sold",desc:"Items marked sold, for a time period you choose (today, this week, last 7 days, this month, or this year).",role:"all",modes:["warehouse","live"],previewKind:"tile",
+    configurable:true,options:PERIOD_OPTIONS,defaultConfig:{period:"week"},
+    render:(c,cfg)=>{ const period=(cfg&&cfg.period)||"week"; const title=widgetDisplayTitle("itemsSold",cfg);
+      return c.tile(title,c.soldSince(periodStart(period,c.now)).toLocaleString(),"#e08a1f",null,null,c.gearFor&&c.gearFor("itemsSold")); }},
+  itemsAdded:{title:"Items Added",desc:"Items created, for a time period you choose (today, this week, last 7 days, this month, or this year).",role:"all",modes:["warehouse","live"],previewKind:"tile",
+    configurable:true,options:PERIOD_OPTIONS,defaultConfig:{period:"week"},
+    render:(c,cfg)=>{ const period=(cfg&&cfg.period)||"week"; const title=widgetDisplayTitle("itemsAdded",cfg);
+      return c.tile(title,c.addedSince(periodStart(period,c.now)).toLocaleString(),"#3b7dd8",null,null,c.gearFor&&c.gearFor("itemsAdded")); }},
+  discrepancies:{title:"Discrepancies",desc:"Active items with a Warehouse SKU that aren't listed on eBay.",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Discrepancies",c.discrep,"#c0392b","needs listing →",()=>launchApp(isLive()?"discrepancies":"whdiscrep"))},
-  avgTimeListed:{title:"Average Time Listed",desc:"Average number of days currently-listed items have been live on eBay.",role:"all",modes:["warehouse","live"],
+  avgTimeListed:{title:"Average Time Listed",desc:"Average number of days currently-listed items have been live on eBay.",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Avg Time Listed",c.avgListed==null?"—":(c.avgListed+" days"),"#7a45c4")},
-  invValue:{title:"Inventory Value *",desc:"Total value of inventory at cost. Leadership only.",role:"leadership",modes:["warehouse","live"],
+  invValue:{title:"Inventory Value *",desc:"Total value of inventory at cost. Leadership only.",role:"leadership",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Inventory Value","$"+c.invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}),"#1f9d57")},
-  highestSku:{title:"Highest Value SKU *",desc:"The single highest-value unit currently on hand. Leadership only.",role:"leadership",modes:["warehouse"],
+  highestSku:{title:"Highest Value SKU *",desc:"The single highest-value unit currently on hand. Leadership only.",role:"leadership",modes:["warehouse"],previewKind:"tile",
     render:c=>{ const h=c.highest; return c.tile("Highest Value SKU", h?("$"+h.val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—","#1f9d57", h?(esc(h.sku)+" · "+esc((h.desc||"").slice(0,22))):""); }},
-  itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM. Requires an eBay connection (coming in a later update).",role:"all",modes:["warehouse","live"],
+  itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM. Requires an eBay connection (coming in a later update).",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Items Needing SKU","—","#9aa3ad","connect eBay")},
-  newMessages:{title:"New Messages",desc:"Unread eBay messages. Requires an eBay connection (coming in a later update).",role:"all",modes:["live"],
+  newMessages:{title:"New Messages",desc:"Unread eBay messages. Requires an eBay connection (coming in a later update).",role:"all",modes:["live"],previewKind:"tile",
     render:c=>c.tile("New Messages","—","#9aa3ad","connect eBay",()=>launchApp("comm"))},
-  soldChart:{title:"Items Sold — last 30 days",desc:"Daily sold count over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,
+  soldChart:{title:"Items Sold — last 30 days",desc:"Daily sold count over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,previewKind:"chart",
     render:c=>c.chart("Items Sold","Last 30 days",c.sold30,"#4f7cf7")},
-  listedChart:{title:"Items Listed — last 30 days",desc:"Daily count of items marked listed over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,
+  listedChart:{title:"Items Listed — last 30 days",desc:"Daily count of items marked listed over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,previewKind:"chart",
     render:c=>c.chart("Items Listed","Last 30 days",c.listed30,"#1f9d57")},
-  topCats:{title:"Top Categories",desc:"Active items grouped by category.",role:"all",modes:["warehouse","live"],wide:true,
+  topCats:{title:"Top Categories",desc:"Active items grouped by category.",role:"all",modes:["warehouse","live"],wide:true,previewKind:"topcats",
     render:c=>c.topcats()},
-  whUtil:{title:"Warehouse Utilization",desc:"Overall slot utilization: occupied placements ÷ total slot capacity.",role:"all",modes:["warehouse"],
+  whUtil:{title:"Warehouse Utilization",desc:"Overall slot utilization: occupied placements ÷ total slot capacity.",role:"all",modes:["warehouse"],previewKind:"tile",
     render:c=>c.tile("Warehouse Utilization",c.pct(c.whUtil),"#3b7dd8",c.whOcc+" of "+c.whCap+" placements used")},
-  catUtil:{title:"Category Utilization (top 3)",desc:"Categories with the highest slot utilization.",role:"all",modes:["warehouse"],wide:true,
+  catUtil:{title:"Category Utilization (top 3)",desc:"Categories with the highest slot utilization.",role:"all",modes:["warehouse"],wide:true,previewKind:"listcard",
     render:c=>c.listcard("Category Utilization","Top 3 most-full categories",c.catStats.filter(s=>s.cap>0).sort((a,b)=>b.util-a.util).slice(0,3).map(s=>({label:s.cat,value:c.pct(s.util)+" ("+s.occ+"/"+s.cap+")",pct:s.util,color:"#5b85f8",color2:"#4f7cf7"})))},
-  slotUtil:{title:"Slot Utilization (top 3)",desc:"Individual slots with the highest utilization.",role:"all",modes:["warehouse"],wide:true,
+  slotUtil:{title:"Slot Utilization (top 3)",desc:"Individual slots with the highest utilization.",role:"all",modes:["warehouse"],wide:true,previewKind:"listcard",
     render:c=>c.listcard("Slot Utilization","Top 3 most-full slots",c.slotStats.filter(s=>s.cap>0).sort((a,b)=>b.util-a.util).slice(0,3).map(s=>({label:s.id+" ("+s.cats.join(", ")+")",value:c.pct(s.util)+" ("+s.occ+"/"+s.cap+")",pct:s.util,color:"#e0915b",color2:"#e08a1f"})))},
-  slotOpen:{title:"Slot Open Capacity (top 3)",desc:"Slots with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,
+  slotOpen:{title:"Slot Open Capacity (top 3)",desc:"Slots with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,previewKind:"listcard",
     render:c=>{ const mx=Math.max(1,...c.slotStats.map(s=>s.open)); return c.listcard("Slot Open Capacity","Top 3 slots with the most room",c.slotStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.id+" ("+s.cats.join(", ")+")",value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }},
-  catOpen:{title:"Category Open Capacity (top 3)",desc:"Categories with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,
+  catOpen:{title:"Category Open Capacity (top 3)",desc:"Categories with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,previewKind:"listcard",
     render:c=>{ const mx=Math.max(1,...c.catStats.map(s=>s.open)); return c.listcard("Category Open Capacity","Top 3 categories with the most room",c.catStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.cat,value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }},
-  hotItems:{title:"Hot Items",desc:"Best sellers in the last 30 days (by units). Click to open Item Rank.",role:"all",modes:["warehouse","live"],wide:true,
+  hotItems:{title:"Hot Items",desc:"Best sellers in the last 30 days (by units). Click to open Item Rank.",role:"all",modes:["warehouse","live"],wide:true,previewKind:"listcard",
     render:c=>{ const mx=Math.max(1,...c.hot.map(h=>h.units)); return c.listcardClick("Hot Items","Most units sold · last 30 days",c.hot.slice(0,3).map(h=>({label:h.desc,value:h.units+" sold"+(h.avgDays!=null?" · "+h.avgDays+"d":""),pct:h.units/mx,color:"#f0a35b",color2:"#e08a1f"})),()=>launchApp("itemrank")); }},
-  fastestTurning:{title:"Fastest Turning *",desc:"Items with the lowest average days from added to sold. Leadership only.",role:"leadership",modes:["warehouse","live"],wide:true,
+  fastestTurning:{title:"Fastest Turning *",desc:"Items with the lowest average days from added to sold. Leadership only.",role:"leadership",modes:["warehouse","live"],wide:true,previewKind:"listcard",
     render:c=>{ const list=c.agg.filter(a=>a.avgDays!=null&&a.units>0).sort((a,b)=>a.avgDays-b.avgDays).slice(0,3); const mx=Math.max(1,...list.map(a=>a.avgDays||0)); return c.listcard("Fastest Turning","Lowest avg days to sell",list.map(a=>({label:a.desc,value:a.avgDays+" days",pct:1-((a.avgDays||0)/(mx+1)),color:"#5b85f8",color2:"#4f7cf7"}))); }},
-  mostProfitable:{title:"Most Profitable *",desc:"Items with the highest total profit (all time). Leadership only.",role:"leadership",modes:["warehouse","live"],wide:true,
+  mostProfitable:{title:"Most Profitable *",desc:"Items with the highest total profit (all time). Leadership only.",role:"leadership",modes:["warehouse","live"],wide:true,previewKind:"listcard",
     render:c=>{ const list=c.agg.slice().sort((a,b)=>b.profit-a.profit).slice(0,3); const mx=Math.max(1,...list.map(a=>a.profit)); return c.listcard("Most Profitable","Highest total profit",list.map(a=>({label:a.desc,value:money(a.profit),pct:(a.profit>0?a.profit/mx:0),color:"#4fcf8f",color2:"#1f9d57"}))); }},
-  listingEff:{title:"Listing Efficiency *",desc:"Average units sold per day over the last 30 days. Leadership only. Click for the full report.",role:"leadership",modes:["warehouse","live"],
+  listingEff:{title:"Listing Efficiency *",desc:"Average units sold per day over the last 30 days. Leadership only. Click for the full report.",role:"leadership",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Listing Efficiency",(c.sold30.reduce((a,b)=>a+b,0)/30).toFixed(1)+" /day","#7a45c4","last 30 days →",()=>launchApp("listingeff"))}
 };
 const DASH_DEFAULT={
-  warehouse:["itemsNeedingSku","soldWeek","addedWeek","discrepancies","listedChart","topCats"],
-  live:["soldWeek","newMessages","addedToday","soldChart","topCats"]
+  warehouse:[{k:"itemsNeedingSku"},{k:"itemsSold",cfg:{period:"week"}},{k:"itemsAdded",cfg:{period:"week"}},{k:"discrepancies"},{k:"listedChart"},{k:"topCats"}],
+  live:[{k:"itemsSold",cfg:{period:"week"}},{k:"newMessages"},{k:"itemsAdded",cfg:{period:"today"}},{k:"soldChart"},{k:"topCats"}]
 };
 function dashCanSee(w){ return w.role==="all" || role()==="admin" || role()==="leadership"; }
-function dashLayout(mode){ const d=(DB.meta&&DB.meta.dashboards&&DB.meta.dashboards[mode]); return (Array.isArray(d)&&d.length)?d.slice():DASH_DEFAULT[mode].slice(); }
+function dashLayout(mode){ const d=(DB.meta&&DB.meta.dashboards&&DB.meta.dashboards[mode]); const raw=(Array.isArray(d)&&d.length)?d:DASH_DEFAULT[mode]; return normalizeLayout(raw); }
+function updateWidgetCfg(mode,key,newCfg){ if(!DB.meta) DB.meta={}; if(!DB.meta.dashboards) DB.meta.dashboards={};
+  let arr=normalizeLayout((DB.meta.dashboards[mode]&&DB.meta.dashboards[mode].length)?DB.meta.dashboards[mode]:DASH_DEFAULT[mode]);
+  const idx=arr.findIndex(x=>x.k===key); if(idx>=0) arr[idx]={k:key,cfg:newCfg};
+  DB.meta.dashboards[mode]=arr; save(); }
+function openWidgetConfigPopover(widgetDef,currentCfg,anchorEl,onSave){
+  document.querySelectorAll(".widget-popover").forEach(p=>p.remove());
+  const pop=document.createElement("div"); pop.className="widget-popover";
+  const rect=anchorEl.getBoundingClientRect();
+  let left=rect.left, top=rect.bottom+6;
+  if(left+230>window.innerWidth-10) left=window.innerWidth-240;
+  if(top+260>window.innerHeight-10) top=Math.max(10,rect.top-266);
+  pop.style.position="fixed"; pop.style.left=left+"px"; pop.style.top=top+"px"; pop.style.zIndex="99999";
+  let sel=(currentCfg&&currentCfg.period)||(widgetDef.defaultConfig&&widgetDef.defaultConfig.period)||(widgetDef.options&&widgetDef.options[0].key);
+  pop.innerHTML=`<div class="wp-head"><span class="ico">${I.gear}</span><span>${esc(widgetBaseTitle(widgetDef))}</span><button type="button" class="wp-x">✕</button></div>
+    <div class="wp-body">${(widgetDef.options||[]).map(o=>`<label class="wp-opt"><input type="radio" name="wp-period" value="${o.key}" ${o.key===sel?"checked":""}/> ${esc(o.label)}</label>`).join("")}</div>
+    <div class="wp-foot"><button type="button" class="btn sm" id="wp-cancel">Cancel</button><button type="button" class="btn sm primary" id="wp-save">Save</button></div>`;
+  document.body.appendChild(pop);
+  pop.querySelectorAll('input[name="wp-period"]').forEach(r=>r.addEventListener("change",e=>{ sel=e.target.value; }));
+  const close=()=>{ pop.remove(); document.removeEventListener("mousedown",outside,true); };
+  function outside(e){ if(!pop.contains(e.target)) close(); }
+  setTimeout(()=>document.addEventListener("mousedown",outside,true),0);
+  pop.querySelector(".wp-x").onclick=close;
+  pop.querySelector("#wp-cancel").onclick=close;
+  pop.querySelector("#wp-save").onclick=()=>{ onSave({period:sel}); close(); };
+}
 function renderDashboard(){
   const dp=document.getElementById("detail-pane"); if(!dp) return;
   const mode=isLive()?"live":"warehouse"; const items=DB.items||[]; const active=items.filter(i=>!i.sold);
@@ -1294,11 +1365,15 @@ function renderDashboard(){
   const pct=v=>Math.round(v*100)+"%";
   const listcard=(title,subtitle,rows)=>`<div class="dash-card" style="flex:1;min-width:240px;"><div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">${esc(title)}</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">${esc(subtitle)}</div>
       ${rows.length?rows.map((r,i)=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;">${i+1}. ${esc(r.label)}</span><span style="font-weight:600;">${esc(r.value)}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round((r.pct||0)*100)}%;background:linear-gradient(90deg,${r.color||"#5b85f8"},${r.color2||"#4f7cf7"});border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No data yet.</div>'}</div>`;
-  const clickWires=[];
-  const tile=(label,val,accent,sub,onClick)=>{ const cid=onClick?("dw-"+(clickWires.length)):""; if(onClick) clickWires.push({cid,onClick});
-    return `<div ${cid?`id="${cid}" style="cursor:pointer;"`:'style=""'} class="dash-tile"><div style="font-size:12px;color:#7b828e;font-weight:500;">${esc(label)}</div>
-      <div style="font-size:26px;font-weight:700;color:#28313f;margin-top:4px;line-height:1.1;">${val}</div>
-      ${sub?`<div style="font-size:11px;color:${accent};margin-top:4px;font-weight:600;">${esc(sub)}</div>`:""}</div>`; };
+  const clickWires=[]; const gearWires=[];
+  const tile=(label,val,accent,sub,onClick,onGear)=>{ const cid=onClick?("dw-"+(clickWires.length)):""; if(onClick) clickWires.push({cid,onClick});
+    const gid=onGear?("gw-"+(gearWires.length)):""; if(onGear) gearWires.push({gid,onGear});
+    const padLeft=gid?"22px":"0";
+    return `<div ${cid?`id="${cid}" style="cursor:pointer;"`:'style=""'} class="dash-tile">${gid?`<button type="button" class="gear-btn" id="${gid}" title="Configure this widget">${I.gear}</button>`:""}<div style="font-size:12px;color:#7b828e;font-weight:500;padding-left:${padLeft};">${esc(label)}</div>
+      <div style="font-size:26px;font-weight:700;color:#28313f;margin-top:4px;line-height:1.1;padding-left:${padLeft};">${val}</div>
+      ${sub?`<div style="font-size:11px;color:${accent};margin-top:4px;font-weight:600;padding-left:${padLeft};">${esc(sub)}</div>`:""}</div>`; };
+  const gearFor=(key)=> (anchorEl)=>{ const entry=layout.find(e=>e.k===key); const cfg=(entry&&entry.cfg)||{};
+    openWidgetConfigPopover(DASH_WIDGETS[key],cfg,anchorEl,(newCfg)=>{ updateWidgetCfg(mode,key,newCfg); renderDashboard(); }); };
   const chart=(title,subtitle,series,color)=>{ const W=560,H=150,pad=24,n=series.length,iw=W-pad*2,ih=H-pad*2,maxV=Math.max(1,...series);
     const xs=i=>pad+(n===1?iw/2:(iw*i/(n-1))), ys=v=>pad+ih-(v/maxV)*ih;
     const pts=series.map((v,i)=>[xs(i),ys(v)]); const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
@@ -1313,66 +1388,127 @@ function renderDashboard(){
   const agg=soldAggregate({});
   const hot=soldAggregate({from:new Date(startToday.getTime()-29*dayMs)}).sort((a,b)=>b.units-a.units);
   const listcardClick=(title,subtitle,rows,onClick)=>{ const cid="dl-"+clickWires.length; clickWires.push({cid,onClick}); return `<div id="${cid}" style="cursor:pointer;">`+listcard(title,subtitle,rows)+`</div>`; };
-  const ctx={active,items,units,invValue,discrep,highest,avgListed,sold30,listed30,now,startToday,startWeek,startMonth,startYear,soldSince,addedSince,tile,chart,topcats,slotStats,catStats,whUtil,whCap,whOcc,pct,listcard,agg,hot,listcardClick};
-  const layout=dashLayout(mode).filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode)&&dashCanSee(DASH_WIDGETS[k]));
-  const tiles=layout.filter(k=>!DASH_WIDGETS[k].wide), wides=layout.filter(k=>DASH_WIDGETS[k].wide);
+  const ctx={active,items,units,invValue,discrep,highest,avgListed,sold30,listed30,now,startToday,startWeek,startMonth,startYear,soldSince,addedSince,tile,chart,topcats,slotStats,catStats,whUtil,whCap,whOcc,pct,listcard,agg,hot,listcardClick,gearFor};
+  const layout=dashLayout(mode).filter(e=>DASH_WIDGETS[e.k]&&DASH_WIDGETS[e.k].modes.includes(mode)&&dashCanSee(DASH_WIDGETS[e.k]));
+  const tiles=layout.filter(e=>!DASH_WIDGETS[e.k].wide), wides=layout.filter(e=>DASH_WIDGETS[e.k].wide);
   dp.innerHTML=`
-    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;"><div style="font-size:18px;font-weight:700;color:#28313f;">Dashboard</div><div style="font-size:12px;color:#9aa3ad;">${isLive()?"Live (eBay)":"Warehouse"} · ${now.toLocaleDateString()}</div><span style="flex:1;"></span><button class="btn sm" id="dash-config">⚙ Configure widgets</button></div>
-    ${tiles.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">${tiles.map(k=>DASH_WIDGETS[k].render(ctx)).join("")}</div>`:""}
-    ${wides.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;">${wides.map(k=>DASH_WIDGETS[k].render(ctx)).join("")}</div>`:""}
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px;"><div style="font-size:18px;font-weight:700;color:#28313f;">Dashboard</div><div style="font-size:12px;color:#9aa3ad;">${isLive()?"Live (eBay)":"Warehouse"} · ${now.toLocaleDateString()}</div><span style="flex:1;"></span><button class="btn sm" id="dash-config" style="display:inline-flex;align-items:center;gap:6px;"><span class="ico" style="width:13px;height:13px;">${I.gear}</span>Configure widgets</button></div>
+    ${tiles.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">${tiles.map(e=>DASH_WIDGETS[e.k].render(ctx,e.cfg)).join("")}</div>`:""}
+    ${wides.length?`<div style="display:flex;gap:12px;flex-wrap:wrap;">${wides.map(e=>DASH_WIDGETS[e.k].render(ctx,e.cfg)).join("")}</div>`:""}
     ${layout.length?"":'<div style="font-size:13px;color:#9aa3ad;padding:20px;">No widgets on your dashboard. Click "Configure widgets" to add some.</div>'}`;
   clickWires.forEach(w=>{ const el=document.getElementById(w.cid); if(el) el.onclick=w.onClick; });
+  gearWires.forEach(w=>{ const el=document.getElementById(w.gid); if(el) el.onclick=(e)=>{ e.stopPropagation(); w.onGear(el); }; });
   const cfgBtn=document.getElementById("dash-config"); if(cfgBtn) cfgBtn.onclick=()=>launchApp("dashwidgets");
 }
 function openDashWidgets(){
   const id="dash-widgets"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Dashboard Widget Maintenance",width:900,height:660,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Drag widgets onto the dashboard to add them, drag to reorder, or drag back to remove. ✕ removes a widget. * = leadership/admin only.</span>`});
+  const {body}=buildWindow({id,title:"Dashboard Widget Maintenance",width:940,height:680,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Drag widgets from the list onto the preview to add them, drag to reorder, or drag back to the list to remove. ✕ removes a widget. ⚙ adjusts a widget's settings. * = leadership/admin only.</span>`});
   let mode="warehouse";
   body.innerHTML=`<div style="padding:12px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line,#e3e7ee);">
       <label style="font-size:12.5px;">Dashboard <select class="cmb" id="dw-mode"><option value="warehouse">Warehouse</option><option value="live">Live</option></select></label>
       <span style="flex:1;"></span><button class="btn sm" id="dw-reset">Reset to default</button></div>
     <div style="display:flex;gap:14px;padding:14px;flex:1;min-height:0;">
-      <div style="flex:2;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">Dashboard preview <span class="smallhint" style="font-weight:400;">(drag to arrange)</span></div><div class="dw-dash" id="dw-dash"></div></div>
       <div style="flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">Available widgets</div><div class="dw-avail" id="dw-avail"></div></div>
+      <div style="flex:2;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">Dashboard preview <span class="smallhint" style="font-weight:400;">(sample data shown — drag to arrange)</span></div><div class="dw-dash" id="dw-dash"></div></div>
     </div>
     <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;"><span class="err" id="dw-msg" style="flex:1;"></span><button class="btn primary" id="dw-save">Save</button></div>`;
-  let layout=dashLayout(mode).filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode));
-  let dragKey=null, dragFrom=null;
+  let layout=dashLayout(mode);
   function allForMode(){ return Object.keys(DASH_WIDGETS).filter(k=>DASH_WIDGETS[k].modes.includes(mode)); }
-  function miniTile(k){ const w=DASH_WIDGETS[k]; const star=/\*/.test(w.title);
-    return `<div class="dw-tile${w.wide?' wide':''}" draggable="true" data-key="${k}" title="${esc(w.desc)}">
+
+  // ---- realistic-looking mock renderers (same classes/markup as the real dashboard, dummy values) ----
+  const MOCK_CHART_SERIES=[2,4,3,6,5,7,4,8,6,5,9,7,6,8,5,7,9,6,8,7,10,8,7,9,8,10,9,8,11,9];
+  const MOCK_ROWS=[{label:"Sample item A",pct:.82},{label:"Sample item B",pct:.58},{label:"Sample item C",pct:.33}];
+  function mockGear(k){ return `<button type="button" class="gear-btn" data-pw="${k}" draggable="false" title="Configure this widget">${I.gear}</button>`; }
+  function mockTile(title,gear){ return `<div class="dash-tile">${gear?mockGear(gear):""}<div style="font-size:12px;color:#7b828e;font-weight:500;padding-left:${gear?'22px':'0'};">${esc(title)}</div><div style="font-size:26px;font-weight:700;color:#28313f;margin-top:4px;line-height:1.1;padding-left:${gear?'22px':'0'};">—</div></div>`; }
+  function mockChart(title,gear){ const W=560,H=150,pad=24,n=MOCK_CHART_SERIES.length,iw=W-pad*2,ih=H-pad*2,maxV=Math.max(1,...MOCK_CHART_SERIES);
+    const xs=i=>pad+(iw*i/(n-1)), ys=v=>pad+ih-(v/maxV)*ih;
+    const pts=MOCK_CHART_SERIES.map((v,i)=>[xs(i),ys(v)]); const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+    const area=line+" L"+xs(n-1).toFixed(1)+" "+(pad+ih)+" L"+xs(0).toFixed(1)+" "+(pad+ih)+" Z"; const gid="m"+Math.random().toString(36).slice(2,7);
+    return `<div class="dash-card" style="flex:2;min-width:320px;">${gear?mockGear(gear):""}<div style="font-size:13px;font-weight:600;color:#28313f;padding-left:${gear?'22px':'0'};">${esc(title)}</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:6px;padding-left:${gear?'22px':'0'};">sample data</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#9aa3ad" stop-opacity="0.22"/><stop offset="100%" stop-color="#9aa3ad" stop-opacity="0"/></linearGradient></defs>
+      <path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="#9aa3ad" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/></svg></div>`; }
+  function mockListcard(title,gear){ return `<div class="dash-card" style="flex:1;min-width:240px;">${gear?mockGear(gear):""}<div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;padding-left:${gear?'22px':'0'};">${esc(title)}</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;padding-left:${gear?'22px':'0'};">sample data</div>
+      ${MOCK_ROWS.map((r,i)=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span>${i+1}. ${esc(r.label)}</span><span style="font-weight:600;">—</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(r.pct*100)}%;background:#c7cfdb;border-radius:99px;"></div></div></div>`).join("")}</div>`; }
+  function mockTopcats(gear){ return `<div class="dash-card" style="flex:1;min-width:220px;">${gear?mockGear(gear):""}<div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;padding-left:${gear?'22px':'0'};">Top Categories</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;padding-left:${gear?'22px':'0'};">sample data</div>
+      ${MOCK_ROWS.map((r,i)=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span>${esc(r.label)}</span><span style="font-weight:600;">—</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(r.pct*100)}%;background:#c7cfdb;border-radius:99px;"></div></div></div>`).join("")}</div>`; }
+  function mockBody(k,cfg){ const w=DASH_WIDGETS[k]; const title=widgetDisplayTitle(k,cfg); const gear=w.configurable?k:null;
+    if(w.previewKind==="chart") return mockChart(title,gear);
+    if(w.previewKind==="listcard") return mockListcard(title,gear);
+    if(w.previewKind==="topcats") return mockTopcats(gear);
+    return mockTile(title,gear); }
+  function previewTile(entry){ const k=entry.k, w=DASH_WIDGETS[k];
+    return `<div class="dw-tile${w.wide?' wide':''}" data-key="${k}">
       <button class="dw-x" data-x="${k}" draggable="false" title="Remove">✕</button>
-      <div class="dw-tile-t">${esc(w.title.replace(/\s*\*$/,''))}${star?' <span style=\"color:#b07a1e;\">★</span>':''}</div>
-      <div class="dw-tile-m">${w.wide?'▭▭▭ graph / list':'▦ value tile'}</div></div>`; }
+      <div style="padding:10px;">${mockBody(k,entry.cfg)}</div></div>`; }
   function chip(k){ const w=DASH_WIDGETS[k];
-    return `<div class="dw-chip" draggable="true" data-key="${k}" title="${esc(w.desc)}"><div style="font-weight:600;font-size:12.5px;">${esc(w.title)}</div><div class="smallhint" style="line-height:1.3;">${esc(w.desc)}</div></div>`; }
-  function place(beforeKey){ if(!dragKey) return; layout=layout.filter(k=>k!==dragKey); if(beforeKey){ const i=layout.indexOf(beforeKey); layout.splice(i<0?layout.length:i,0,dragKey);} else layout.push(dragKey); dragKey=null; dragFrom=null; render(); }
-  function removeKey(k){ layout=layout.filter(x=>x!==k); render(); }
-  function render(){ layout=layout.filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode));
-    const dash=body.querySelector("#dw-dash"), avail=body.querySelector("#dw-avail");
-    dash.innerHTML=layout.length?layout.map(miniTile).join(""):'<div class="dw-empty" id="dw-empty">Drag widgets here</div>';
-    const off=allForMode().filter(k=>!layout.includes(k));
-    avail.innerHTML=off.length?off.map(chip).join(""):'<div class="smallhint" style="padding:10px;">All widgets are on the dashboard.</div>';
-    // drag sources
-    dash.querySelectorAll(".dw-tile").forEach(el=>{ el.addEventListener("dragstart",e=>{ dragKey=el.dataset.key; dragFrom="dash"; e.dataTransfer.setData("text/plain",dragKey); e.dataTransfer.effectAllowed="move"; setTimeout(()=>el.classList.add("dragging"),0); });
-      el.addEventListener("dragend",()=>{ el.classList.remove("dragging"); dash.querySelectorAll(".drop-before").forEach(x=>x.classList.remove("drop-before")); });
-      el.addEventListener("dragover",e=>{ e.preventDefault(); dash.querySelectorAll(".drop-before").forEach(x=>x.classList.remove("drop-before")); el.classList.add("drop-before"); });
-      el.addEventListener("drop",e=>{ e.preventDefault(); e.stopPropagation(); place(el.dataset.key); }); });
-    avail.querySelectorAll(".dw-chip").forEach(el=>{ el.addEventListener("dragstart",e=>{ dragKey=el.dataset.key; dragFrom="avail"; e.dataTransfer.setData("text/plain",dragKey); e.dataTransfer.effectAllowed="move"; }); });
-    // remove buttons
-    dash.querySelectorAll(".dw-x").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); removeKey(b.dataset.x); });
-    // drop zones
-    dash.ondragover=e=>{ e.preventDefault(); dash.classList.add("drag-over"); };
-    dash.ondragleave=()=>dash.classList.remove("drag-over");
-    dash.ondrop=e=>{ e.preventDefault(); dash.classList.remove("drag-over"); place(null); };
-    avail.ondragover=e=>{ e.preventDefault(); avail.classList.add("drag-over"); };
-    avail.ondragleave=()=>avail.classList.remove("drag-over");
-    avail.ondrop=e=>{ e.preventDefault(); avail.classList.remove("drag-over"); if(dragFrom==="dash"&&dragKey){ removeKey(dragKey); dragKey=null; dragFrom=null; } };
+    return `<div class="dw-chip" data-key="${k}" title="${esc(w.desc)}"><div style="font-weight:600;font-size:12.5px;">${esc(widgetBaseTitle(w))}</div><div class="smallhint" style="line-height:1.3;">${esc(w.desc)}</div></div>`; }
+
+  // ---- pointer-based drag & drop (avoids native HTML5 DnD issues in the desktop webview) ----
+  let drag=null; // {key,from,entry,moved,ghost,startX,startY}
+  function startDrag(e,key,from,entry){
+    if(e.target.closest(".dw-x,.gear-btn")) return;
+    e.preventDefault();
+    drag={key,from,entry,moved:false,ghost:null,startX:e.clientX,startY:e.clientY};
+    document.addEventListener("mousemove",onDragMove);
+    document.addEventListener("mouseup",onDragUp);
   }
-  body.querySelector("#dw-mode").onchange=(e)=>{ mode=e.target.value; layout=dashLayout(mode).filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode)); body.querySelector("#dw-msg").textContent=""; render(); };
-  body.querySelector("#dw-reset").onclick=()=>{ layout=DASH_DEFAULT[mode].slice().filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode)); render(); };
-  body.querySelector("#dw-save").onclick=()=>{ if(!DB.meta.dashboards) DB.meta.dashboards={}; DB.meta.dashboards[mode]=layout.slice(); save();
+  function onDragMove(e){
+    if(!drag) return;
+    const dx=e.clientX-drag.startX, dy=e.clientY-drag.startY;
+    if(!drag.moved && Math.hypot(dx,dy)<5) return;
+    drag.moved=true;
+    if(!drag.ghost){ const g=document.createElement("div"); g.className="dw-ghost"; g.textContent=widgetBaseTitle(DASH_WIDGETS[drag.key]); document.body.appendChild(g); drag.ghost=g; }
+    drag.ghost.style.left=(e.clientX+12)+"px"; drag.ghost.style.top=(e.clientY+10)+"px";
+    const dash=body.querySelector("#dw-dash"), avail=body.querySelector("#dw-avail");
+    dash.querySelectorAll(".drop-before").forEach(x=>x.classList.remove("drop-before"));
+    dash.classList.remove("drag-over"); avail.classList.remove("drag-over");
+    const el=document.elementFromPoint(e.clientX,e.clientY);
+    const tileEl=el&&el.closest&&el.closest(".dw-tile");
+    if(tileEl&&dash.contains(tileEl)) tileEl.classList.add("drop-before");
+    else if(el===dash||dash.contains(el)) dash.classList.add("drag-over");
+    else if(el===avail||avail.contains(el)) avail.classList.add("drag-over");
+  }
+  function onDragUp(e){
+    document.removeEventListener("mousemove",onDragMove); document.removeEventListener("mouseup",onDragUp);
+    const d=drag; drag=null; if(!d) return;
+    if(d.ghost) d.ghost.remove();
+    const dash=body.querySelector("#dw-dash"), avail=body.querySelector("#dw-avail");
+    dash.querySelectorAll(".drop-before").forEach(x=>x.classList.remove("drop-before"));
+    dash.classList.remove("drag-over"); avail.classList.remove("drag-over");
+    if(!d.moved) return; // it was just a click, not a drag — let normal click handlers do their job
+    const el=document.elementFromPoint(e.clientX,e.clientY);
+    const tileEl=el&&el.closest&&el.closest(".dw-tile");
+    let zone=null,before=null;
+    if(tileEl&&dash.contains(tileEl)){ zone="dash"; before=tileEl.dataset.key; }
+    else if(el===dash||dash.contains(el)){ zone="dash"; }
+    else if(el===avail||avail.contains(el)){ zone="avail"; }
+    if(!zone) return;
+    layout=layout.filter(x=>x.k!==d.key);
+    if(zone==="dash"){
+      const newEntry=d.from==="dash"?d.entry:{k:d.key,cfg:Object.assign({},DASH_WIDGETS[d.key].defaultConfig||{})};
+      const i=before?layout.findIndex(x=>x.k===before):-1;
+      if(i<0) layout.push(newEntry); else layout.splice(i,0,newEntry);
+    }
+    render();
+  }
+
+  function render(){ layout=layout.filter(e=>DASH_WIDGETS[e.k]&&DASH_WIDGETS[e.k].modes.includes(mode));
+    const dash=body.querySelector("#dw-dash"), avail=body.querySelector("#dw-avail");
+    dash.innerHTML=layout.length?layout.map(previewTile).join(""):'<div class="dw-empty" id="dw-empty">Drag widgets here</div>';
+    const off=allForMode().filter(k=>!layout.some(e=>e.k===k));
+    avail.innerHTML=off.length?off.map(chip).join(""):'<div class="smallhint" style="padding:10px;">All widgets are on the dashboard.</div>';
+    dash.querySelectorAll(".dw-tile").forEach(el=>{ const k=el.dataset.key; const entry=layout.find(x=>x.k===k);
+      el.addEventListener("mousedown",e=>startDrag(e,k,"dash",entry)); });
+    avail.querySelectorAll(".dw-chip").forEach(el=>{ const k=el.dataset.key;
+      el.addEventListener("mousedown",e=>startDrag(e,k,"avail",null)); });
+    dash.querySelectorAll(".dw-x").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); layout=layout.filter(x=>x.k!==b.dataset.x); render(); });
+    dash.querySelectorAll(".gear-btn[data-pw]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const k=b.dataset.pw; const entry=layout.find(x=>x.k===k);
+      if(!entry) return; openWidgetConfigPopover(DASH_WIDGETS[k],entry.cfg||{},b,(newCfg)=>{ entry.cfg=newCfg; render(); }); });
+  }
+  body.querySelector("#dw-mode").onchange=(e)=>{ mode=e.target.value; layout=dashLayout(mode); body.querySelector("#dw-msg").textContent=""; render(); };
+  body.querySelector("#dw-reset").onclick=()=>{ layout=normalizeLayout(DASH_DEFAULT[mode]); render(); };
+  body.querySelector("#dw-save").onclick=()=>{ if(!DB.meta) DB.meta={}; if(!DB.meta.dashboards) DB.meta.dashboards={}; DB.meta.dashboards[mode]=layout.slice(); save();
     body.querySelector("#dw-msg").style.color="#1f7244"; body.querySelector("#dw-msg").textContent="Saved — the "+mode+" dashboard is updated.";
     try{ if(!treeState.sel) renderDashboard(); }catch(e){} };
   render();
