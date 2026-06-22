@@ -1,15 +1,15 @@
 {
-  "version": "2.7.8",
+  "version": "2.8.1",
   "notes": "Download the installer below. Existing installs will auto-update.",
-  "pub_date": "2026-06-21T20:44:22.963Z",
+  "pub_date": "2026-06-22T00:24:49.538Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMkY1cjRtbk5ObktnTlRwQUZydnorVTZMam4rSENad3BDM1czVFl4STJMeElzWVZQR2htV2wweTRlaDFKWlVpeENQM25SU1dITnExVTEvR2N3MWw1Tk56bVZMejBZcFFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMDc0NjYwCWZpbGU6V0lNXzIuNy44X3g2NC1zZXR1cC5leGUKajZPRVBQYTJZY1dJcFdkUFY3UEVOSWNzelF6L3pBUEcxN211Q0F4SzNKSk1BUE9pQzdIZ2xZTngxZEt6M1BHQlZ5Q1JBbHNMTEpPQUVRejlBODNPQVE9PQo=",
-      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.7.8/WIM_2.7.8_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMkY1cjRtbk5ObktPVHRqRVJja0JtWGUvRzZsM29PL2ZBQlkwNVB5QmRid05XeXYwclArSUNWVTlQdDdsR3h4U2JxbjNYN0lVcW1tNktzVFdrM1ZVSTFxTytNRU4wSUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMDg3ODg3CWZpbGU6V0lNXzIuOC4xX3g2NC1zZXR1cC5leGUKVEg2UEZnZ1o3eG10WTF2Ni9oSmoyVFZOM2ozemFaMXFPMlNHeU41NjRHVUtMQmtFZWt0VURxNUtNQk9vdVR6dVpzblpTUmxGVVFnTEVaT1o5Rlo4RHc9PQo=",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.8.1/WIM_2.8.1_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMkY1cjRtbk5ObktnTlRwQUZydnorVTZMam4rSENad3BDM1czVFl4STJMeElzWVZQR2htV2wweTRlaDFKWlVpeENQM25SU1dITnExVTEvR2N3MWw1Tk56bVZMejBZcFFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMDc0NjYwCWZpbGU6V0lNXzIuNy44X3g2NC1zZXR1cC5leGUKajZPRVBQYTJZY1dJcFdkUFY3UEVOSWNzelF6L3pBUEcxN211Q0F4SzNKSk1BUE9pQzdIZ2xZTngxZEt6M1BHQlZ5Q1JBbHNMTEpPQUVRejlBODNPQVE9PQo=",
-      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.7.8/WIM_2.7.8_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMkY1cjRtbk5ObktPVHRqRVJja0JtWGUvRzZsM29PL2ZBQlkwNVB5QmRid05XeXYwclArSUNWVTlQdDdsR3h4U2JxbjNYN0lVcW1tNktzVFdrM1ZVSTFxTytNRU4wSUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyMDg3ODg3CWZpbGU6V0lNXzIuOC4xX3g2NC1zZXR1cC5leGUKVEg2UEZnZ1o3eG10WTF2Ni9oSmoyVFZOM2ozemFaMXFPMlNHeU41NjRHVUtMQmtFZWt0VURxNUtNQk9vdVR6dVpzblpTUmxGVVFnTEVaT1o5Rlo4RHc9PQo=",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v2.8.1/WIM_2.8.1_x64-setup.exe"
     }
   }
 }
