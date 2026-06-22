@@ -332,7 +332,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.8.1", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.8.2", BUILD_DATE="2026-06-14", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -391,6 +391,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.8.2","Analytics (batch 5 pt.3): new Item Rank report (rank sold items by sales, units, or profit over any date range and category, top or bottom N) under Reports. New Listing Efficiency report (units sold per day over a range, by user, vs an expectation, with exclude-zero-days). New dashboard widgets: Hot Items (best sellers last 30 days, click opens Item Rank), Fastest Turning* and Most Profitable* (leadership), and a Listing Efficiency* tile. Sales/profit use each item's retail (or listing price) minus cost; this completes the internal-data dashboard work."],
   ["2.8.1","Capacity & utilization widgets (batch 5 pt.2): five new dashboard widgets driven by each slot's capacity (the SKU limit set in Warehouse Maintenance) versus how full it is — Warehouse Utilization, Category Utilization (top 3), Slot Utilization (top 3), Slot Open Capacity (top 3), and Category Open Capacity (top 3). Add them from Configuration > Dashboard Widgets."],
   ["2.7.9","Dashboard widgets (batch 5 pt.1): the home dashboard is now built from configurable widgets. New Dashboard Widget Maintenance (Configuration > Dashboard Widgets) lets you pick which widgets show on the Warehouse and Live dashboards and their order, each with a description; widgets marked * (Inventory Value, Highest Value SKU) are leadership/admin only. Widgets included: Items Sold and Items Added (today/week/month/year), Active Items, Units on Hand, Discrepancies, Average Time Listed, Inventory Value*, Highest Value SKU*, plus 30-day Sold/Listed graphs and Top Categories. Items Needing SKU and New Messages are placeholders until the eBay connection is restored."],
   ["2.7.8","Print finish (batch 4 pt.2): new SL-100 label layout (no borders) that prints the Warehouse SKU large and bold, then the Item Number, then the Description — sized to the real SL-100 sheet (2.625in x 1in, 3 across x 10 down, 30 per sheet). Printing now opens an on-screen Print Preview with a Print button (set Margins=None, Scale=100% in the print dialog). Print Configuration has a layout chooser (SL-100 or custom fields); SL-100 is the default. The Print Queue's Print uses the preview and marks rows Printed once you print."],
@@ -483,6 +484,8 @@ const POPOUT_APPS={
   printcfg:{ title:"Print Configuration", open:()=>openPrintConfig() },
   printqueue:{ title:"Print Queue", open:()=>openPrintQueue() },
   dashwidgets:{ title:"Dashboard Widgets", open:()=>openDashWidgets() },
+  itemrank:{ title:"Item Rank", open:()=>openItemRank() },
+  listingeff:{ title:"Listing Efficiency", open:()=>openListingEfficiency() },
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
@@ -1146,13 +1149,13 @@ function nodeActions(node){
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Find by Photo"];
   if(node.key==="addsell") return ["Add Inventory","Sell Inventory","Adjust Inventory"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
-  if(node.key==="reports") return ["Aging Inventory","Item Report","Active Summary"];
+  if(node.key==="reports") return ["Aging Inventory","Item Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","View Live Inventory","Find by Photo"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items"];
   if(node.key==="discrepancies") return ["Discrepancies","Ready to List"];
   if(node.key==="comm") return ["Communication"];
-  if(node.key==="livereports") return ["Listing Report"];
+  if(node.key==="livereports") return ["Listing Report","Item Rank","Listing Efficiency"];
   return [];
 }
 function showLauncher(){
@@ -1224,7 +1227,15 @@ const DASH_WIDGETS={
   slotOpen:{title:"Slot Open Capacity (top 3)",desc:"Slots with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,
     render:c=>{ const mx=Math.max(1,...c.slotStats.map(s=>s.open)); return c.listcard("Slot Open Capacity","Top 3 slots with the most room",c.slotStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.id+" ("+s.cats.join(", ")+")",value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }},
   catOpen:{title:"Category Open Capacity (top 3)",desc:"Categories with the most open placements remaining.",role:"all",modes:["warehouse"],wide:true,
-    render:c=>{ const mx=Math.max(1,...c.catStats.map(s=>s.open)); return c.listcard("Category Open Capacity","Top 3 categories with the most room",c.catStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.cat,value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }}
+    render:c=>{ const mx=Math.max(1,...c.catStats.map(s=>s.open)); return c.listcard("Category Open Capacity","Top 3 categories with the most room",c.catStats.filter(s=>s.cap>0).sort((a,b)=>b.open-a.open).slice(0,3).map(s=>({label:s.cat,value:s.open+" open",pct:s.open/mx,color:"#4fcf8f",color2:"#1f9d57"}))); }},
+  hotItems:{title:"Hot Items",desc:"Best sellers in the last 30 days (by units). Click to open Item Rank.",role:"all",modes:["warehouse","live"],wide:true,
+    render:c=>{ const mx=Math.max(1,...c.hot.map(h=>h.units)); return c.listcardClick("Hot Items","Most units sold · last 30 days",c.hot.slice(0,3).map(h=>({label:h.desc,value:h.units+" sold"+(h.avgDays!=null?" · "+h.avgDays+"d":""),pct:h.units/mx,color:"#f0a35b",color2:"#e08a1f"})),()=>launchApp("itemrank")); }},
+  fastestTurning:{title:"Fastest Turning *",desc:"Items with the lowest average days from added to sold. Leadership only.",role:"leadership",modes:["warehouse","live"],wide:true,
+    render:c=>{ const list=c.agg.filter(a=>a.avgDays!=null&&a.units>0).sort((a,b)=>a.avgDays-b.avgDays).slice(0,3); const mx=Math.max(1,...list.map(a=>a.avgDays||0)); return c.listcard("Fastest Turning","Lowest avg days to sell",list.map(a=>({label:a.desc,value:a.avgDays+" days",pct:1-((a.avgDays||0)/(mx+1)),color:"#5b85f8",color2:"#4f7cf7"}))); }},
+  mostProfitable:{title:"Most Profitable *",desc:"Items with the highest total profit (all time). Leadership only.",role:"leadership",modes:["warehouse","live"],wide:true,
+    render:c=>{ const list=c.agg.slice().sort((a,b)=>b.profit-a.profit).slice(0,3); const mx=Math.max(1,...list.map(a=>a.profit)); return c.listcard("Most Profitable","Highest total profit",list.map(a=>({label:a.desc,value:money(a.profit),pct:(a.profit>0?a.profit/mx:0),color:"#4fcf8f",color2:"#1f9d57"}))); }},
+  listingEff:{title:"Listing Efficiency *",desc:"Average units sold per day over the last 30 days. Leadership only. Click for the full report.",role:"leadership",modes:["warehouse","live"],
+    render:c=>c.tile("Listing Efficiency",(c.sold30.reduce((a,b)=>a+b,0)/30).toFixed(1)+" /day","#7a45c4","last 30 days →",()=>launchApp("listingeff"))}
 };
 const DASH_DEFAULT={
   warehouse:["itemsNeedingSku","soldWeek","addedWeek","discrepancies","listedChart","topCats"],
@@ -1283,7 +1294,10 @@ function renderDashboard(){
         <path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${lbl}</svg></div>`; };
   const topcats=()=>`<div class="dash-card" style="flex:1;min-width:220px;"><div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Top Categories</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">Active items by category</div>
       ${topCats.length?topCats.map(([cc,v])=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;">${esc(cc)}</span><span style="font-weight:600;">${v}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(v/maxCat*100)}%;background:linear-gradient(90deg,#5b85f8,#4f7cf7);border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No active items yet.</div>'}</div>`;
-  const ctx={active,items,units,invValue,discrep,highest,avgListed,sold30,listed30,now,startToday,startWeek,startMonth,startYear,soldSince,addedSince,tile,chart,topcats,slotStats,catStats,whUtil,whCap,whOcc,pct,listcard};
+  const agg=soldAggregate({});
+  const hot=soldAggregate({from:new Date(startToday.getTime()-29*dayMs)}).sort((a,b)=>b.units-a.units);
+  const listcardClick=(title,subtitle,rows,onClick)=>{ const cid="dl-"+clickWires.length; clickWires.push({cid,onClick}); return `<div id="${cid}" style="cursor:pointer;">`+listcard(title,subtitle,rows)+`</div>`; };
+  const ctx={active,items,units,invValue,discrep,highest,avgListed,sold30,listed30,now,startToday,startWeek,startMonth,startYear,soldSince,addedSince,tile,chart,topcats,slotStats,catStats,whUtil,whCap,whOcc,pct,listcard,agg,hot,listcardClick};
   const layout=dashLayout(mode).filter(k=>DASH_WIDGETS[k]&&DASH_WIDGETS[k].modes.includes(mode)&&dashCanSee(DASH_WIDGETS[k]));
   const tiles=layout.filter(k=>!DASH_WIDGETS[k].wide), wides=layout.filter(k=>DASH_WIDGETS[k].wide);
   dp.innerHTML=`
@@ -1330,6 +1344,79 @@ function openDashWidgets(){
     body.querySelector("#dw-msg").style.color="#1f7244"; body.querySelector("#dw-msg").textContent="Saved — the "+mode+" dashboard is updated.";
     try{ if(!treeState.sel) renderDashboard(); }catch(e){} };
   render();
+}
+function saleVal(i){ return parseFloat(i.retail)||parseFloat(i.listing&&i.listing.price)||0; }
+function soldAggregate(opt){ opt=opt||{}; const {from,to,cats,byUser}=opt; const map={};
+  DB.items.filter(i=>i.sold&&i.soldAt).forEach(i=>{ const d=new Date(i.soldAt);
+    if(from&&d<from) return; if(to&&d>to) return; if(cats&&cats.length&&!cats.includes(i.section)) return; if(byUser&&i.soldBy!==byUser) return;
+    const key=(i.upc||i.desc||i.id);
+    const m=map[key]||(map[key]={key,desc:i.desc||i.upc||"—",cat:i.section||"—",units:0,revenue:0,cost:0,profit:0,daysSum:0,daysN:0,last:null});
+    const price=saleVal(i),cost=parseFloat(i.unitCost)||0; m.units++; m.revenue+=price; m.cost+=cost; m.profit+=(price-cost);
+    if(i.createdAt){ const dd=Math.max(0,(d-new Date(i.createdAt))/864e5); m.daysSum+=dd; m.daysN++; }
+    if(!m.last||d>m.last) m.last=d; });
+  return Object.values(map).map(m=>{ m.avgDays=m.daysN?Math.round(m.daysSum/m.daysN):null; return m; }); }
+const money=v=>"$"+(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function openItemRank(){
+  const id="item-rank"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Item Rank",width:880,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Rank sold items by sales, units, or profit over a date range.</span>`});
+  body.innerHTML=`<div style="padding:12px 14px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px solid var(--line,#e3e7ee);">
+      <div class="ff" style="margin:0;"><label style="text-align:left;">From</label><input class="txt" type="date" id="ir-from"></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">To</label><input class="txt" type="date" id="ir-to"></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">Category</label><select class="cmb" id="ir-cat"><option value="">(any)</option>${DB.sections.map(s=>`<option>${esc(s)}</option>`).join("")}</select></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">Rank by</label><select class="cmb" id="ir-by"><option value="profit">Profit</option><option value="revenue">Sales</option><option value="units">Units</option></select></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">Order</label><select class="cmb" id="ir-ord"><option value="top">Top</option><option value="bottom">Bottom</option></select></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">Show</label><input class="txt" id="ir-n" value="20" style="width:60px;"></div>
+      <button class="btn primary" id="ir-run">Run</button></div>
+    <div class="resultwrap" style="margin:0 14px;"><table class="res"><thead><tr><th>#</th><th>Description</th><th>Category</th><th style="text-align:right;">Units</th><th style="text-align:right;">Sales</th><th style="text-align:right;">Profit</th><th style="text-align:right;">Avg Days</th></tr></thead><tbody id="ir-tb"></tbody></table></div>
+    <div class="statusbar"><span id="ir-status">Set filters and press Run.</span></div>`;
+  function run(){ const from=body.querySelector("#ir-from").value?new Date(body.querySelector("#ir-from").value+"T00:00:00"):null;
+    const to=body.querySelector("#ir-to").value?new Date(body.querySelector("#ir-to").value+"T23:59:59"):null;
+    const cat=body.querySelector("#ir-cat").value; const by=body.querySelector("#ir-by").value; const ord=body.querySelector("#ir-ord").value;
+    const n=Math.max(1,parseInt(body.querySelector("#ir-n").value,10)||20);
+    let rows=soldAggregate({from,to,cats:cat?[cat]:null});
+    rows.sort((a,b)=> ord==="top"?(b[by]-a[by]):(a[by]-b[by])); rows=rows.slice(0,n);
+    const tb=body.querySelector("#ir-tb"); tb.innerHTML="";
+    rows.forEach((r,i)=>{ const tr=document.createElement("tr"); tr.innerHTML=`<td>${i+1}</td><td>${esc(r.desc)}</td><td>${esc(r.cat)}</td><td style="text-align:right;">${r.units}</td><td style="text-align:right;">${money(r.revenue)}</td><td style="text-align:right;color:${r.profit<0?'#c0392b':'#1f7244'};">${money(r.profit)}</td><td style="text-align:right;">${r.avgDays==null?'—':r.avgDays}</td>`; tb.appendChild(tr); });
+    const tu=rows.reduce((a,b)=>a+b.units,0), tr2=rows.reduce((a,b)=>a+b.revenue,0), tp=rows.reduce((a,b)=>a+b.profit,0);
+    body.querySelector("#ir-status").textContent=rows.length+" item(s) · "+tu+" units · "+money(tr2)+" sales · "+money(tp)+" profit"; }
+  body.querySelector("#ir-run").onclick=run; run();
+}
+function openListingEfficiency(){
+  const id="listing-eff"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Listing Efficiency",width:840,height:620,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Units sold per day over a range, by user, vs an expectation.</span>`});
+  const users=(DB.users||[]).map(u=>`<option value="${esc(u.id)}">${esc(userLabel(u.id))}</option>`).join("");
+  body.innerHTML=`<div style="padding:12px 14px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px solid var(--line,#e3e7ee);">
+      <div class="ff" style="margin:0;"><label style="text-align:left;">From</label><input class="txt" type="date" id="le-from"></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">To</label><input class="txt" type="date" id="le-to"></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">User</label><select class="cmb" id="le-user"><option value="">All users</option>${users}</select></div>
+      <div class="ff" style="margin:0;"><label style="text-align:left;">Expectation (units/day)</label><input class="txt" id="le-exp" value="5" style="width:70px;"></div>
+      <label style="font-size:12.5px;display:flex;align-items:center;gap:5px;"><input type="checkbox" id="le-nz">Exclude zero days</label>
+      <button class="btn primary" id="le-run">Run</button></div>
+    <div style="padding:14px;"><div id="le-summary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;"></div><div class="dash-card" id="le-chart"></div></div>`;
+  function run(){ const fromV=body.querySelector("#le-from").value, toV=body.querySelector("#le-to").value;
+    const to=toV?new Date(toV+"T00:00:00"):new Date(); const from=fromV?new Date(fromV+"T00:00:00"):new Date(to.getTime()-29*864e5);
+    const byUser=body.querySelector("#le-user").value||null; const exp=parseFloat(body.querySelector("#le-exp").value)||0; const nz=body.querySelector("#le-nz").checked;
+    const t0=new Date(from.getFullYear(),from.getMonth(),from.getDate()), t1=new Date(to.getFullYear(),to.getMonth(),to.getDate());
+    const days=[]; for(let d=new Date(t0); d<=t1; d=new Date(d.getTime()+864e5)) days.push(new Date(d));
+    const sameDay=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+    const sold=DB.items.filter(i=>i.sold&&i.soldAt&&(!byUser||i.soldBy===byUser));
+    let series=days.map(d=>({d,v:sold.filter(i=>sameDay(new Date(i.soldAt),d)).length}));
+    if(nz) series=series.filter(p=>p.v>0);
+    const total=series.reduce((a,p)=>a+p.v,0); const perDay=series.length?(total/series.length):0;
+    const eff=exp>0?Math.round(perDay/exp*100):null;
+    const sum=body.querySelector("#le-summary");
+    const card=(l,v,c)=>`<div class="dash-tile" style="min-width:130px;"><div style="font-size:12px;color:#7b828e;">${l}</div><div style="font-size:24px;font-weight:700;color:${c||'#28313f'};margin-top:3px;">${v}</div></div>`;
+    sum.innerHTML=card("Total Units",total)+card("Units / Day",perDay.toFixed(1))+card("Days Counted",series.length)+card("Efficiency",eff==null?"—":(eff+"%"),eff==null?'#28313f':(eff>=100?'#1f7244':'#e08a1f'));
+    const W=760,H=200,pad=30,n=series.length,iw=W-pad*2,ih=H-pad*2,maxV=Math.max(1,exp,...series.map(p=>p.v));
+    const xs=i=>pad+(n<=1?iw/2:iw*i/(n-1)), ys=v=>pad+ih-(v/maxV)*ih;
+    const line=series.map((p,i)=>(i?"L":"M")+xs(i).toFixed(1)+" "+ys(p.v).toFixed(1)).join(" ");
+    const expY=ys(exp).toFixed(1);
+    body.querySelector("#le-chart").innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:6px;">Units sold per day</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%"><line x1="${pad}" y1="${expY}" x2="${W-pad}" y2="${expY}" stroke="#e08a1f" stroke-width="1.4" stroke-dasharray="5 4"/><text x="${W-pad}" y="${(parseFloat(expY)-4)}" font-size="10" fill="#e08a1f" text-anchor="end">expectation ${exp}/day</text>
+        ${n?`<path d="${line}" fill="none" stroke="#4f7cf7" stroke-width="2.4" stroke-linejoin="round"/>`:`<text x="${W/2}" y="${H/2}" font-size="12" fill="#9aa3ad" text-anchor="middle">No sales in range</text>`}</svg>`; }
+  body.querySelector("#le-run").onclick=run; run();
 }
 async function checkLiveStatus(){
   const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
@@ -1382,6 +1469,8 @@ function handleAction(k,a){
   if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
   if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
   if(k==="config"&&a==="Dashboard Widgets") return launchApp("dashwidgets");
+  if((k==="reports"||k==="livereports")&&a==="Item Rank") return launchApp("itemrank");
+  if((k==="reports"||k==="livereports")&&a==="Listing Efficiency") return launchApp("listingeff");
   if(k==="config"&&a==="About / Version") return launchApp("about");
   if(k==="security"&&a==="Modify Users") return launchApp("users");
   if(k==="catalog"&&a==="Catalog Maintenance") return launchApp("catalog");
