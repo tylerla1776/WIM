@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WIM — eBay sign-in</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f3f5f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
+  .card{background:#fff;border-radius:14px;box-shadow:0 4px 24px rgba(31,45,71,.12);padding:28px 34px;max-width:460px;text-align:center;}
+  h1{font-size:18px;font-weight:700;color:#28313f;margin:0 0 8px;}
+  p{font-size:13.5px;color:#5b6472;line-height:1.5;margin:0 0 14px;}
+  a.btn{display:inline-block;background:#4f7cf7;color:#fff;text-decoration:none;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;}
+  textarea{width:100%;height:70px;font-size:11px;font-family:monospace;border:1px solid #e3e7ee;border-radius:8px;padding:8px;box-sizing:border-box;color:#5b6472;}
+  .hide{display:none;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div id="working">
+      <h1>Finishing up…</h1>
+      <p>Sending you back to WIM. If nothing happens in a few seconds, click below.</p>
+      <a class="btn" id="manual-link" href="#">Continue to WIM</a>
+    </div>
+    <div id="fallback" class="hide">
+      <h1>Couldn't reach WIM automatically</h1>
+      <p>WIM needs to be open on this computer for this page to find it. Make sure WIM is running, then click below. If that still doesn't work, copy the text and paste it into WIM's eBay Connection screen.</p>
+      <a class="btn" id="manual-link-2" href="#">Try again</a>
+      <p style="margin-top:14px;">Or copy this:</p>
+      <textarea id="raw" readonly></textarea>
+    </div>
+  </div>
+  <script>
+    // eBay redirects here as: https://.../ebay-callback.html?code=...&state=...
+    // This page's only job is to forward that, unchanged, to WIM's local listener.
+    var q = window.location.search;
+    var localUrl = "http://localhost:8765/wim-ebay-callback" + q;
+    document.getElementById("manual-link").href = localUrl;
+    document.getElementById("manual-link-2").href = localUrl;
+    document.getElementById("raw").value = window.location.href;
+    // Attempt the automatic hop. If WIM's local listener isn't there to receive it,
+    // the browser will show its own connection error on navigation — so we navigate
+    // in a way that lets the user get back to this page's fallback instructions easily
+    // (most browsers let you hit Back after a failed connection).
+    setTimeout(function(){
+      try { window.location.href = localUrl; } catch (e) {}
+    }, 600);
+    setTimeout(function(){
+      document.getElementById("working").classList.add("hide");
+      document.getElementById("fallback").classList.remove("hide");
+    }, 4000);
+  </script>
+</body>
+</html>

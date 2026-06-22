@@ -361,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.8.4", BUILD_DATE="2026-06-21", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.8.6", BUILD_DATE="2026-06-23", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +420,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.8.6","Fixed eBay sign-in setup: eBay rejects a localhost \"auth accepted URL\" outright (it requires https://). WIM now uses a tiny pass-through page hosted on GitHub Pages (docs/ebay-callback.html) as the RuName's accepted URL -- eBay redirects there (satisfying its https requirement), and that page immediately forwards the result to WIM's local listener, unchanged. Updated the in-app eBay Connection instructions and EBAY_SETUP.md with the exact URL to use and the one-time GitHub Pages setup (Settings > Pages > Deploy from branch > main /docs)."],
+  ["2.8.5","In-app eBay sign-in: a new Connect with eBay button (Configuration > eBay Connection) opens eBay's real sign-in/consent page in your browser and, the moment you approve, WIM captures the result itself and exchanges it for a User Token directly -- no copy-pasting a token from eBay's developer site anymore. This removes the one external step that could cause eBay's \"issued to another client\" rejection, since the same App ID/Cert ID/RuName that started the sign-in is the same one used to redeem it. Requires a RuName from your eBay keyset pointed at http://localhost:8765/wim-ebay-callback (Sandbox supports this out of the box; see the in-app instructions for Production). The manual paste-a-token method still works as a fallback."],
   ["2.8.4","Dashboard Widget Maintenance fixes & gear-icon widget settings: the available-widgets list is now on the left and the dashboard preview on the right, and that preview now looks like the real dashboard (same cards/tiles) with sample data instead of placeholder boxes. Drag-and-drop was rebuilt from scratch (the old version could show a blocked no-entry cursor and stop working) -- dragging is now handled directly instead of relying on the browser native drag-and-drop, so it should be reliable. Widgets you can adjust (for example Items Sold, Items Added) now show a small gear icon in their top-left corner -- click it to choose Today / This Week / Last 7 Days / This Month / This Year in a small popup, and the widget name updates to match, e.g. \"Items Sold (this week)\". The same gear icon (replacing the old gear character) is now used for the Configure Widgets button and the Configuration tree icon for visual consistency."],
   ["2.8.3","Dashboard Widget Maintenance is now drag-and-drop: a live dashboard preview on the left and an available-widgets list on the right. Drag a widget onto the preview to add it, drag tiles to reorder, drag a tile back to the list to remove it, or click the small ✕ in a tile's corner to remove it (the next widgets shift up). Works per mode (Warehouse/Live); Save applies it."],
   ["2.8.2","Analytics (batch 5 pt.3): new Item Rank report (rank sold items by sales, units, or profit over any date range and category, top or bottom N) under Reports. New Listing Efficiency report (units sold per day over a range, by user, vs an expectation, with exclude-zero-days). New dashboard widgets: Hot Items (best sellers last 30 days, click opens Item Rank), Fastest Turning* and Most Profitable* (leadership), and a Listing Efficiency* tile. Sales/profit use each item's retail (or listing price) minus cost; this completes the internal-data dashboard work."],
@@ -661,7 +663,7 @@ function seed(){
   return { meta:{schemaVersion:10,createdAt:now,invoiceSeq:1000},
     users:[{id:ADMIN_ID,password:"1234",mustChange:true,isAdmin:true,role:"admin",shortName:"Admin",longName:"System Administrator"}],
     slots, items, sections, groups, vendors:["HYVEE DISTRIBUTION","LOCAL FARM","C&S WHOLESALE"], conditions:STATIC.conditions.slice(), conditionsByCat:condsByCat, adjustmentTypes:STATIC.adjustmentTypes.slice(),
-    printTemplate:{ layout:"sl100", fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" }, ebay:{ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false }, invoices:[] };
+    printTemplate:{ layout:"sl100", fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" }, ebay:{ env:"sandbox", appId:"", certId:"", refreshToken:"", ruName:"", marketplace:"EBAY_US", connected:false }, invoices:[] };
 }
 /* ============================================================ ITEM NUMBER SYSTEM (v2.7.4) ============================================================ */
 const CAT_ID_MAP={
@@ -710,9 +712,9 @@ function migrate(d){
   d.sections.forEach(s=>{ if(!Array.isArray(d.conditionsByCat[s])) d.conditionsByCat[s]=d.conditions.slice(); });
   if(!d.printTemplate) d.printTemplate={ layout:"sl100", fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" };
   if(!d.printTemplate.layout) d.printTemplate.layout="sl100";
-  if(!d.ebay) d.ebay={ env:"sandbox", appId:"", certId:"", refreshToken:"", marketplace:"EBAY_US", connected:false };
-  if(!d.ebay.creds){ d.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:""}, production:{appId:"",certId:"",refreshToken:""} };
-    const ev=d.ebay.env||"sandbox"; d.ebay.creds[ev]={ appId:d.ebay.appId||"", certId:d.ebay.certId||"", refreshToken:d.ebay.refreshToken||"" }; }
+  if(!d.ebay) d.ebay={ env:"sandbox", appId:"", certId:"", refreshToken:"", ruName:"", marketplace:"EBAY_US", connected:false };
+  if(!d.ebay.creds){ d.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:"",ruName:""}, production:{appId:"",certId:"",refreshToken:"",ruName:""} };
+    const ev=d.ebay.env||"sandbox"; d.ebay.creds[ev]={ appId:d.ebay.appId||"", certId:d.ebay.certId||"", refreshToken:d.ebay.refreshToken||"", ruName:d.ebay.ruName||"" }; }
   // ---- V2.2.2: eBay-aware categories, sub-categories, listing + description model ----
   if(!d.sections.includes("NONE")) d.sections.unshift("NONE");
   if(!d.subcats || typeof d.subcats!=="object") d.subcats={};
@@ -2124,38 +2126,44 @@ function openPrintMenu(it){
 /* ---- eBay connection (first-iteration settings) ---- */
 function openEbayConfig(){
   const id="ebay-config"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body,close}=buildWindow({id,title:"eBay Connection",width:680,height:600,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Connect WIM to eBay (first iteration)</span>`});
+  const {body,close}=buildWindow({id,title:"eBay Connection",width:680,height:660,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Connect WIM to eBay</span>`});
   const e=DB.ebay;
   body.innerHTML=`<div style="padding:16px;overflow:auto;">
-      <div class="note" style="margin-bottom:12px;">This stores your eBay developer keys so WIM can talk to eBay. In this desktop build, WIM connects to eBay directly — no browser, no broker needed. Fill in the keys below and press <b>Test</b>.</div>
+      <div class="note" style="margin-bottom:12px;">This stores your eBay developer keys so WIM can talk to eBay. In this desktop build, WIM connects to eBay directly — no browser-based broker, no third party. Fill in the keys below, then either click <b>Connect with eBay</b> (recommended — WIM signs you in and gets its own token automatically) or paste a token manually and press <b>Test</b>.</div>
       <fieldset class="gb"><legend>Environment</legend>
         <select class="cmb" id="eb-env"><option value="sandbox" ${e.env==='sandbox'?'selected':''}>Sandbox (testing)</option><option value="production" ${e.env==='production'?'selected':''}>Production (live listings)</option></select></fieldset>
       <fieldset class="gb" style="margin-top:10px;"><legend>Keys from developer.ebay.com</legend>
         <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">App ID (Client ID)</label><input class="txt" id="eb-app" value="${esc(e.appId||'')}"></div>
         <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">Cert ID (Secret)</label><input class="txt" id="eb-cert" value="${esc(e.certId||'')}"></div>
-        <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">User Token</label><input class="txt" id="eb-tok" value="${esc(e.refreshToken||'')}"></div>
+        <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">RuName</label><input class="txt" id="eb-ru" value="${esc(e.ruName||'')}" placeholder="e.g. Your_Name-YourApp-WIM-abcde"></div>
+        <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">User Token</label><input class="txt" id="eb-tok" value="${esc(e.refreshToken||'')}" placeholder="Filled in automatically by Connect with eBay"></div>
         <div class="ff" style="grid-template-columns:120px 1fr;"><label class="fld">Marketplace</label><input class="txt" id="eb-mkt" value="${esc(e.marketplace||'EBAY_US')}"></div></fieldset>
-      <div style="display:flex;gap:8px;margin-top:12px;"><button class="btn primary" id="eb-save">Save</button><button class="btn" id="eb-test">Test (preview only)</button><span class="err" id="eb-msg" style="align-self:center;"></span></div>
-      <fieldset class="gb" style="margin-top:14px;"><legend>How to set this up (plain-English)</legend>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+        <button class="btn primary" id="eb-connect">🔗 Connect with eBay</button>
+        <button class="btn" id="eb-save">Save</button>
+        <button class="btn" id="eb-test">Test current keys</button>
+        <span class="err" id="eb-msg" style="align-self:center;"></span></div>
+      <fieldset class="gb" style="margin-top:14px;"><legend>How "Connect with eBay" works</legend>
         <ol style="font-size:12px;line-height:1.7;margin:6px 0 0 18px;">
-          <li>Go to <b>developer.ebay.com</b> and sign in with your normal eBay account, then click <b>Join</b> to create a free developer account.</li>
-          <li>Open <b>My Account → Application Keysets</b>. Create a <b>Sandbox</b> keyset first (for testing). You'll see an <b>App ID</b>, <b>Dev ID</b>, and <b>Cert ID</b>.</li>
-          <li>Paste the <b>App ID</b> and <b>Cert ID</b> above. Choose <b>Sandbox</b> while testing.</li>
-          <li>Click <b>User Tokens → Get a Token from eBay via Your Application</b>, sign in, and accept. Copy the <b>User Token</b> (eBay also calls it the OAuth user/refresh token) and paste it above.</li>
-          <li>Press <b>Save</b>, then <b>Test</b> — WIM will refresh a token directly with eBay and confirm the connection.</li>
-        </ol></fieldset></div>`;
+          <li>Go to <b>developer.ebay.com → My Account → Application Keysets</b> and copy your <b>App ID</b> and <b>Cert ID</b> above for the environment you picked.</li>
+          <li>On the same keyset page, under <b>User Tokens</b>, find your <b>RuName</b> (the redirect name eBay shows next to "Your auth accepted URL") and paste it above. eBay requires that accepted URL to be <b>https://</b> — set it to:<br><code>https://tylerla1776.github.io/WIM/ebay-callback.html</code><br>(this is a small pass-through page that immediately forwards eBay's response back to WIM on your computer — see EBAY_SETUP.md for the one-time GitHub Pages setup if you haven't enabled it yet).</li>
+          <li>Click <b>Connect with eBay</b>. Your browser opens eBay's real sign-in/consent page — sign in and click <b>Agree</b> there, the same as you would for any "Sign in with eBay" button.</li>
+          <li>eBay redirects to that pass-through page, which bounces you straight back to WIM. WIM exchanges the result for a token itself — nothing to copy or paste, as long as WIM is open. You'll see "Connected" within a few seconds.</li>
+        </ol>
+        <div class="smallhint" style="margin-top:8px;">Prefer the old way? You can still paste a User Token manually above and press <b>Test current keys</b>.</div>
+        <div class="smallhint" style="margin-top:6px;">Sandbox and Production each have their own RuName — set the same <code>ebay-callback.html</code> address on both, and use the matching keys above for whichever environment you're testing.</div></fieldset></div>`;
   const msg=body.querySelector("#eb-msg");
-  const envSel=body.querySelector("#eb-env"), appI=body.querySelector("#eb-app"), certI=body.querySelector("#eb-cert"), tokI=body.querySelector("#eb-tok");
-  if(!DB.ebay.creds) DB.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:""}, production:{appId:"",certId:"",refreshToken:""} };
+  const envSel=body.querySelector("#eb-env"), appI=body.querySelector("#eb-app"), certI=body.querySelector("#eb-cert"), ruI=body.querySelector("#eb-ru"), tokI=body.querySelector("#eb-tok");
+  if(!DB.ebay.creds) DB.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:"",ruName:""}, production:{appId:"",certId:"",refreshToken:"",ruName:""} };
   let shownEnv=envSel.value;
   function deUrl(t){ if(t && t.indexOf("%")>=0){ try{ return decodeURIComponent(t); }catch(e){ return t; } } return t; }
-  function stash(env){ DB.ebay.creds[env]={ appId:appI.value.trim(), certId:certI.value.trim(), refreshToken:deUrl(tokI.value.trim()) }; }
-  function loadEnv(env){ const c=DB.ebay.creds[env]||{appId:"",certId:"",refreshToken:""}; appI.value=c.appId||""; certI.value=c.certId||""; tokI.value=c.refreshToken||""; }
+  function stash(env){ DB.ebay.creds[env]={ appId:appI.value.trim(), certId:certI.value.trim(), refreshToken:deUrl(tokI.value.trim()), ruName:ruI.value.trim() }; }
+  function loadEnv(env){ const c=DB.ebay.creds[env]||{appId:"",certId:"",refreshToken:"",ruName:""}; appI.value=c.appId||""; certI.value=c.certId||""; tokI.value=c.refreshToken||""; ruI.value=c.ruName||""; }
   envSel.onchange=()=>{ stash(shownEnv); shownEnv=envSel.value; loadEnv(shownEnv); msg.style.color="#555"; msg.textContent='Showing '+shownEnv+' keys. Press Save to keep them.'; };
   body.querySelector("#eb-save").onclick=()=>{ const env=envSel.value; stash(env);
     const c=DB.ebay.creds[env];
-    DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken;
+    DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName;
     DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US";
     DB.ebay.connected=!!(c.appId&&c.refreshToken);
     save(); msg.style.color="#1f7244"; msg.textContent="Saved "+env+" keys."; };
@@ -2166,6 +2174,27 @@ function openEbayConfig(){
     try{ const r=await wimDesktop.invoke("ebay_test",{ env:body.querySelector("#eb-env").value, appId:body.querySelector("#eb-app").value.trim(), certId:body.querySelector("#eb-cert").value.trim(), refreshToken:body.querySelector("#eb-tok").value.trim() });
       msg.style.color=r.ok?"#1f7244":"#c0392b"; msg.textContent=r.ok?"Connected to eBay — token refreshed successfully.":("eBay error (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
     }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); } };
+  let oauthAttempt=0;
+  body.querySelector("#eb-connect").onclick=async ()=>{
+    const env=envSel.value, appId=appI.value.trim(), certId=certI.value.trim(), ruName=ruI.value.trim();
+    if(!appId||!certId||!ruName){ msg.style.color="#c0392b"; msg.textContent="Enter App ID, Cert ID, and RuName above before connecting."; return; }
+    if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Connect with eBay only runs in the desktop app build."; return; }
+    const myAttempt=++oauthAttempt;
+    msg.style.color="#444"; msg.textContent="Opening your browser to sign in with eBay… (you have 3 minutes — this window will update automatically.)";
+    try{
+      const r=await wimDesktop.invoke("ebay_oauth_login",{ env, appId, certId, ruName, scope:"", port:8765 });
+      if(myAttempt!==oauthAttempt) return; // a newer attempt superseded this one
+      if(r.ok){
+        tokI.value=r.refreshToken; stash(env);
+        const c=DB.ebay.creds[env];
+        DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName;
+        DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US"; DB.ebay.connected=true; save();
+        msg.style.color="#1f7244"; msg.textContent="Connected — WIM got its own token directly from eBay and saved it.";
+      } else {
+        msg.style.color="#c0392b"; msg.textContent="Couldn't connect: "+(r.error||"unknown error");
+      }
+    }catch(err){ if(myAttempt!==oauthAttempt) return; msg.style.color="#c0392b"; msg.textContent="Could not start the eBay sign-in: "+(err&&err.message?err.message:err); }
+  };
 }
 function openListingConfig(){
   const id="listing-config"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
