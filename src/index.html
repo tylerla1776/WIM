@@ -361,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.8.11", BUILD_DATE="2026-06-25", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.2", BUILD_DATE="2026-06-26", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +420,9 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.2","Fixed Messages (and any other app) saying \"not connected\" right after connecting via the taskbar Connect button or Configuration. Cause: by default every app opens in its own separate window, which is a genuinely separate program in memory from the main window -- so the online/offline state from 2.9.0 wasn't reaching it. The connection state is now shared across every open window via local storage, and updates live in all of them the instant you Connect or Disconnect anywhere."],
+  ["2.9.1","Messages Phase 2 (replying), first attempt: real buyer/seller conversations now show a reply box and Send button instead of a read-only note (eBay's own FROM_EBAY notifications still correctly show as not-repliable). This is a best-effort build against eBay's REST API conventions, not confirmed documentation -- there is no real buyer message in this account yet to test against. If sending fails, the exact request and eBay's response are shown via Show details so it can be corrected precisely, the same way the read side was fixed in 2.8.9-2.8.11. Added a general ebay_post_user command/EBAY.postUser() for this and any future eBay write calls."],
+  ["2.9.0","New Connect/Disconnect button next to the Live Mode badge: click Connect to activate the already-saved Production eBay connection without opening Configuration; the badge only turns green once that connection is actually verified live, and starts gray (Offline) every time WIM launches. Disconnect immediately drops the session (it overrides any in-progress connect attempt) and other live features (Messages, Find by Photo, photo upload, etc.) now require an active connection via this button, not just saved keys. New Messages dashboard widget is wired to a real unread count (refreshes automatically, throttled to once a minute) instead of a placeholder."],
   ["2.8.11","Messages fix: eBay's single-conversation endpoint rejects FROM_EBAY (eBay's own automated notifications -- account alerts, password resets, promos) with a confusing \"missing parameter\" error even though the parameter is sent correctly. Confirmed by inspecting the literal request URL added in 2.8.10. WIM now recognizes these as notifications up front and shows the title/date already available instead of repeatedly hitting a call that always fails for this type, with a link to view the full notification on eBay.com. Genuine buyer/seller conversations (a different conversationType) are unaffected and untested until a real one comes in."],
   ["2.8.10","Diagnostic step for the conversation-detail 400 error: every eBay GET error message now shows the exact URL WIM actually requested, so we can see precisely what is or is not being sent instead of guessing. No behavior change for working calls."],
   ["2.8.9","Fixed opening an individual conversation in Messages: eBay's single-conversation endpoint requires a conversationType parameter that WIM was not sending (eBay's error said so directly: Missing the parameter conversationType). WIM now passes the conversation's own type (e.g. FROM_EBAY) along with the request, the same value already shown in the conversation list."],
@@ -777,6 +780,16 @@ function migrate(d){
 }
 let DB=null;
 let SESSION={ user:null, mode:"warehouse" };
+// Whether WIM currently has an active, verified eBay (Production) connection this session.
+// Every app window (including pop-outs, which are separate webview processes with their own
+// JS memory) shares this through localStorage + the cross-window "storage" event, so
+// connecting or disconnecting in one window is reflected everywhere immediately.
+let EBAY_ONLINE=false;
+let ebayConnectGen=0; // bumped on Disconnect (or a new Connect) so a stale in-flight attempt can't override a later state.
+function setEbayOnline(v){ EBAY_ONLINE=!!v; try{ localStorage.setItem("WIM_EBAY_ONLINE", EBAY_ONLINE?"1":"0"); }catch(e){} paintLiveBadge(); }
+window.addEventListener("storage", e=>{
+  if(e.key==="WIM_EBAY_ONLINE"){ EBAY_ONLINE = e.newValue==="1"; ebayConnectGen++; paintLiveBadge(); try{ renderDashboard(); }catch(_){} }
+});
 function subcatsOf(cat){ return (DB.subcats&&DB.subcats[cat])||[]; }
 function subcatObj(cat,name){ return subcatsOf(cat).find(s=>s.name===name)||null; }
 function aspectsFor(it){ const sc=subcatObj(it.section,it.subCategory); return sc?(sc.aspects||[]):[]; }
@@ -803,6 +816,7 @@ async function boot(){
     if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
     try{ await idbPut(DB); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(_){} }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
+    try{ localStorage.setItem("WIM_EBAY_ONLINE","0"); }catch(e){} EBAY_ONLINE=false; // a genuine app launch always starts offline
     showLogin();
   }catch(fatal){
     console.error("WIM boot failed:", fatal);
@@ -815,6 +829,7 @@ async function boot(){
 }
 
 function bootPopout(){
+  try{ EBAY_ONLINE = localStorage.getItem("WIM_EBAY_ONLINE")==="1"; }catch(e){ EBAY_ONLINE=false; }
   try{ const raw=localStorage.getItem("WIM_POPOUT_SESSION"); if(raw){ const sd=JSON.parse(raw); const u=DB.users.find(x=>x.id===sd.userId); SESSION.user=u||DB.users[0]; SESSION.mode=sd.mode||"warehouse"; }
     else { SESSION.user=DB.users[0]; SESSION.mode="warehouse"; } }
   catch(e){ SESSION.user=DB.users[0]; SESSION.mode="warehouse"; }
@@ -1202,7 +1217,7 @@ function showLauncher(){
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
   win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
   const modeBadge = isLive()
-    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#e7f6ec;color:#1f7244;border:1px solid #b6e0c4;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span style="width:9px;height:9px;border-radius:50%;background:#1f9d55;display:inline-block;"></span>Live Mode</span>`
+    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">Live Mode — Offline</span></span><button class="btn sm" id="ebay-connect-btn" style="min-width:0;padding:2px 12px;margin-left:6px;">Connect</button>`
     : `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#33506e;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;">Warehouse Mode</span>`;
   win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;align-items:center;"><span id="lc-float" title="${(DB.meta&&DB.meta.floatWindows===false)?'Apps open docked in this window — click to make them float in their own windows':'Apps open in their own movable windows — click to dock them in one window'}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;font-size:16px;margin-right:2px;line-height:1;${(DB.meta&&DB.meta.floatWindows===false)?'color:rgba(255,255,255,.55);':'color:#ffffff;'}">&#10696;</span><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
@@ -1212,6 +1227,8 @@ function showLauncher(){
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
   win.querySelector("#lc-switch").onclick=()=>{ SESSION.mode=isLive()?"warehouse":"live"; treeState={expanded:{},sel:null}; showLauncher(); };
   win.querySelector("#foot-about").onclick=openAbout;
+  const ebtn=win.querySelector("#ebay-connect-btn"); if(ebtn) ebtn.onclick=()=>{ if(EBAY_ONLINE) disconnectEbay(); else connectEbay(); };
+  paintLiveBadge();
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
@@ -1279,8 +1296,11 @@ const DASH_WIDGETS={
     render:c=>{ const h=c.highest; return c.tile("Highest Value SKU", h?("$"+h.val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—","#1f9d57", h?(esc(h.sku)+" · "+esc((h.desc||"").slice(0,22))):""); }},
   itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM. Requires an eBay connection (coming in a later update).",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>c.tile("Items Needing SKU","—","#9aa3ad","connect eBay")},
-  newMessages:{title:"New Messages",desc:"Unread eBay messages. Requires an eBay connection (coming in a later update).",role:"all",modes:["live"],previewKind:"tile",
-    render:c=>c.tile("New Messages","—","#9aa3ad","connect eBay",()=>launchApp("comm"))},
+  newMessages:{title:"New Messages",desc:"Unread eBay conversations (refreshes automatically while connected).",role:"all",modes:["live"],previewKind:"tile",
+    render:c=>{ const notReady=!EBAY.ready(); const val=notReady?"—":(LIVE_MSG_STATS.unread==null?"—":String(LIVE_MSG_STATS.unread));
+      const sub=notReady?"click Connect":(LIVE_MSG_STATS.unread==null?"loading…":(LIVE_MSG_STATS.unread?"unread →":"all read"));
+      const accent=(!notReady&&LIVE_MSG_STATS.unread)?"#e08a1f":"#1f9d57";
+      return c.tile("New Messages",val,accent,sub,()=>launchApp("comm")); }},
   soldChart:{title:"Items Sold — last 30 days",desc:"Daily sold count over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,previewKind:"chart",
     render:c=>c.chart("Items Sold","Last 30 days",c.sold30,"#4f7cf7")},
   listedChart:{title:"Items Listed — last 30 days",desc:"Daily count of items marked listed over the last 30 days (graph).",role:"all",modes:["warehouse","live"],wide:true,previewKind:"chart",
@@ -1336,6 +1356,26 @@ function openWidgetConfigPopover(widgetDef,currentCfg,anchorEl,onSave){
   pop.querySelector(".wp-x").onclick=close;
   pop.querySelector("#wp-cancel").onclick=close;
   pop.querySelector("#wp-save").onclick=()=>{ onSave({period:sel}); close(); };
+}
+// Cache for the New Messages dashboard widget — populated by a background refresh so the
+// widget itself can stay a plain synchronous render() like every other widget.
+let LIVE_MSG_STATS={ unread:null, total:null, fetchedAt:0 };
+let liveMsgFetchInFlight=false;
+async function refreshLiveMsgStats(){
+  if(!EBAY.ready() || liveMsgFetchInFlight) return;
+  if(Date.now()-LIVE_MSG_STATS.fetchedAt < 60000) return; // throttle to once a minute
+  liveMsgFetchInFlight=true;
+  try{
+    const r=await EBAY.user("/commerce/message/v1/conversation?limit=50", EBAY_SCOPE_MSG);
+    if(r&&r.ok){
+      let data={}; try{ data=JSON.parse(r.body); }catch(e){}
+      const list=data.conversations||data.conversationSummaries||data.messages||[];
+      const unread=list.filter(c=>{ const u=c&&c.unreadCount; return (u===true)||(parseInt(u,10)>0); }).length;
+      LIVE_MSG_STATS={ unread, total:list.length, fetchedAt:Date.now() };
+      try{ renderDashboard(); }catch(e){}
+    }
+  }catch(e){ /* leave last-known stats in place on a transient failure */ }
+  finally{ liveMsgFetchInFlight=false; }
 }
 function renderDashboard(){
   const dp=document.getElementById("detail-pane"); if(!dp) return;
@@ -1406,6 +1446,7 @@ function renderDashboard(){
   clickWires.forEach(w=>{ const el=document.getElementById(w.cid); if(el) el.onclick=w.onClick; });
   gearWires.forEach(w=>{ const el=document.getElementById(w.gid); if(el) el.onclick=(e)=>{ e.stopPropagation(); w.onGear(el); }; });
   const cfgBtn=document.getElementById("dash-config"); if(cfgBtn) cfgBtn.onclick=()=>launchApp("dashwidgets");
+  if(isLive() && layout.some(e=>e.k==="newMessages")) refreshLiveMsgStats();
 }
 function openDashWidgets(){
   const id="dash-widgets"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
@@ -1593,15 +1634,45 @@ function openListingEfficiency(){
         ${n?`<path d="${line}" fill="none" stroke="#4f7cf7" stroke-width="2.4" stroke-linejoin="round"/>`:`<text x="${W/2}" y="${H/2}" font-size="12" fill="#9aa3ad" text-anchor="middle">No sales in range</text>`}</svg>`; }
   body.querySelector("#le-run").onclick=run; run();
 }
-async function checkLiveStatus(){
-  const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
-  if(!badge) return;
-  const green=()=>{ badge.style.background="#e7f6ec"; badge.style.color="#1f7244"; badge.style.borderColor="#b6e0c4"; dot.style.background="#1f9d55"; txt.textContent="Live Mode"; };
-  const gray=(t)=>{ badge.style.background="#eef1f4"; badge.style.color="#7a8694"; badge.style.borderColor="#cdd6df"; dot.style.background="#9aa3ad"; txt.textContent=t; };
-  if(!WIM_IS_DESKTOP || !EBAY.ready()){ gray("Live Mode — Offline"); return; }
-  try{ const r=await wimDesktop.invoke("ebay_test",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken });
-    if(r&&r.ok) green(); else gray("Live Mode — Offline"); }
-  catch(e){ gray("Live Mode — Offline"); }
+// Paints the Live Mode badge purely from the current EBAY_ONLINE flag — no network call here.
+function paintLiveBadge(){
+  const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text"), btn=document.getElementById("ebay-connect-btn");
+  if(!badge||!dot||!txt) return;
+  if(EBAY_ONLINE){ badge.style.background="#e7f6ec"; badge.style.color="#1f7244"; badge.style.borderColor="#b6e0c4"; dot.style.background="#1f9d55"; txt.textContent="Live Mode"; }
+  else { badge.style.background="#eef1f4"; badge.style.color="#7a8694"; badge.style.borderColor="#cdd6df"; dot.style.background="#9aa3ad"; txt.textContent="Live Mode — Offline"; }
+  if(btn){ btn.textContent=EBAY_ONLINE?"Disconnect":"Connect"; btn.disabled=false; }
+}
+function ebayProdCredsReady(){ const c=DB.ebay&&DB.ebay.creds&&DB.ebay.creds.production; return !!(c&&c.appId&&c.certId&&c.refreshToken); }
+// Connects using the already-saved Production keys — no need to open eBay Connection first.
+async function connectEbay(){
+  if(!WIM_IS_DESKTOP){ uiAlert("eBay connections run in the desktop app."); return; }
+  if(!ebayProdCredsReady()){ uiAlert("No Production eBay connection is saved yet. Open Configuration → eBay Connection, set up Production, and Connect with eBay once — after that this button will use it directly."); return; }
+  const myGen=++ebayConnectGen;
+  const btn=document.getElementById("ebay-connect-btn"); if(btn){ btn.disabled=true; btn.textContent="Connecting…"; }
+  const c=DB.ebay.creds.production;
+  try{
+    const r=await wimDesktop.invoke("ebay_test",{ env:"production", appId:c.appId, certId:c.certId, refreshToken:c.refreshToken });
+    if(myGen!==ebayConnectGen) return; // a Disconnect (or newer Connect) already happened — ignore this stale result
+    if(r&&r.ok){
+      DB.ebay.env="production"; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName; DB.ebay.connected=true; save();
+      setEbayOnline(true);
+    } else {
+      setEbayOnline(false);
+      uiAlert("Couldn't connect to eBay Production (HTTP "+(r&&r.status)+"): "+((r&&r.body)||"").slice(0,200));
+    }
+  }catch(e){
+    if(myGen!==ebayConnectGen) return;
+    setEbayOnline(false);
+    uiAlert("Could not reach eBay: "+(e&&e.message?e.message:e));
+  }
+}
+// Immediately drops the live session, overriding any connect attempt still in flight, across every open window.
+function disconnectEbay(){
+  ebayConnectGen++; // invalidates any in-flight connectEbay() promise the instant this runs
+  setEbayOnline(false);
+  LIVE_MSG_STATS={ unread:null, total:null, fetchedAt:0 };
+  paintLiveBadge();
+  try{ renderDashboard(); }catch(e){}
 }
 function backupAgeDays(){ const t=DB.meta&&DB.meta.lastBackupAt?new Date(DB.meta.lastBackupAt).getTime():null; if(t==null) return null; return Math.floor((Date.now()-t)/86400000); }
 function renderBackupReminder(){
@@ -2178,6 +2249,7 @@ function openEbayConfig(){
     msg.style.color="#444"; msg.textContent="Contacting eBay…";
     try{ const r=await wimDesktop.invoke("ebay_test",{ env:body.querySelector("#eb-env").value, appId:body.querySelector("#eb-app").value.trim(), certId:body.querySelector("#eb-cert").value.trim(), refreshToken:body.querySelector("#eb-tok").value.trim() });
       msg.style.color=r.ok?"#1f7244":"#c0392b"; msg.textContent=r.ok?"Connected to eBay — token refreshed successfully.":("eBay error (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
+      if(r.ok){ ebayConnectGen++; setEbayOnline(true); }
     }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); } };
   let oauthAttempt=0;
   body.querySelector("#eb-connect").onclick=async ()=>{
@@ -2194,6 +2266,7 @@ function openEbayConfig(){
         const c=DB.ebay.creds[env];
         DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName;
         DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US"; DB.ebay.connected=true; save();
+        ebayConnectGen++; setEbayOnline(true);
         msg.style.color="#1f7244"; msg.textContent="Connected — WIM got its own token directly from eBay and saved it.";
       } else {
         msg.style.color="#c0392b"; msg.textContent="Couldn't connect: "+(r.error||"unknown error");
@@ -2657,7 +2730,7 @@ function openItemDetail(item,mode,nav){
         host.innerHTML = urls.length ? `<div class="smallhint" style="margin-bottom:3px;">On eBay (${urls.length}):</div>`+urls.map(u=>`<div style="font-size:11px;color:#1f7244;word-break:break-all;">✓ ${esc(u)}</div>`).join("") : ""; }
       renderEbayImgs();
       const upBtn=lwrap.querySelector("#l-photoupload"), upMsg=lwrap.querySelector("#l-photomsg");
-      if(upBtn) upBtn.onclick=async ()=>{ if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+      if(upBtn) upBtn.onclick=async ()=>{ if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
         if(!it.images || !it.images.length){ upMsg.style.color="#c0392b"; upMsg.textContent="Add at least one photo first."; return; }
         upBtn.disabled=true; const urls=[]; let failed=0;
         for(let i=0;i<it.images.length;i++){ upMsg.style.color="#555"; upMsg.textContent="Uploading "+(i+1)+" of "+it.images.length+"…";
@@ -2684,7 +2757,7 @@ function openItemDetail(item,mode,nav){
     if(!ps.length) return null; const sum=ps.reduce((a,b)=>a+b,0);
     return { avg:sum/ps.length, min:Math.min(...ps), max:Math.max(...ps), n:ps.length }; }
   async function pullCompare(){
-    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+    if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
     const sc=subcatObj(it.section,it.subCategory); const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
     if(!q){ uiAlert("Add a description or run Find on eBay first, so there's something to compare."); return; }
     const st=body.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Pulling listings from eBay…"; }
@@ -3535,10 +3608,11 @@ const EBAY_SCOPE_APP="https://api.ebay.com/oauth/api_scope";
 const EBAY_SCOPE_INV="https://api.ebay.com/oauth/api_scope/sell.inventory";
 const EBAY_SCOPE_MSG="https://api.ebay.com/oauth/api_scope/commerce.message";
 const EBAY={
-  ready(){ return WIM_IS_DESKTOP && DB.ebay && DB.ebay.appId && DB.ebay.certId && DB.ebay.refreshToken; },
+  ready(){ return WIM_IS_DESKTOP && EBAY_ONLINE && DB.ebay && DB.ebay.appId && DB.ebay.certId && DB.ebay.refreshToken; },
   mkt(){ return (DB.ebay&&DB.ebay.marketplace)||"EBAY_US"; },
   app(path,scope){ return wimDesktop.invoke("ebay_get_app",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,scope:scope||EBAY_SCOPE_APP,marketplace:this.mkt(),path}); },
   user(path,scope){ return wimDesktop.invoke("ebay_get_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path}); },
+  postUser(path,payloadJson,scope){ return wimDesktop.invoke("ebay_post_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path,payloadJson}); },
   async treeId(){ if(DB.ebay.categoryTreeId) return DB.ebay.categoryTreeId;
     const r=await this.app("/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id="+this.mkt());
     if(!r.ok) throw new Error("category tree (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
@@ -3547,7 +3621,7 @@ const EBAY={
   searchByImage(b64,limit){ return wimDesktop.invoke("ebay_search_by_image",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, scope:"https://api.ebay.com/oauth/api_scope", marketplace:this.mkt(), imageBase64:b64, limit:String(limit||15) }); }
 };
 function openEbayFind(it, onDone){
-  if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+  if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
   const id="ebay-find-"+it.id; if(openWindows[id]){ openWindows[id].el.remove(); delete openWindows[id]; if(typeof renderTaskbar==="function") renderTaskbar(); }
   const {body,close}=buildWindow({id,title:"Find on eBay — "+(it.desc||""),width:700,height:640,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Search eBay, pick the category, then edit &amp; accept</span>`});
@@ -3709,7 +3783,7 @@ function openEbayFind(it, onDone){
 /* ============================================================ LISTED, NO SKU (pull your own eBay listings into WIM) ============================================================ */
 function ebayCondLabel(c){ const m={NEW:"New",LIKE_NEW:"Like New",NEW_OTHER:"New (other)",NEW_WITH_DEFECTS:"New with defects",CERTIFIED_REFURBISHED:"Certified - Refurbished",EXCELLENT_REFURBISHED:"Excellent - Refurbished",VERY_GOOD_REFURBISHED:"Very Good - Refurbished",GOOD_REFURBISHED:"Good - Refurbished",SELLER_REFURBISHED:"Seller refurbished",USED_EXCELLENT:"Used - Excellent",USED_VERY_GOOD:"Used - Very Good",USED_GOOD:"Used - Good",USED_ACCEPTABLE:"Used - Acceptable",FOR_PARTS_OR_NOT_WORKING:"For parts or not working"}; return m[c]||c||""; }
 async function pullNewListings(after){
-  if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+  if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
   if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
   const prog=uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;">Contacting eBay…</div>`,[]);
   const set=t=>{ const e=document.getElementById("pnl-prog"); if(e) e.textContent=t; };
@@ -3757,7 +3831,7 @@ function openFindByPhoto(){
     file.onchange=()=>{ const f=file.files&&file.files[0]; if(!f) return;
       const r=new FileReader(); r.onload=()=>{ const d=String(r.result); b64=d.split(",")[1]||""; box.innerHTML=`<img src="${d}" style="width:100%;height:100%;object-fit:contain;">`; go.disabled=!b64; }; r.readAsDataURL(f); };
     go.onclick=async ()=>{
-      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Set up eBay keys first (Configuration → eBay Connection)."; return; }
+      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Not connected to eBay yet — click Connect next to Live Mode."; return; }
       if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Image search runs in the desktop app."; return; }
       msg.style.color="#555"; msg.textContent="Searching eBay by image…"; go.disabled=true;
       try{ const r=await EBAY.searchByImage(b64,15);
@@ -3835,7 +3909,7 @@ function openListedNoSku(){
 }
 
 async function pullActiveListings(after){
-  if(!EBAY.ready()){ uiAlert("Set up your eBay keys first: Configuration → eBay Connection (and press Test)."); return; }
+  if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
   const prog=uiModal("Pulling from eBay",`<div id="pull-prog" style="font-size:13px;">Contacting eBay…</div>`,[]);
   const set=t=>{ const e=document.getElementById("pull-prog"); if(e) e.textContent=t; };
   try{
@@ -3952,7 +4026,7 @@ function openCommunication(){
   function dateOf(o){ const d=fld(o,["lastMessageDate","creationDate","lastModifiedDate","date","createdDate"],""); if(!d) return ""; const dt=new Date(d); return isNaN(dt)?"":dt.toLocaleString(); }
 
   async function loadInbox(){
-    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first (Configuration → eBay Connection)."); return; }
+    if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode."); return; }
     if(!WIM_IS_DESKTOP){ uiAlert("Messages run in the desktop app."); return; }
     listEl.innerHTML=`<div style="padding:16px;color:#555;font-size:13px;">Loading conversations…</div>`;
     try{
@@ -3986,10 +4060,10 @@ function openCommunication(){
         <div style="color:#5b6470;">SKU ${esc(linked.sku||"—")} · ${esc(linked.condition||"")} ${linked.listing&&linked.listing.price?("· $"+esc(linked.listing.price)):""}</div></div>
         <span style="flex:1;"></span><button class="btn sm" id="cm-openitem">Open item</button></div>` : "";
     threadEl.innerHTML=`<div style="padding:14px 16px;border-bottom:1px solid var(--line);"><div style="font-weight:600;font-size:14px;color:#28313f;">${esc(subjectOf(c))}</div><div style="font-size:12px;color:#7b828e;">with ${esc(counterparty(c))}</div></div>${linkCard}<div id="cm-msgs" style="flex:1;overflow:auto;padding:8px 16px;">Loading…</div>
-      <div style="border-top:1px solid var(--line);padding:10px 14px;background:#f6f7f9;"><div class="smallhint">Replying from WIM arrives in the next phase. For now this is read-only.</div></div>`;
+      <div id="cm-reply-wrap" style="border-top:1px solid var(--line);padding:10px 14px;background:#f6f7f9;"></div>`;
     if(linked){ const oi=threadEl.querySelector("#cm-openitem"); if(oi) oi.onclick=()=>openItemDetail(linked,"edit"); }
-    const msgsEl=threadEl.querySelector("#cm-msgs");
-    if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; return; }
+    const msgsEl=threadEl.querySelector("#cm-msgs"); const replyWrap=threadEl.querySelector("#cm-reply-wrap");
+    if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; replyWrap.innerHTML=`<div class="smallhint">No conversation id — can't reply.</div>`; return; }
     const convType=fld(c,["conversationType"],"");
     if(convType==="FROM_EBAY"){
       // eBay's single-conversation endpoint rejects this type outright (it reports the
@@ -4001,8 +4075,29 @@ function openCommunication(){
         <div>This is an automated notification from eBay itself (account alert, password reset, promo, etc.) — not a message from a buyer or seller. eBay's API doesn't provide the full notification text through this endpoint, only the title and date you see in the list.</div>
         <div style="margin-top:8px;">To read the full notification, check it on <a href="#" id="cm-open-ebay" style="color:#3b7dd8;">eBay.com → My eBay → Messages</a>.</div></div>`;
       const lnk=msgsEl.querySelector("#cm-open-ebay"); if(lnk) lnk.onclick=(e)=>{ e.preventDefault(); try{ window.open("https://mesg.ebay.com/mesgweb/ViewMessages/0",'_blank'); }catch(_){ } };
+      replyWrap.innerHTML=`<div class="smallhint">eBay's own notifications can't be replied to.</div>`;
       return;
     }
+    // Phase 2 (reply): best-effort against eBay's REST Commerce Message API. There is no
+    // confirmed real buyer/seller conversation to test this against yet, so this is built
+    // from the same endpoint conventions used elsewhere in the API, not verified documentation.
+    // If it's wrong, the error shown will include the exact request/response for diagnosis,
+    // the same way the read side got fixed.
+    replyWrap.innerHTML=`<textarea id="cm-reply-text" placeholder="Write a reply…" style="width:100%;height:60px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;resize:vertical;"></textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><button class="btn primary sm" id="cm-reply-send">Send reply</button><span class="smallhint" id="cm-reply-msg">Experimental — first real attempt at sending through eBay's API; if it errors, send me the message shown here.</span></div>`;
+    const sendBtn=replyWrap.querySelector("#cm-reply-send"), replyMsg=replyWrap.querySelector("#cm-reply-msg"), replyTxt=replyWrap.querySelector("#cm-reply-text");
+    sendBtn.onclick=async ()=>{
+      const text=replyTxt.value.trim(); if(!text){ replyMsg.style.color="#c0392b"; replyMsg.textContent="Type a reply first."; return; }
+      if(!EBAY.ready()){ replyMsg.style.color="#c0392b"; replyMsg.textContent="Not connected to eBay — click Connect next to Live Mode."; return; }
+      sendBtn.disabled=true; replyMsg.style.color="#555"; replyMsg.textContent="Sending…";
+      try{
+        const payload=JSON.stringify({ body:text });
+        const r=await EBAY.postUser("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"/message?conversationType="+encodeURIComponent(convType), payload, EBAY_SCOPE_MSG);
+        if(r.ok){ replyMsg.style.color="#1f7244"; replyMsg.textContent="Sent."; replyTxt.value=""; openThread(c); }
+        else { replyMsg.style.color="#c0392b"; replyMsg.innerHTML="Couldn't send (HTTP "+r.status+"). <button class=\"btn sm\" id=\"cm-reply-raw\" style=\"margin-left:6px;\">Show details</button>"; const rb=replyMsg.querySelector("#cm-reply-raw"); if(rb) rb.onclick=()=>showCopyable("Send-reply error (send this to support)", r.body||"(empty)"); }
+      }catch(e){ replyMsg.style.color="#c0392b"; replyMsg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
+      finally{ sendBtn.disabled=false; }
+    };
     try{
       const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversationType="+encodeURIComponent(convType||"FROM_EBAY"), EBAY_SCOPE_MSG);
       if(!r.ok){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Couldn't load this conversation (HTTP ${r.status}).<br>${esc((r.body||"").slice(0,300))}</div>`; return; }
@@ -4026,7 +4121,7 @@ function openCommunication(){
   const supBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-support"):body.querySelector("#cm-support"));
   if(supBtn) supBtn.onclick=runSupportInfo;
   async function runSupportInfo(){
-    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first."); return; }
+    if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode."); return; }
     if(!WIM_IS_DESKTOP){ uiAlert("Runs in the desktop app."); return; }
     let p;
     try{ p=await wimDesktop.invoke("ebay_token_probe",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:EBAY_SCOPE_INV}); }
@@ -4054,7 +4149,7 @@ function openCommunication(){
       [{label:"Copy", primary:true, onClick:()=>{ const t=document.getElementById("cm-copytext"); if(t){ t.select(); try{ document.execCommand("copy"); }catch(e){} try{ navigator.clipboard.writeText(text); }catch(e){} } }},{label:"Close"}]);
   }
   async function runDiagnostics(){
-    if(!EBAY.ready()){ uiAlert("Set up your eBay keys first (Configuration → eBay Connection)."); return; }
+    if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode."); return; }
     if(!WIM_IS_DESKTOP){ uiAlert("Diagnostics run in the desktop app."); return; }
     const env=(DB.ebay.env||"sandbox");
     const ap=DB.ebay.appId||"", ce=DB.ebay.certId||"", tk=DB.ebay.refreshToken||"";

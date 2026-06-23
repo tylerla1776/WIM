@@ -509,6 +509,65 @@ async fn get_app_token(
     }
 }
 
+async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload: &str) -> ApiResult {
+    let url = format!("{}{}", base_url(env), path);
+    let client = reqwest::Client::new();
+    let mut req = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(payload.to_string());
+    if !marketplace.is_empty() {
+        req = req.header("X-EBAY-C-MARKETPLACE-ID", marketplace);
+    }
+    match req.send().await {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let body = r.text().await.unwrap_or_default();
+            let ok = (200..300).contains(&status);
+            // Same as do_get: on failure, show the exact URL + payload we sent for diagnosis.
+            let body = if ok {
+                body
+            } else {
+                format!("[POST {}]\nSent: {}\n{}", url, payload, body)
+            };
+            ApiResult { ok, status, body }
+        }
+        Err(e) => ApiResult {
+            ok: false,
+            status: 0,
+            body: format!("[POST {}]\nSent: {}\n{}", url, payload, e),
+        },
+    }
+}
+
+// POST using a USER token — for write operations like sending a message reply.
+#[tauri::command]
+async fn ebay_post_user(
+    env: String,
+    app_id: String,
+    cert_id: String,
+    refresh_token: String,
+    scope: String,
+    marketplace: String,
+    path: String,
+    payload_json: String,
+) -> ApiResult {
+    let sc = if scope.is_empty() {
+        "https://api.ebay.com/oauth/api_scope/sell.inventory".to_string()
+    } else {
+        scope
+    };
+    match get_user_token(&env, &app_id, &cert_id, &refresh_token, &sc).await {
+        Ok(tok) => do_post(&env, &tok, &marketplace, &path, &payload_json).await,
+        Err((s, b)) => ApiResult {
+            ok: false,
+            status: s,
+            body: format!("user token error: {}", b),
+        },
+    }
+}
+
 async fn do_get(env: &str, token: &str, marketplace: &str, path: &str) -> ApiResult {
     let url = format!("{}{}", base_url(env), path);
     let client = reqwest::Client::new();
@@ -713,6 +772,7 @@ fn main() {
             ebay_test,
             ebay_get_app,
             ebay_get_user,
+            ebay_post_user,
             ebay_put_inventory_item,
             ebay_upload_picture,
             ebay_search_by_image,
