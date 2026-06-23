@@ -5,6 +5,9 @@
 
 use base64::{engine::general_purpose, Engine as _};
 use serde::Serialize;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 #[derive(Serialize)]
 struct ApiResult {
@@ -22,6 +25,18 @@ struct TokenProbe {
     auth_header: String,
     request_url: String,
     request_body: String,
+}
+
+// Result of the full in-app "Connect with eBay" sign-in flow.
+#[derive(Serialize)]
+struct OAuthResult {
+    ok: bool,
+    refresh_token: String,
+    access_token: String,
+    expires_in: i64,
+    refresh_token_expires_in: i64,
+    error: String,
+    auth_url: String,
 }
 
 fn base_url(env: &str) -> &'static str {
@@ -111,6 +126,352 @@ async fn ebay_token_probe(env: String, app_id: String, cert_id: String, refresh_
         Err(e) => TokenProbe {
             status: 0, body: e.to_string(), rlogid: String::new(), request_id: String::new(),
             auth_header: format!("Basic {}", basic), request_url: url, request_body: req_body,
+        },
+    }
+}
+
+// The "Sign in with eBay" consent screen lives on a different host than the API itself.
+fn auth_base(env: &str) -> &'static str {
+    if env == "production" {
+        "https://auth.ebay.com"
+    } else {
+        "https://auth.sandbox.ebay.com"
+    }
+}
+
+// Minimal percent-encoding for query-string values (RFC 3986 unreserved set kept as-is).
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+// Minimal percent-decoding for the redirect's query string.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                if let Ok(v) = u8::from_str_radix(
+                    std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""),
+                    16,
+                ) {
+                    out.push(v);
+                    i += 3;
+                } else {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
+
+// Pull a value out of a "?a=1&b=2" style query string.
+fn query_param(query: &str, key: &str) -> Option<String> {
+    for pair in query.split('&') {
+        let mut it = pair.splitn(2, '=');
+        let k = it.next().unwrap_or("");
+        let v = it.next().unwrap_or("");
+        if k == key {
+            return Some(percent_decode(v));
+        }
+    }
+    None
+}
+
+// Generate a short random string for the OAuth "state" anti-CSRF value (no extra crates
+// beyond `rand`, which is already a dependency).
+fn random_state() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    (0..24)
+        .map(|_| {
+            let n: u8 = rng.gen_range(0..62);
+            (match n {
+                0..=25 => b'a' + n,
+                26..=51 => b'A' + (n - 26),
+                _ => b'0' + (n - 52),
+            }) as char
+        })
+        .collect()
+}
+
+// Exchange an OAuth authorization code (from the consent redirect) for a refresh token.
+// This is the call that matters: when WIM performs this exchange itself, end to end, the
+// resulting refresh token is guaranteed to be bound to the App ID / Cert ID / RuName that
+// WIM itself sent in the very same request — no external tool, no copy-paste, no chance of
+// a mismatched keyset.
+async fn exchange_auth_code(
+    env: &str,
+    app_id: &str,
+    cert_id: &str,
+    ru_name: &str,
+    code: &str,
+) -> Result<serde_json::Value, (u16, String)> {
+    let url = format!("{}/identity/v1/oauth2/token", base_url(env));
+    let basic = general_purpose::STANDARD.encode(format!("{}:{}", app_id, cert_id));
+    let params = [
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", ru_name),
+    ];
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Basic {}", basic))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| (0u16, e.to_string()))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.unwrap_or_default();
+    if (200..300).contains(&status) {
+        serde_json::from_str(&text).map_err(|e| (status, format!("{}: {}", e, text)))
+    } else {
+        Err((status, text))
+    }
+}
+
+// Full in-app "Connect with eBay" flow:
+//   1. Start a one-shot local HTTP listener on 127.0.0.1:{port}.
+//   2. Open the system browser to eBay's consent screen (the user signs in & approves there,
+//      on eBay's own site — WIM never sees the eBay password).
+//   3. eBay redirects the browser to the "Your auth accepted URL" registered for the RuName,
+//      which the user has pointed at this same local listener.
+//   4. WIM reads the authorization code off that one request and exchanges it for a refresh
+//      token, immediately, in the same process — no external step, no paste-in.
+#[tauri::command]
+async fn ebay_oauth_login(
+    env: String,
+    app_id: String,
+    cert_id: String,
+    ru_name: String,
+    scope: String,
+    port: u16,
+) -> OAuthResult {
+    if app_id.trim().is_empty() || cert_id.trim().is_empty() || ru_name.trim().is_empty() {
+        return OAuthResult {
+            ok: false,
+            refresh_token: String::new(),
+            access_token: String::new(),
+            expires_in: 0,
+            refresh_token_expires_in: 0,
+            error: "App ID, Cert ID, and RuName are all required before connecting.".into(),
+            auth_url: String::new(),
+        };
+    }
+    let state = random_state();
+    let sc = if scope.trim().is_empty() {
+        "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/commerce.message".to_string()
+    } else {
+        scope
+    };
+    let auth_url = format!(
+        "{}/oauth2/authorize?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}",
+        auth_base(&env),
+        percent_encode(&app_id),
+        percent_encode(&ru_name),
+        percent_encode(&sc),
+        percent_encode(&state)
+    );
+
+    let listener = match TcpListener::bind(("127.0.0.1", port)).await {
+        Ok(l) => l,
+        Err(e) => {
+            return OAuthResult {
+                ok: false,
+                refresh_token: String::new(),
+                access_token: String::new(),
+                expires_in: 0,
+                refresh_token_expires_in: 0,
+                error: format!(
+                    "Couldn't open a local listener on port {} ({}). Close anything else using that port and try again.",
+                    port, e
+                ),
+                auth_url,
+            };
+        }
+    };
+
+    if let Err(e) = open::that(&auth_url) {
+        return OAuthResult {
+            ok: false,
+            refresh_token: String::new(),
+            access_token: String::new(),
+            expires_in: 0,
+            refresh_token_expires_in: 0,
+            error: format!(
+                "Couldn't open your browser automatically ({}). Open this link yourself: {}",
+                e, auth_url
+            ),
+            auth_url,
+        };
+    }
+
+    // Wait up to 3 minutes for the browser to come back with the redirect.
+    let accept_result = tokio::time::timeout(Duration::from_secs(180), listener.accept()).await;
+    let (mut socket, _addr) = match accept_result {
+        Ok(Ok(pair)) => pair,
+        Ok(Err(e)) => {
+            return OAuthResult {
+                ok: false,
+                refresh_token: String::new(),
+                access_token: String::new(),
+                expires_in: 0,
+                refresh_token_expires_in: 0,
+                error: format!("Local listener error: {}", e),
+                auth_url,
+            };
+        }
+        Err(_) => {
+            return OAuthResult {
+                ok: false,
+                refresh_token: String::new(),
+                access_token: String::new(),
+                expires_in: 0,
+                refresh_token_expires_in: 0,
+                error: "Timed out waiting for you to finish signing in (3 minutes). Try again — the browser tab can be closed.".into(),
+                auth_url,
+            };
+        }
+    };
+
+    // Read just the request line / headers (no body on a GET redirect).
+    let mut buf = vec![0u8; 8192];
+    let n = socket.read(&mut buf).await.unwrap_or(0);
+    let request_text = String::from_utf8_lossy(&buf[..n]).to_string();
+    let request_line = request_text.lines().next().unwrap_or("").to_string();
+    // "GET /wim-ebay-callback?code=...&state=... HTTP/1.1"
+    let path_and_query = request_line
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("")
+        .to_string();
+    let query = path_and_query.splitn(2, '?').nth(1).unwrap_or("").to_string();
+    let returned_state = query_param(&query, "state").unwrap_or_default();
+    let code = query_param(&query, "code");
+    let auth_error = query_param(&query, "error_description").or_else(|| query_param(&query, "error"));
+
+    let (page_title, page_body, ok_so_far) = if code.is_some() {
+        if returned_state != state {
+            (
+                "Connection rejected",
+                "WIM didn't recognize this sign-in attempt (state mismatch). Please close this tab and try Connect with eBay again.",
+                false,
+            )
+        } else {
+            ("Connected", "You're connected — you can close this tab and go back to WIM.", true)
+        }
+    } else {
+        (
+            "Sign-in didn't complete",
+            "eBay didn't return an authorization code. You can close this tab and try again in WIM.",
+            false,
+        )
+    };
+    let html = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>WIM &mdash; {}</title></head>\
+         <body style=\"font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f3f5f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;\">\
+         <div style=\"background:#fff;border-radius:14px;box-shadow:0 4px 24px rgba(31,45,71,.12);padding:28px 34px;max-width:420px;text-align:center;\">\
+         <div style=\"font-size:18px;font-weight:700;color:#28313f;margin-bottom:8px;\">{}</div>\
+         <div style=\"font-size:13.5px;color:#5b6472;line-height:1.5;\">{}</div></div></body></html>",
+        page_title, page_title, page_body
+    );
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        html.len(),
+        html
+    );
+    let _ = socket.write_all(response.as_bytes()).await;
+    let _ = socket.shutdown().await;
+
+    if !ok_so_far {
+        let err = if let Some(e) = auth_error {
+            e
+        } else if returned_state != state && code.is_some() {
+            "State mismatch — the redirect didn't match this sign-in attempt.".to_string()
+        } else {
+            "eBay didn't return an authorization code.".to_string()
+        };
+        return OAuthResult {
+            ok: false,
+            refresh_token: String::new(),
+            access_token: String::new(),
+            expires_in: 0,
+            refresh_token_expires_in: 0,
+            error: err,
+            auth_url,
+        };
+    }
+
+    let code = code.unwrap();
+    match exchange_auth_code(&env, &app_id, &cert_id, &ru_name, &code).await {
+        Ok(v) => {
+            let refresh_token = v
+                .get("refresh_token")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            let access_token = v
+                .get("access_token")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            let expires_in = v.get("expires_in").and_then(|t| t.as_i64()).unwrap_or(0);
+            let refresh_token_expires_in = v
+                .get("refresh_token_expires_in")
+                .and_then(|t| t.as_i64())
+                .unwrap_or(0);
+            if refresh_token.is_empty() {
+                OAuthResult {
+                    ok: false,
+                    refresh_token: String::new(),
+                    access_token,
+                    expires_in,
+                    refresh_token_expires_in,
+                    error: format!("eBay didn't return a refresh token: {}", v),
+                    auth_url,
+                }
+            } else {
+                OAuthResult {
+                    ok: true,
+                    refresh_token,
+                    access_token,
+                    expires_in,
+                    refresh_token_expires_in,
+                    error: String::new(),
+                    auth_url,
+                }
+            }
+        }
+        Err((status, body)) => OAuthResult {
+            ok: false,
+            refresh_token: String::new(),
+            access_token: String::new(),
+            expires_in: 0,
+            refresh_token_expires_in: 0,
+            error: format!("eBay error exchanging the code (HTTP {}): {}", status, body),
+            auth_url,
         },
     }
 }
@@ -348,7 +709,8 @@ fn main() {
             ebay_put_inventory_item,
             ebay_upload_picture,
             ebay_search_by_image,
-            ebay_token_probe
+            ebay_token_probe,
+            ebay_oauth_login
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");

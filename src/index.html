@@ -361,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.8.6", BUILD_DATE="2026-06-23", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.8.9", BUILD_DATE="2026-06-24", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +420,9 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.8.9","Fixed opening an individual conversation in Messages: eBay's single-conversation endpoint requires a conversationType parameter that WIM was not sending (eBay's error said so directly: Missing the parameter conversationType). WIM now passes the conversation's own type (e.g. FROM_EBAY) along with the request, the same value already shown in the conversation list."],
+  ["2.8.8","Messages list fix: the field WIM read the conversation subject from did not match eBay's real field name (conversationTitle), so every conversation showed \"(no subject)\" and a generic \"eBay member\" -- now fixed using the field names confirmed from a real response. Also: conversations from eBay itself (account alerts, password resets, feedback reminders, promos -- conversationType FROM_EBAY) are now labeled eBay (notification) instead of being shown as if they were a buyer message."],
+  ["2.8.7","Fixed a bug in Connect with eBay: the field WIM read the new token back from was misnamed, so the saved token was literally the text \"undefined\" instead of the real value -- this is what caused the connect step to report success while everything afterward (Load Inbox, etc.) failed with an invalid_grant error. The token is now read and saved correctly. If you already connected under 2.8.5/2.8.6, just click Connect with eBay again once to overwrite the bad saved value."],
   ["2.8.6","Fixed eBay sign-in setup: eBay rejects a localhost \"auth accepted URL\" outright (it requires https://). WIM now uses a tiny pass-through page hosted on GitHub Pages (docs/ebay-callback.html) as the RuName's accepted URL -- eBay redirects there (satisfying its https requirement), and that page immediately forwards the result to WIM's local listener, unchanged. Updated the in-app eBay Connection instructions and EBAY_SETUP.md with the exact URL to use and the one-time GitHub Pages setup (Settings > Pages > Deploy from branch > main /docs)."],
   ["2.8.5","In-app eBay sign-in: a new Connect with eBay button (Configuration > eBay Connection) opens eBay's real sign-in/consent page in your browser and, the moment you approve, WIM captures the result itself and exchanges it for a User Token directly -- no copy-pasting a token from eBay's developer site anymore. This removes the one external step that could cause eBay's \"issued to another client\" rejection, since the same App ID/Cert ID/RuName that started the sign-in is the same one used to redeem it. Requires a RuName from your eBay keyset pointed at http://localhost:8765/wim-ebay-callback (Sandbox supports this out of the box; see the in-app instructions for Production). The manual paste-a-token method still works as a fallback."],
   ["2.8.4","Dashboard Widget Maintenance fixes & gear-icon widget settings: the available-widgets list is now on the left and the dashboard preview on the right, and that preview now looks like the real dashboard (same cards/tiles) with sample data instead of placeholder boxes. Drag-and-drop was rebuilt from scratch (the old version could show a blocked no-entry cursor and stop working) -- dragging is now handled directly instead of relying on the browser native drag-and-drop, so it should be reliable. Widgets you can adjust (for example Items Sold, Items Added) now show a small gear icon in their top-left corner -- click it to choose Today / This Week / Last 7 Days / This Month / This Year in a small popup, and the widget name updates to match, e.g. \"Items Sold (this week)\". The same gear icon (replacing the old gear character) is now used for the Configure Widgets button and the Configuration tree icon for visual consistency."],
@@ -2185,7 +2188,7 @@ function openEbayConfig(){
       const r=await wimDesktop.invoke("ebay_oauth_login",{ env, appId, certId, ruName, scope:"", port:8765 });
       if(myAttempt!==oauthAttempt) return; // a newer attempt superseded this one
       if(r.ok){
-        tokI.value=r.refreshToken; stash(env);
+        tokI.value=r.refresh_token; stash(env);
         const c=DB.ebay.creds[env];
         DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName;
         DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US"; DB.ebay.connected=true; save();
@@ -3939,10 +3942,10 @@ function openCommunication(){
   threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a conversation to read it.</div>`;
 
   function fld(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
-  function counterparty(c){ return fld(c,["username","buyerUsername","otherParty","participant","sender","fromUsername","memberUsername"],"eBay member"); }
-  function subjectOf(c){ return fld(c,["subject","title","topic","lastMessageSubject"],"(no subject)"); }
+  function counterparty(c){ if(fld(c,["conversationType"],"")==="FROM_EBAY") return "eBay (notification)"; return fld(c,["username","buyerUsername","otherParty","participant","sender","fromUsername","memberUsername"],"eBay member"); }
+  function subjectOf(c){ return fld(c,["conversationTitle","subject","title","topic","lastMessageSubject"],"(no subject)"); }
   function snippetOf(c){ return fld(c,["lastMessagePreview","preview","snippet","lastMessage","summary"],""); }
-  function itemIdOf(c){ return fld(c,["itemId","legacyItemId","listingId"],""); }
+  function itemIdOf(c){ return fld(c,["referenceId","itemId","legacyItemId","listingId"],""); }
   function unreadOf(c){ const u=fld(c,["unreadCount","unread","hasUnread"],0); return (u===true)||(parseInt(u,10)>0); }
   function dateOf(o){ const d=fld(o,["lastMessageDate","creationDate","lastModifiedDate","date","createdDate"],""); if(!d) return ""; const dt=new Date(d); return isNaN(dt)?"":dt.toLocaleString(); }
 
@@ -3986,7 +3989,8 @@ function openCommunication(){
     const msgsEl=threadEl.querySelector("#cm-msgs");
     if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; return; }
     try{
-      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid), EBAY_SCOPE_MSG);
+      const convType=fld(c,["conversationType"],"FROM_EBAY");
+      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversationType="+encodeURIComponent(convType), EBAY_SCOPE_MSG);
       if(!r.ok){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Couldn't load this conversation (HTTP ${r.status}).<br>${esc((r.body||"").slice(0,300))}</div>`; return; }
       let data={}; try{ data=JSON.parse(r.body); }catch(e){}
       const msgs = data.messages || data.messageDetails || (data.conversation&&data.conversation.messages) || [];
