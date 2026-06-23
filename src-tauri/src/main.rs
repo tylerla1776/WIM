@@ -523,9 +523,16 @@ async fn do_get(env: &str, token: &str, marketplace: &str, path: &str) -> ApiRes
         Ok(r) => {
             let status = r.status().as_u16();
             let body = r.text().await.unwrap_or_default();
-            ApiResult { ok: (200..300).contains(&status), status, body }
+            let ok = (200..300).contains(&status);
+            // On failure, prefix the exact URL we hit so it's visible on screen for diagnosis.
+            let body = if ok { body } else { format!("[GET {}]\n{}", url, body) };
+            ApiResult { ok, status, body }
         }
-        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+        Err(e) => ApiResult {
+            ok: false,
+            status: 0,
+            body: format!("[GET {}]\n{}", url, e),
+        },
     }
 }
 

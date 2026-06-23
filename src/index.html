@@ -361,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.8.9", BUILD_DATE="2026-06-24", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.8.11", BUILD_DATE="2026-06-25", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +420,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.8.11","Messages fix: eBay's single-conversation endpoint rejects FROM_EBAY (eBay's own automated notifications -- account alerts, password resets, promos) with a confusing \"missing parameter\" error even though the parameter is sent correctly. Confirmed by inspecting the literal request URL added in 2.8.10. WIM now recognizes these as notifications up front and shows the title/date already available instead of repeatedly hitting a call that always fails for this type, with a link to view the full notification on eBay.com. Genuine buyer/seller conversations (a different conversationType) are unaffected and untested until a real one comes in."],
+  ["2.8.10","Diagnostic step for the conversation-detail 400 error: every eBay GET error message now shows the exact URL WIM actually requested, so we can see precisely what is or is not being sent instead of guessing. No behavior change for working calls."],
   ["2.8.9","Fixed opening an individual conversation in Messages: eBay's single-conversation endpoint requires a conversationType parameter that WIM was not sending (eBay's error said so directly: Missing the parameter conversationType). WIM now passes the conversation's own type (e.g. FROM_EBAY) along with the request, the same value already shown in the conversation list."],
   ["2.8.8","Messages list fix: the field WIM read the conversation subject from did not match eBay's real field name (conversationTitle), so every conversation showed \"(no subject)\" and a generic \"eBay member\" -- now fixed using the field names confirmed from a real response. Also: conversations from eBay itself (account alerts, password resets, feedback reminders, promos -- conversationType FROM_EBAY) are now labeled eBay (notification) instead of being shown as if they were a buyer message."],
   ["2.8.7","Fixed a bug in Connect with eBay: the field WIM read the new token back from was misnamed, so the saved token was literally the text \"undefined\" instead of the real value -- this is what caused the connect step to report success while everything afterward (Load Inbox, etc.) failed with an invalid_grant error. The token is now read and saved correctly. If you already connected under 2.8.5/2.8.6, just click Connect with eBay again once to overwrite the bad saved value."],
@@ -3988,9 +3990,21 @@ function openCommunication(){
     if(linked){ const oi=threadEl.querySelector("#cm-openitem"); if(oi) oi.onclick=()=>openItemDetail(linked,"edit"); }
     const msgsEl=threadEl.querySelector("#cm-msgs");
     if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; return; }
+    const convType=fld(c,["conversationType"],"");
+    if(convType==="FROM_EBAY"){
+      // eBay's single-conversation endpoint rejects this type outright (it reports the
+      // conversationType parameter as "missing" even though it's present) — these system
+      // notifications aren't retrievable as a full thread the way buyer/seller messages are.
+      // Show what the list already gave us instead of repeatedly hitting a call that 400s.
+      msgsEl.innerHTML=`<div style="color:#5b6470;font-size:12.5px;line-height:1.6;">
+        <div style="font-weight:600;color:#28313f;margin-bottom:4px;">${esc(subjectOf(c))}</div>
+        <div>This is an automated notification from eBay itself (account alert, password reset, promo, etc.) — not a message from a buyer or seller. eBay's API doesn't provide the full notification text through this endpoint, only the title and date you see in the list.</div>
+        <div style="margin-top:8px;">To read the full notification, check it on <a href="#" id="cm-open-ebay" style="color:#3b7dd8;">eBay.com → My eBay → Messages</a>.</div></div>`;
+      const lnk=msgsEl.querySelector("#cm-open-ebay"); if(lnk) lnk.onclick=(e)=>{ e.preventDefault(); try{ window.open("https://mesg.ebay.com/mesgweb/ViewMessages/0",'_blank'); }catch(_){ } };
+      return;
+    }
     try{
-      const convType=fld(c,["conversationType"],"FROM_EBAY");
-      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversationType="+encodeURIComponent(convType), EBAY_SCOPE_MSG);
+      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversationType="+encodeURIComponent(convType||"FROM_EBAY"), EBAY_SCOPE_MSG);
       if(!r.ok){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Couldn't load this conversation (HTTP ${r.status}).<br>${esc((r.body||"").slice(0,300))}</div>`; return; }
       let data={}; try{ data=JSON.parse(r.body); }catch(e){}
       const msgs = data.messages || data.messageDetails || (data.conversation&&data.conversation.messages) || [];
