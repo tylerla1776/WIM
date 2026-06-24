@@ -361,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.5", BUILD_DATE="2026-06-28", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.6", BUILD_DATE="2026-06-29", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +420,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.6","Real eBay Publish/Delist: the listing screen now has Publish to eBay and Delist from eBay buttons that actually talk to eBay (createOrReplaceInventoryItem -> createOffer -> publishOffer, and withdrawOffer to delist), instead of only flipping a local status flag. New one-time Listing setup section in Configuration -> eBay Connection to load and pick your existing shipping/payment/return policies and inventory location (eBay requires these on every offer; WIM cannot invent them). A plain local-status-only toggle link remains for items listed manually outside WIM. Also: Items Needing SKU dashboard widget is now wired to real data (reuses the existing Listed, no SKU puller in the background, refreshes automatically). This is a first build against eBay's well-documented Sell Inventory API, not a beta one, but it has not been tested against a real account yet -- every failure shows eBay's exact response so we can fix anything precisely on the first real attempt, the same way Messages got fixed."],
   ["2.9.5","Find by Photo overhaul: added a Status column, a Buying Option column (fixed price / auction / best offer), a View link to the actual eBay listing, and a + Create item button per row that opens a new WIM item pre-filled from that match (every row correctly shows Active since eBay's image-search API cannot return sold items at all). Replaced the flat gear icon with the new silver 3D gear icon everywhere it appears (Configuration in the tree, widget settings gear, widget settings popup, Configure Widgets button). Find on eBay now has Active / Sold Items / Catalog tabs -- Catalog is your own WIM history and lights up blue only when a match is found, autofilling from Use this. Listing titles are now clickable links to the real eBay listing in Find on eBay and Price Compare. Price Compare gained matching Active / Sold Items tabs, and Date is now Date Listed. Sold Items in both places call eBay's real Marketplace Insights API and show eBay's exact error if the account isn't approved for it -- this requires eBay's separate Application Growth Check process (developer.ebay.com/grow/application-growth-check), not a WIM setting. Days Listed and the Pricing Calculator are intentionally not built yet, pending real approved access to confirm the data is even available."],
   ["2.9.2","Fixed Messages (and any other app) saying \"not connected\" right after connecting via the taskbar Connect button or Configuration. Cause: by default every app opens in its own separate window, which is a genuinely separate program in memory from the main window -- so the online/offline state from 2.9.0 wasn't reaching it. The connection state is now shared across every open window via local storage, and updates live in all of them the instant you Connect or Disconnect anywhere."],
   ["2.9.1","Messages Phase 2 (replying), first attempt: real buyer/seller conversations now show a reply box and Send button instead of a read-only note (eBay's own FROM_EBAY notifications still correctly show as not-repliable). This is a best-effort build against eBay's REST API conventions, not confirmed documentation -- there is no real buyer message in this account yet to test against. If sending fails, the exact request and eBay's response are shown via Show details so it can be corrected precisely, the same way the read side was fixed in 2.8.9-2.8.11. Added a general ebay_post_user command/EBAY.postUser() for this and any future eBay write calls."],
@@ -1295,8 +1296,11 @@ const DASH_WIDGETS={
     render:c=>c.tile("Inventory Value","$"+c.invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}),"#1f9d57")},
   highestSku:{title:"Highest Value SKU *",desc:"The single highest-value unit currently on hand. Leadership only.",role:"leadership",modes:["warehouse"],previewKind:"tile",
     render:c=>{ const h=c.highest; return c.tile("Highest Value SKU", h?("$"+h.val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—","#1f9d57", h?(esc(h.sku)+" · "+esc((h.desc||"").slice(0,22))):""); }},
-  itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM. Requires an eBay connection (coming in a later update).",role:"all",modes:["warehouse","live"],previewKind:"tile",
-    render:c=>c.tile("Items Needing SKU","—","#9aa3ad","connect eBay")},
+  itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM (refreshes automatically while connected).",role:"all",modes:["warehouse","live"],previewKind:"tile",
+    render:c=>{ const notReady=!EBAY.ready(); const val=notReady?"—":(LIVE_SKU_STATS.count==null?"—":String(LIVE_SKU_STATS.count));
+      const sub=notReady?"click Connect":(LIVE_SKU_STATS.count==null?"loading…":(LIVE_SKU_STATS.count?"needs filing →":"all filed"));
+      const accent=(!notReady&&LIVE_SKU_STATS.count)?"#e08a1f":"#1f9d57";
+      return c.tile("Items Needing SKU",val,accent,sub,()=>launchApp("listednosku")); }},
   newMessages:{title:"New Messages",desc:"Unread eBay conversations (refreshes automatically while connected).",role:"all",modes:["live"],previewKind:"tile",
     render:c=>{ const notReady=!EBAY.ready(); const val=notReady?"—":(LIVE_MSG_STATS.unread==null?"—":String(LIVE_MSG_STATS.unread));
       const sub=notReady?"click Connect":(LIVE_MSG_STATS.unread==null?"loading…":(LIVE_MSG_STATS.unread?"unread →":"all read"));
@@ -1378,6 +1382,21 @@ async function refreshLiveMsgStats(){
   }catch(e){ /* leave last-known stats in place on a transient failure */ }
   finally{ liveMsgFetchInFlight=false; }
 }
+// Cache for the Items Needing SKU dashboard widget — reuses the existing pullNewListings()
+// (Listed, no SKU screen) in silent mode so we don't pop a modal during a background refresh.
+let LIVE_SKU_STATS={ count:null, fetchedAt:0 };
+let liveSkuFetchInFlight=false;
+async function refreshLiveSkuStats(){
+  if(!EBAY.ready() || liveSkuFetchInFlight) return;
+  if(Date.now()-LIVE_SKU_STATS.fetchedAt < 60000) return; // throttle to once a minute
+  liveSkuFetchInFlight=true;
+  try{
+    await pullNewListings(null,true);
+    LIVE_SKU_STATS={ count:(DB.pulledListings||[]).length, fetchedAt:Date.now() };
+    try{ renderDashboard(); }catch(e){}
+  }catch(e){ /* leave last-known stats in place on a transient failure */ }
+  finally{ liveSkuFetchInFlight=false; }
+}
 function renderDashboard(){
   const dp=document.getElementById("detail-pane"); if(!dp) return;
   const mode=isLive()?"live":"warehouse"; const items=DB.items||[]; const active=items.filter(i=>!i.sold);
@@ -1448,6 +1467,7 @@ function renderDashboard(){
   gearWires.forEach(w=>{ const el=document.getElementById(w.gid); if(el) el.onclick=(e)=>{ e.stopPropagation(); w.onGear(el); }; });
   const cfgBtn=document.getElementById("dash-config"); if(cfgBtn) cfgBtn.onclick=()=>launchApp("dashwidgets");
   if(isLive() && layout.some(e=>e.k==="newMessages")) refreshLiveMsgStats();
+  if(layout.some(e=>e.k==="itemsNeedingSku")) refreshLiveSkuStats();
 }
 function openDashWidgets(){
   const id="dash-widgets"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
@@ -1672,6 +1692,7 @@ function disconnectEbay(){
   ebayConnectGen++; // invalidates any in-flight connectEbay() promise the instant this runs
   setEbayOnline(false);
   LIVE_MSG_STATS={ unread:null, total:null, fetchedAt:0 };
+  LIVE_SKU_STATS={ count:null, fetchedAt:0 };
   paintLiveBadge();
   try{ renderDashboard(); }catch(e){}
 }
@@ -2229,7 +2250,15 @@ function openEbayConfig(){
           <li>eBay redirects to that pass-through page, which bounces you straight back to WIM. WIM exchanges the result for a token itself — nothing to copy or paste, as long as WIM is open. You'll see "Connected" within a few seconds.</li>
         </ol>
         <div class="smallhint" style="margin-top:8px;">Prefer the old way? You can still paste a User Token manually above and press <b>Test current keys</b>.</div>
-        <div class="smallhint" style="margin-top:6px;">Sandbox and Production each have their own RuName — set the same <code>ebay-callback.html</code> address on both, and use the matching keys above for whichever environment you're testing.</div></fieldset></div>`;
+        <div class="smallhint" style="margin-top:6px;">Sandbox and Production each have their own RuName — set the same <code>ebay-callback.html</code> address on both, and use the matching keys above for whichever environment you're testing.</div></fieldset>
+      <fieldset class="gb" style="margin-top:14px;"><legend>Listing setup (required once, before Publish to eBay works)</legend>
+        <div class="smallhint" style="margin-bottom:8px;">Publishing a listing needs to know which of your eBay <b>business policies</b> (shipping/payment/returns) and which <b>inventory location</b> to use. These already exist on your eBay seller account if you've listed there before — load them below and pick one of each.</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn sm" id="eb-loadpolicies">Load my business policies</button><button class="btn sm" id="eb-loadlocations">Load my inventory locations</button></div>
+        <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Shipping policy</label><select class="cmb" id="eb-fulfill"><option value="">— load policies above —</option></select></div>
+        <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Payment policy</label><select class="cmb" id="eb-payment"><option value="">— load policies above —</option></select></div>
+        <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Return policy</label><select class="cmb" id="eb-return"><option value="">— load policies above —</option></select></div>
+        <div class="ff" style="grid-template-columns:140px 1fr;"><label class="fld">Inventory location</label><select class="cmb" id="eb-location"><option value="">— load locations above —</option></select></div>
+        <div style="margin-top:8px;"><span class="smallhint" id="eb-setup-msg"></span></div></fieldset></div>`;
   const msg=body.querySelector("#eb-msg");
   const envSel=body.querySelector("#eb-env"), appI=body.querySelector("#eb-app"), certI=body.querySelector("#eb-cert"), ruI=body.querySelector("#eb-ru"), tokI=body.querySelector("#eb-tok");
   if(!DB.ebay.creds) DB.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:"",ruName:""}, production:{appId:"",certId:"",refreshToken:"",ruName:""} };
@@ -2274,6 +2303,49 @@ function openEbayConfig(){
       }
     }catch(err){ if(myAttempt!==oauthAttempt) return; msg.style.color="#c0392b"; msg.textContent="Could not start the eBay sign-in: "+(err&&err.message?err.message:err); }
   };
+  const setupMsg=body.querySelector("#eb-setup-msg");
+  const fulfillSel=body.querySelector("#eb-fulfill"), paymentSel=body.querySelector("#eb-payment"), returnSel=body.querySelector("#eb-return"), locSel=body.querySelector("#eb-location");
+  function fillSelect(sel,items,labelFn,idFn,savedId){ sel.innerHTML='<option value="">— choose —</option>'+items.map(x=>`<option value="${esc(idFn(x))}" ${idFn(x)===savedId?'selected':''}>${esc(labelFn(x))}</option>`).join(""); }
+  (function initSetupSelects(){
+    if(DB.ebay.fulfillmentPolicyName) fulfillSel.innerHTML=`<option value="${esc(DB.ebay.fulfillmentPolicyId||'')}" selected>${esc(DB.ebay.fulfillmentPolicyName)}</option>`;
+    if(DB.ebay.paymentPolicyName) paymentSel.innerHTML=`<option value="${esc(DB.ebay.paymentPolicyId||'')}" selected>${esc(DB.ebay.paymentPolicyName)}</option>`;
+    if(DB.ebay.returnPolicyName) returnSel.innerHTML=`<option value="${esc(DB.ebay.returnPolicyId||'')}" selected>${esc(DB.ebay.returnPolicyName)}</option>`;
+    if(DB.ebay.merchantLocationKey) locSel.innerHTML=`<option value="${esc(DB.ebay.merchantLocationKey)}" selected>${esc(DB.ebay.merchantLocationName||DB.ebay.merchantLocationKey)}</option>`;
+  })();
+  fulfillSel.onchange=()=>{ const o=fulfillSel.selectedOptions[0]; DB.ebay.fulfillmentPolicyId=fulfillSel.value; DB.ebay.fulfillmentPolicyName=o?o.textContent:""; save(); };
+  paymentSel.onchange=()=>{ const o=paymentSel.selectedOptions[0]; DB.ebay.paymentPolicyId=paymentSel.value; DB.ebay.paymentPolicyName=o?o.textContent:""; save(); };
+  returnSel.onchange=()=>{ const o=returnSel.selectedOptions[0]; DB.ebay.returnPolicyId=returnSel.value; DB.ebay.returnPolicyName=o?o.textContent:""; save(); };
+  locSel.onchange=()=>{ const o=locSel.selectedOptions[0]; DB.ebay.merchantLocationKey=locSel.value; DB.ebay.merchantLocationName=o?o.textContent:""; save(); };
+  body.querySelector("#eb-loadpolicies").onclick=async ()=>{
+    if(!EBAY.ready()){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Connect with eBay first (click Connect next to Live Mode)."; return; }
+    setupMsg.style.color="#555"; setupMsg.textContent="Loading business policies…";
+    try{
+      const mkt=DB.ebay.marketplace||"EBAY_US";
+      const [f,p,r]=await Promise.all([
+        EBAY.user("/sell/account/v1/fulfillment_policy?marketplace_id="+mkt, "https://api.ebay.com/oauth/api_scope/sell.account.readonly"),
+        EBAY.user("/sell/account/v1/payment_policy?marketplace_id="+mkt, "https://api.ebay.com/oauth/api_scope/sell.account.readonly"),
+        EBAY.user("/sell/account/v1/return_policy?marketplace_id="+mkt, "https://api.ebay.com/oauth/api_scope/sell.account.readonly")
+      ]);
+      if(!f.ok||!p.ok||!r.ok){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Couldn't load policies (HTTP "+(!f.ok?f.status:!p.ok?p.status:r.status)+"): "+((!f.ok?f.body:!p.ok?p.body:r.body)||"").slice(0,200); return; }
+      const fp=(JSON.parse(f.body).fulfillmentPolicies)||[], pp=(JSON.parse(p.body).paymentPolicies)||[], rp=(JSON.parse(r.body).returnPolicies)||[];
+      fillSelect(fulfillSel,fp,x=>x.name,x=>x.fulfillmentPolicyId,DB.ebay.fulfillmentPolicyId);
+      fillSelect(paymentSel,pp,x=>x.name,x=>x.paymentPolicyId,DB.ebay.paymentPolicyId);
+      fillSelect(returnSel,rp,x=>x.name,x=>x.returnPolicyId,DB.ebay.returnPolicyId);
+      setupMsg.style.color="#1f7244"; setupMsg.textContent="Loaded "+fp.length+" shipping, "+pp.length+" payment, "+rp.length+" return polic"+(rp.length===1?"y":"ies")+". Pick one of each, then they're saved automatically.";
+    }catch(e){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
+  };
+  body.querySelector("#eb-loadlocations").onclick=async ()=>{
+    if(!EBAY.ready()){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Connect with eBay first (click Connect next to Live Mode)."; return; }
+    setupMsg.style.color="#555"; setupMsg.textContent="Loading inventory locations…";
+    try{
+      const r=await EBAY.user("/sell/inventory/v1/location?limit=100", EBAY_SCOPE_INV);
+      if(!r.ok){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Couldn't load locations (HTTP "+r.status+"): "+(r.body||"").slice(0,200); return; }
+      const locs=(JSON.parse(r.body).locations)||[];
+      if(!locs.length){ setupMsg.style.color="#c0392b"; setupMsg.textContent="No inventory locations found on this eBay account yet — create one in Seller Hub (Account → Postage and packaging → Locations) or via the Inventory API, then load again."; return; }
+      fillSelect(locSel,locs,x=>(x.name||x.merchantLocationKey)+" ("+x.merchantLocationKey+")",x=>x.merchantLocationKey,DB.ebay.merchantLocationKey);
+      setupMsg.style.color="#1f7244"; setupMsg.textContent="Loaded "+locs.length+" location(s). Pick one — it's saved automatically.";
+    }catch(e){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
+  };
 }
 function openListingConfig(){
   const id="listing-config"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
@@ -2296,10 +2368,91 @@ function openListingConfig(){
   body.querySelector("#lc-save").onclick=()=>{ DB.ebay.seller=body.querySelector("#lc-seller").value.trim(); DB.ebay.matchFuzzy=body.querySelector("#lc-fuzzy").checked; DB.ebay.condTolerance=parseInt(body.querySelector("#lc-tol").value,10)||2; save();
     const m=body.querySelector("#lc-msg"); m.style.color="#1f7244"; m.textContent="Saved."; };
 }
-function ebayPayload(it){ // builds the Sell Inventory API item payload (preview)
-  return { sku: it.sku||it.id, product:{ title:(it.desc||"").slice(0,80), description:it.desc||"", aspects:{ Condition:[it.condition||"Unspecified"] }, imageUrls: it.image?["<host your image and put its URL here>"]:[] },
-    condition: (it.condition||"").toLowerCase().includes("new")?"NEW":"USED_GOOD",
-    availability:{ shipToLocationAvailability:{ quantity: groupQty(it) } }, price:{ value: it.retail||"0.00", currency:"USD" } };
+function ebayPayload(it){ // builds the Sell Inventory API createOrReplaceInventoryItem body (sku goes in the URL, not the body)
+  return { condition: ebayCondEnum(it.condition),
+    product:{ title:(it.listing&&it.listing.title?it.listing.title:it.desc||"").slice(0,80),
+      description:(it.listing&&it.listing.descBody)||it.desc||"",
+      aspects: (it.aspects&&Object.keys(it.aspects).length)?Object.fromEntries(Object.entries(it.aspects).map(([k,v])=>[k,[String(v)]])):{ Condition:[it.condition||"Unspecified"] },
+      imageUrls: (it.listing&&it.listing.ebayImageUrls)||[] },
+    availability:{ shipToLocationAvailability:{ quantity: groupQty(it) } } };
+}
+// Everything an item needs before WIM will attempt a real eBay publish.
+function ebayListingPrereqs(it){
+  const missing=[];
+  if(!it.sku) missing.push("a Warehouse SKU (save the item first)");
+  const sc=subcatObj(it.section,it.subCategory);
+  if(!sc || !sc.ebayId) missing.push("an eBay category mapped for "+(it.subCategory||it.section||"this category")+" (set it in Category Maintenance)");
+  if(!DB.ebay.fulfillmentPolicyId) missing.push("a shipping policy");
+  if(!DB.ebay.paymentPolicyId) missing.push("a payment policy");
+  if(!DB.ebay.returnPolicyId) missing.push("a return policy");
+  if(!DB.ebay.merchantLocationKey) missing.push("an inventory location");
+  if(missing.some(m=>/policy|location/.test(m))) missing.push("(set policies/location once in Configuration → eBay Connection → Listing setup)");
+  const price=(it.listing&&it.listing.price)||it.retail;
+  if(!price || isNaN(parseFloat(price))) missing.push("a listing price");
+  return missing;
+}
+// Full Sell Inventory API publish: createOrReplaceInventoryItem -> createOffer (once) -> publishOffer.
+// Safe to call again after a partial failure — it reuses an existing offer instead of duplicating one.
+async function publishToEbay(it,onStep){
+  if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to Live Mode." };
+  const missing=ebayListingPrereqs(it);
+  if(missing.length) return { ok:false, error:"Missing before publishing:\n• "+missing.join("\n• ") };
+  const sku=String(it.sku);
+  onStep&&onStep("Creating/updating the eBay inventory item…");
+  const invPayload=ebayPayload(it);
+  let r;
+  try{ r=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku, payloadJson:JSON.stringify(invPayload) }); }
+  catch(e){ return { ok:false, error:"Could not reach eBay (inventory item): "+(e&&e.message?e.message:e) }; }
+  if(!r.ok) return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"") };
+
+  let offerId=it.listing&&it.listing.offerId;
+  if(!offerId){
+    onStep&&onStep("Creating the eBay offer…");
+    const sc=subcatObj(it.section,it.subCategory);
+    const price=(it.listing&&it.listing.price)||it.retail;
+    const offerPayload={ sku, marketplaceId:DB.ebay.marketplace||"EBAY_US", format:"FIXED_PRICE",
+      availableQuantity: groupQty(it), categoryId: sc.ebayId,
+      listingDescription: (it.listing&&it.listing.descBody)||it.desc||"",
+      listingPolicies:{ fulfillmentPolicyId:DB.ebay.fulfillmentPolicyId, paymentPolicyId:DB.ebay.paymentPolicyId, returnPolicyId:DB.ebay.returnPolicyId },
+      pricingSummary:{ price:{ value:String(price), currency:"USD" } },
+      merchantLocationKey: DB.ebay.merchantLocationKey };
+    let or;
+    try{ or=await EBAY.postUser("/sell/inventory/v1/offer", JSON.stringify(offerPayload), EBAY_SCOPE_INV); }
+    catch(e){ return { ok:false, error:"Could not reach eBay (offer): "+(e&&e.message?e.message:e) }; }
+    if(!or.ok) return { ok:false, error:"eBay rejected the offer (HTTP "+or.status+"):\n"+(or.body||"") };
+    let od={}; try{ od=JSON.parse(or.body); }catch(e){}
+    offerId=od.offerId;
+    if(!offerId) return { ok:false, error:"eBay didn't return an offer ID:\n"+(or.body||"") };
+    if(!it.listing) it.listing={status:"none"};
+    it.listing.offerId=offerId; save();
+  }
+
+  onStep&&onStep("Publishing the offer…");
+  let pr;
+  try{ pr=await EBAY.postUser("/sell/inventory/v1/offer/"+encodeURIComponent(offerId)+"/publish", "{}", EBAY_SCOPE_INV); }
+  catch(e){ return { ok:false, error:"Could not reach eBay (publish): "+(e&&e.message?e.message:e) }; }
+  if(!pr.ok) return { ok:false, error:"eBay rejected the publish (HTTP "+pr.status+"):\n"+(pr.body||"")+"\n\n(The offer itself was created — trying Publish again will reuse it, not create a duplicate.)" };
+  let pd={}; try{ pd=JSON.parse(pr.body); }catch(e){}
+  const listingId=pd.listingId||"";
+  if(!it.listing) it.listing={status:"none"};
+  it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); it.listing.offerId=offerId; it.listing.ebayListingId=listingId; it.listing.publishMethod="api";
+  addHistory(it,"Published to eBay (offer "+offerId+(listingId?(", listing "+listingId):"")+")"); save();
+  return { ok:true, offerId, listingId };
+}
+// Withdraws a real eBay offer that WIM itself published. Items listed manually outside
+// WIM (no offerId on record) have nothing for this to withdraw — those use the plain
+// local status toggle instead.
+async function delistFromEbay(it,onStep){
+  if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to Live Mode." };
+  if(!it.listing || !it.listing.offerId) return { ok:false, error:"This item wasn't published through WIM's eBay integration (no offer on record), so there's nothing on eBay for WIM to withdraw. If it's listed manually, use the local status toggle below instead." };
+  onStep&&onStep("Withdrawing the eBay offer…");
+  let r;
+  try{ r=await EBAY.postUser("/sell/inventory/v1/offer/"+encodeURIComponent(it.listing.offerId)+"/withdraw", "{}", EBAY_SCOPE_INV); }
+  catch(e){ return { ok:false, error:"Could not reach eBay: "+(e&&e.message?e.message:e) }; }
+  if(!r.ok) return { ok:false, error:"eBay rejected the withdraw (HTTP "+r.status+"):\n"+(r.body||"") };
+  it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString();
+  addHistory(it,"Delisted from eBay (offer "+it.listing.offerId+")"); save();
+  return { ok:true };
 }
 function openEbayList(it){
   const id="ebay-list-"+it.id; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
@@ -2311,7 +2464,7 @@ function openEbayList(it){
     ${live?'<div class="note" style="margin-bottom:8px;">Desktop build connected to eBay. <b>Create / Update eBay Inventory Item</b> sends this live to your eBay account.</div>'
         : (WIM_IS_DESKTOP?'<div class="err" style="margin-bottom:8px;">No eBay keys yet — open Configuration → eBay Connection first.</div>'
         :'<div class="note" style="margin-bottom:8px;">Preview only. Live publishing works in the desktop app build.</div>')}
-    <div class="col-title" style="text-align:left;">createOrReplaceInventoryItem payload (SKU ${esc(payload.sku)})</div>
+    <div class="col-title" style="text-align:left;">createOrReplaceInventoryItem payload (SKU ${esc(it.sku||it.id)})</div>
     <pre style="background:#f6f6f6;border:1px solid #ccc;padding:10px;font-size:12px;overflow:auto;max-height:230px;">${esc(JSON.stringify(payload,null,2))}</pre>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
       ${live?'<button class="btn primary" id="el-send">Create / Update eBay Inventory Item</button>':''}
@@ -2321,9 +2474,9 @@ function openEbayList(it){
   body.querySelector("#el-close").onclick=close;
   const send=body.querySelector("#el-send");
   if(send){ send.onclick=async ()=>{ const out=body.querySelector("#el-result"); out.style.color="#444"; out.textContent="Sending to eBay…"; send.disabled=true;
-    try{ const res=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku:String(payload.sku), payloadJson:JSON.stringify(payload) });
+    try{ const res=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku:String(it.sku||it.id), payloadJson:JSON.stringify(payload) });
       out.style.color = res.ok?"#1f7244":"#c0392b"; out.textContent = (res.ok?"Success (HTTP "+res.status+"). Inventory item created/updated on eBay.\n":"eBay returned HTTP "+res.status+":\n")+(res.body||"");
-      if(res.ok){ addHistory(it,"eBay inventory item created/updated (SKU "+payload.sku+")"); save(); }
+      if(res.ok){ addHistory(it,"eBay inventory item created/updated (SKU "+(it.sku||it.id)+")"); save(); }
     }catch(e){ out.style.color="#c0392b"; out.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
     send.disabled=false; }; }
 }
@@ -2709,7 +2862,12 @@ function openItemDetail(item,mode,nav){
         <div id="l-photos" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
         <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><input type="file" id="l-photofile" accept="image/*" style="display:none;"><button class="btn sm" id="l-photoadd">Add subsidiary photo</button>${WIM_IS_DESKTOP?'<button class="btn sm" id="l-photoupload">Upload photos to eBay</button>':''}<span class="smallhint" id="l-photomsg"></span></div>
         <div id="l-ebayimgs" style="margin-top:6px;"></div>
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn" id="l-toggle">${it.listing.status==="listed"?"Delist (keep SKU)":"Mark as Listed"}</button><span class="smallhint">Real eBay publish/delist arrives in the publishing update; this sets the status so Discrepancies &amp; Manage Listings work now.</span></div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          ${it.listing.status==="listed"
+            ? `<button class="btn" id="l-publish">Delist from eBay</button>`
+            : `<button class="btn primary" id="l-publish">Publish to eBay</button>`}
+          <span class="smallhint" id="l-pubmsg"></span></div>
+        <div style="margin-top:4px;"><a href="#" id="l-localtoggle" class="smallhint" style="text-decoration:underline;">${it.listing.status==="listed"?"…or just mark it delisted locally, without contacting eBay":"…or just mark it listed locally, without contacting eBay (e.g. you listed it manually)"}</a></div>
       </fieldset>`;
     }
     lwrap.innerHTML=html;
@@ -2722,7 +2880,20 @@ function openItemDetail(item,mode,nav){
       const lp=lwrap.querySelector("#l-price"); if(lp) lp.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=lp.value; const dp=body.querySelector("#d-price"); if(dp) dp.value=lp.value; markDirty&&markDirty(); };
       dsel.onchange=()=>{ it.listing.descriptionId=dsel.value||null; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d) dbody.value=d.body; markDirty&&markDirty(); };
       dbody.oninput=()=>{ it.listing.descBody=dbody.value; markDirty&&markDirty(); };
-      const tog=lwrap.querySelector("#l-toggle"); if(tog) tog.onclick=()=>{ if(it.listing.status==="listed"){ it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString(); addHistory(it,"Delisted from eBay (SKU kept)"); } else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); addHistory(it,"Marked as Listed"); } save(); refreshSearchWindows&&refreshSearchWindows(); renderListing(); };
+      const pubBtn=lwrap.querySelector("#l-publish"), pubMsg=lwrap.querySelector("#l-pubmsg");
+      if(pubBtn) pubBtn.onclick=async ()=>{
+        pubBtn.disabled=true; pubMsg.style.color="#555";
+        const wasListed=it.listing.status==="listed";
+        const onStep=(t)=>{ pubMsg.textContent=t; };
+        const res = wasListed ? await delistFromEbay(it,onStep) : await publishToEbay(it,onStep);
+        pubBtn.disabled=false;
+        if(res.ok){ pubMsg.style.color="#1f7244"; pubMsg.textContent=wasListed?"Delisted from eBay.":("Published to eBay"+(res.listingId?(" — listing "+res.listingId):"")+"."); refreshSearchWindows&&refreshSearchWindows(); renderListing(); }
+        else { pubMsg.style.color="#c0392b"; pubMsg.textContent=res.error||"Something went wrong."; }
+      };
+      const localTog=lwrap.querySelector("#l-localtoggle"); if(localTog) localTog.onclick=(e)=>{ e.preventDefault();
+        if(it.listing.status==="listed"){ it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString(); addHistory(it,"Delisted (local status only, eBay not contacted)"); }
+        else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); addHistory(it,"Marked as Listed (local status only, eBay not contacted)"); }
+        save(); refreshSearchWindows&&refreshSearchWindows(); renderListing(); };
       const pf=lwrap.querySelector("#l-photofile");
       lwrap.querySelector("#l-photoadd").onclick=()=>pf.click();
       pf.onchange=async ()=>{ if(pf.files[0]){ try{ const d=await compressImage(pf.files[0]); it.images.push(d); markDirty&&markDirty(); paintPhotos(); }catch(e){ uiAlert("Could not read image."); } } };
@@ -3931,14 +4102,39 @@ function openEbayFind(it, onDone){
 
 /* ============================================================ LISTED, NO SKU (pull your own eBay listings into WIM) ============================================================ */
 function ebayCondLabel(c){ const m={NEW:"New",LIKE_NEW:"Like New",NEW_OTHER:"New (other)",NEW_WITH_DEFECTS:"New with defects",CERTIFIED_REFURBISHED:"Certified - Refurbished",EXCELLENT_REFURBISHED:"Excellent - Refurbished",VERY_GOOD_REFURBISHED:"Very Good - Refurbished",GOOD_REFURBISHED:"Good - Refurbished",SELLER_REFURBISHED:"Seller refurbished",USED_EXCELLENT:"Used - Excellent",USED_VERY_GOOD:"Used - Very Good",USED_GOOD:"Used - Good",USED_ACCEPTABLE:"Used - Acceptable",FOR_PARTS_OR_NOT_WORKING:"For parts or not working"}; return m[c]||c||""; }
-async function pullNewListings(after){
-  if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
+// Best-effort mapping from WIM's free-text condition to eBay's official condition enum.
+// Always returns *something* usable (falls back to USED_GOOD) but flags low-confidence
+// guesses via ebayCondGuessed() so the Publish screen can show a warning instead of
+// silently sending a possibly-wrong condition to eBay.
+function ebayCondEnum(text){
+  const t=(text||"").toLowerCase().trim();
+  if(/for parts|not working|spare/.test(t)) return "FOR_PARTS_OR_NOT_WORKING";
+  if(/new with defects/.test(t)) return "NEW_WITH_DEFECTS";
+  if(/new \(other\)|new other|open box/.test(t)) return "NEW_OTHER";
+  if(/certified.*refurb/.test(t)) return "CERTIFIED_REFURBISHED";
+  if(/excellent.*refurb/.test(t)) return "EXCELLENT_REFURBISHED";
+  if(/very good.*refurb/.test(t)) return "VERY_GOOD_REFURBISHED";
+  if(/good.*refurb/.test(t)) return "GOOD_REFURBISHED";
+  if(/refurb/.test(t)) return "SELLER_REFURBISHED";
+  if(/like new/.test(t)) return "LIKE_NEW";
+  if(/brand new|^new$/.test(t)) return "NEW";
+  if(/used.*excellent|^excellent$/.test(t)) return "USED_EXCELLENT";
+  if(/very good/.test(t)) return "USED_VERY_GOOD";
+  if(/acceptable/.test(t)) return "USED_ACCEPTABLE";
+  if(/good/.test(t)) return "USED_GOOD";
+  if(/new/.test(t)) return "NEW";
+  return "USED_GOOD";
+}
+function ebayCondGuessed(text){ const t=(text||"").toLowerCase().trim();
+  return !/for parts|not working|spare|new with defects|new \(other\)|new other|open box|refurb|like new|brand new|^new$|excellent|very good|acceptable|^good$|new/.test(t); }
+async function pullNewListings(after,silent){
+  if(!EBAY.ready()){ if(!silent) uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
   if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
-  const prog=uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;">Contacting eBay…</div>`,[]);
-  const set=t=>{ const e=document.getElementById("pnl-prog"); if(e) e.textContent=t; };
+  const prog=silent?null:uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;">Contacting eBay…</div>`,[]);
+  const set=t=>{ if(silent) return; const e=document.getElementById("pnl-prog"); if(e) e.textContent=t; };
   try{
     const inv=await EBAY.user("/sell/inventory/v1/inventory_item?limit=100&offset=0", EBAY_SCOPE_INV);
-    if(!inv.ok){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); return; }
+    if(!inv.ok){ if(!silent){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); } return; }
     const items=(JSON.parse(inv.body).inventoryItems)||[];
     const known=new Set(); DB.items.forEach(x=>{ if(x.listing&&x.listing.ebaySku) known.add(x.listing.ebaySku); if(x.sku) known.add(x.sku); });
     (DB.ebay.filedSkus||[]).forEach(s=>known.add(s));
@@ -3952,8 +4148,9 @@ async function pullNewListings(after){
       candidates.push({ ebaySku:sku, offerId, title:p.title||sku, condEnum:ei.condition||"", condLabel:ebayCondLabel(ei.condition), price, qty, images:(p.imageUrls||[]).slice(), thumb:(p.imageUrls||[])[0]||"" });
     }
     DB.pulledListings=candidates; DB.ebay.lastPullAt=new Date().toISOString(); save();
-    closeAllModals(); if(after) after(candidates);
-  }catch(e){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); }
+    if(!silent) closeAllModals();
+    if(after) after(candidates);
+  }catch(e){ if(!silent){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); } }
 }
 /* ============================================================ FIND BY PHOTO (eBay image search → price range) ============================================================ */
 function openFindByPhoto(){
