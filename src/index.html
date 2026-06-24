@@ -298,10 +298,10 @@
   .dash-tile.dash-tile:hover{box-shadow:0 3px 12px rgba(31,45,71,.12);}
   .dash-card{position:relative;background:#fff;border:1px solid var(--line,#e3e7ee);border-radius:14px;padding:14px 16px;box-shadow:0 2px 8px rgba(31,45,71,.06);}
   .ico{display:inline-flex;align-items:center;justify-content:center;}
-  .ico svg{width:100%;height:100%;display:block;}
+  .ico svg, .ico img{width:100%;height:100%;display:block;object-fit:contain;}
   .gear-btn{position:absolute;top:6px;left:6px;width:20px;height:20px;border:none;background:#eef1f6;color:#7a8696;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;z-index:2;}
   .gear-btn:hover{background:#dde4f0;}
-  .gear-btn svg{width:12px;height:12px;display:block;}
+  .gear-btn svg, .gear-btn img{width:12px;height:12px;display:block;object-fit:contain;}
   .widget-popover{background:#fff;border:1px solid #d8deea;border-radius:10px;box-shadow:0 8px 28px rgba(31,45,71,.22);width:230px;overflow:hidden;font-size:12.5px;}
   .widget-popover .wp-head{display:flex;align-items:center;gap:7px;padding:9px 10px;background:#f3f5f9;border-bottom:1px solid #e3e7ee;font-weight:600;color:#28313f;}
   .widget-popover .wp-head .ico{width:13px;height:13px;color:#7a8696;}
@@ -361,7 +361,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.2", BUILD_DATE="2026-06-26", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.5", BUILD_DATE="2026-06-28", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +420,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.5","Find by Photo overhaul: added a Status column, a Buying Option column (fixed price / auction / best offer), a View link to the actual eBay listing, and a + Create item button per row that opens a new WIM item pre-filled from that match (every row correctly shows Active since eBay's image-search API cannot return sold items at all). Replaced the flat gear icon with the new silver 3D gear icon everywhere it appears (Configuration in the tree, widget settings gear, widget settings popup, Configure Widgets button). Find on eBay now has Active / Sold Items / Catalog tabs -- Catalog is your own WIM history and lights up blue only when a match is found, autofilling from Use this. Listing titles are now clickable links to the real eBay listing in Find on eBay and Price Compare. Price Compare gained matching Active / Sold Items tabs, and Date is now Date Listed. Sold Items in both places call eBay's real Marketplace Insights API and show eBay's exact error if the account isn't approved for it -- this requires eBay's separate Application Growth Check process (developer.ebay.com/grow/application-growth-check), not a WIM setting. Days Listed and the Pricing Calculator are intentionally not built yet, pending real approved access to confirm the data is even available."],
   ["2.9.2","Fixed Messages (and any other app) saying \"not connected\" right after connecting via the taskbar Connect button or Configuration. Cause: by default every app opens in its own separate window, which is a genuinely separate program in memory from the main window -- so the online/offline state from 2.9.0 wasn't reaching it. The connection state is now shared across every open window via local storage, and updates live in all of them the instant you Connect or Disconnect anywhere."],
   ["2.9.1","Messages Phase 2 (replying), first attempt: real buyer/seller conversations now show a reply box and Send button instead of a read-only note (eBay's own FROM_EBAY notifications still correctly show as not-repliable). This is a best-effort build against eBay's REST API conventions, not confirmed documentation -- there is no real buyer message in this account yet to test against. If sending fails, the exact request and eBay's response are shown via Show details so it can be corrected precisely, the same way the read side was fixed in 2.8.9-2.8.11. Added a general ebay_post_user command/EBAY.postUser() for this and any future eBay write calls."],
   ["2.9.0","New Connect/Disconnect button next to the Live Mode badge: click Connect to activate the already-saved Production eBay connection without opening Configuration; the badge only turns green once that connection is actually verified live, and starts gray (Offline) every time WIM launches. Disconnect immediately drops the session (it overrides any in-progress connect attempt) and other live features (Messages, Find by Photo, photo upload, etc.) now require an active connection via this button, not just saved keys. New Messages dashboard widget is wired to a real unread count (refreshes automatically, throttled to once a minute) instead of a placeholder."],
@@ -1042,7 +1043,7 @@ const I={
   warn:`<svg viewBox="0 0 16 16"><path d="M8 1.5l6.5 12H1.5z" fill="#f4c542" stroke="#c89a1e" stroke-width=".7" stroke-linejoin="round"/><path d="M8 6v3.5" stroke="#7a5b00" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".9" fill="#7a5b00"/></svg>`,
   clipboard:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><rect x="3" y="2.5" width="10" height="12" rx="1" fill="#eef1f6"/><rect x="5.5" y="1.4" width="5" height="2.4" rx=".6" fill="#cdd6e2" stroke="#5b6470"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3" stroke-linecap="round"/></svg>`,
   cabinet:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><rect x="2.5" y="2" width="11" height="12" rx="1" fill="#eef1f6"/><path d="M2.5 8h11" /><path d="M6.5 5h3M6.5 11h3" stroke-linecap="round"/></svg>`,
-  gear:`<svg viewBox="0 0 16 16" fill="#7a8696"><path d="M8 1l1 1.8 2-.6.3 2 2 .6-.9 1.8.9 1.8-2 .6-.3 2-2-.6L8 15l-1-1.8-2 .6-.3-2-2-.6.9-1.8L2.6 6.6l2-.6.3-2 2 .6z"/><circle cx="8" cy="8" r="2.3" fill="#eef1f6"/></svg>`,
+  gear:`<img src="data:image/png;base64,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" alt="" draggable="false">`,
   printer:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><path d="M4.5 6V2.5h7V6" fill="#eef1f6"/><rect x="2.5" y="6" width="11" height="5" rx="1" fill="#cdd6e2"/><rect x="4.5" y="9.5" width="7" height="4" fill="#fff" stroke="#5b6470"/><circle cx="11.6" cy="8" r=".7" fill="#5b6470" stroke="none"/></svg>`
 };
 function tbtn(icon,label,cls=""){ return `<button class="tbtn ${cls}" title="${label}" data-act="${label}">${icon}</button>`; }
@@ -2770,13 +2771,37 @@ function openItemDetail(item,mode,nav){
         itemId:s.itemId||"", thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"",
         title:s.title||"", condition:s.condition||(s.conditionId?("Cond "+s.conditionId):""),
         price:(s.price&&s.price.value)?s.price.value:"", date:s.itemCreationDate||s.itemEndDate||"",
+        webUrl:s.itemWebUrl||s.itemAffiliateWebUrl||"",
         category:(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"" })) };
       cmpFilter={}; addHistory(it,"Pulled "+it.compare.items.length+" comparison listing(s) from eBay");
       save(); compareTab();
     }catch(e){ if(st){ st.style.color="#c0392b"; st.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); } }
   }
-  let cmpFilter={}; let cmpGroup=null;
+  function cmpFldS(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
+  function cmpPriceVal(s){ const p=cmpFldS(s,["lastSoldPrice","soldPrice","price"],null); if(p==null) return ""; return (typeof p==="object")?(p.value||""):p; }
+  async function pullSoldCompare(){
+    if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode."); return; }
+    const sc=subcatObj(it.section,it.subCategory); const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
+    if(!q){ uiAlert("Add a description or run Find on eBay first, so there's something to compare."); return; }
+    const st=body.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Checking eBay's sold-listings data…"; }
+    const base="/buy/marketplace_insights/v1_beta/item_sales/search?limit=15&q="+encodeURIComponent(q);
+    try{
+      let r=await EBAY.app(base+((sc&&sc.ebayId)?("&category_ids="+encodeURIComponent(sc.ebayId)):""), "https://api.ebay.com/oauth/api_scope/buy.marketplace.insights");
+      if(!r.ok){ it.compareSold={ pulledAt:new Date().toISOString(), items:[], error:{status:r.status,body:r.body} }; save(); compareTab(); return; }
+      let data={}; try{ data=JSON.parse(r.body); }catch(e){}
+      const raw=data.itemSales||data.itemSummaries||data.sales||[];
+      it.compareSold={ pulledAt:new Date().toISOString(), error:null, items: raw.map(s=>({
+        itemId:cmpFldS(s,["itemId","legacyItemId"],""), thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"",
+        title:cmpFldS(s,["title"],""), condition:cmpFldS(s,["condition"],"")||(s.conditionId?("Cond "+s.conditionId):""),
+        price:cmpPriceVal(s), soldDate:cmpFldS(s,["lastSoldDate","soldDate"],""),
+        webUrl:cmpFldS(s,["itemWebUrl","itemAffiliateWebUrl"],""),
+        category:(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"" })) };
+      save(); compareTab();
+    }catch(e){ it.compareSold={ pulledAt:new Date().toISOString(), items:[], error:{status:0,body:(e&&e.message)||String(e)} }; save(); compareTab(); }
+  }
+  let cmpFilter={}; let cmpGroup=null; let cmpMode="active";
   function compareTab(){
+    if(cmpMode==="sold") return compareSoldTab();
     const cmp=it.compare||null;
     const fmtP=v=>{ const n=parseFloat(v); return isNaN(n)?"—":("$"+n.toFixed(2)); };
     const allRows=(cmp&&cmp.items)?cmp.items:[];
@@ -2787,7 +2812,9 @@ function openItemDetail(item,mode,nav){
       return v; }
     const anyFilter=Object.keys(cmpFilter).some(k=>cmpFilter[k]!==undefined);
     const pinHead=(col,label,w)=>`<th style="position:relative;${w?('width:'+w+';'):''}"><span class="cmp-h" data-col="${col}" style="cursor:pointer;" title="Click to group by ${label}">${label}${cmpGroup===col?' ⤓':''}</span> <span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${(cmpFilter[col]!==undefined)?'#1f5fbf':'#9a9a9a'};font-size:11px;">▾</span></th>`;
+    const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
     tabbody.innerHTML=`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;" id="cmp-avg">—</div></div>
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;" id="cmp-range">—</div></div>
@@ -2797,7 +2824,8 @@ function openItemDetail(item,mode,nav){
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date Listed","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+    tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
     const upd=tabbody.querySelector("#cmp-update"); if(upd) upd.onclick=pullCompare;
     const clr=tabbody.querySelector("#cmp-clear"); if(clr) clr.onclick=()=>{ cmpFilter={}; cmpGroup=null; compareTab(); };
     if(!cmp && !it._compareAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareAutoTried=true; pullCompare(); return; }
@@ -2844,8 +2872,10 @@ function openItemDetail(item,mode,nav){
       if(!visible.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No rows match the filter.</td></tr>`; return; }
       visible.forEach((row)=>{ const tr=document.createElement("tr");
         const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
+        const titleCell = row.webUrl ? `<a href="#" class="cmp-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
         tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
-          <td style="font-size:12px;">${esc(row.title)}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
+          <td style="font-size:12px;">${titleCell}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
+        const lk=tr.querySelector(".cmp-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); try{ window.open(lk.dataset.url,'_blank'); }catch(_){} };
         const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
         cb.onclick=()=>{ const changes=[];
           if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
@@ -2860,6 +2890,41 @@ function openItemDetail(item,mode,nav){
         tb.appendChild(tr); });
     }
     repaint();
+  }
+  function compareSoldTab(){
+    const cmp=it.compareSold||null;
+    const fmtP=v=>{ const n=parseFloat(v); return isNaN(n)?"—":("$"+n.toFixed(2)); };
+    const rows=(cmp&&cmp.items)?cmp.items:[];
+    const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
+    const stats=rows.length?compareStats(rows):null;
+    tabbody.innerHTML=`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?(fmtP(stats.min)+" – "+fmtP(stats.max)):"—"}</div></div>
+        <div class="smallhint">${rows.length} of ${rows.length} shown</div>
+        <span style="flex:1;"></span>
+        <div style="text-align:right;"><button class="btn sm" id="cmps-update" ${ro?'disabled':''}>Update Listings</button>
+          <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
+      </div>
+      <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:100px;">Condition</th><th style="width:80px;">Price</th><th style="width:100px;">Date Listed</th><th style="width:100px;">Date Sold</th><th>Category</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
+    tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
+    const upd=tabbody.querySelector("#cmps-update"); if(upd) upd.onclick=pullSoldCompare;
+    if(!cmp && !it._compareSoldAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareSoldAutoTried=true; pullSoldCompare(); return; }
+    const tb=tabbody.querySelector("#cmps-tb");
+    if(cmp&&cmp.error){ tb.innerHTML=`<tr><td colspan="8" style="color:#c0392b;">Sold listings aren't available on this connection (HTTP ${cmp.error.status}).<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.</td></tr>`; return; }
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings yet. Click <b>Update Listings</b> to pull the most recent sold comps.</td></tr>`; return; }
+    tb.innerHTML="";
+    rows.forEach((row)=>{ const tr=document.createElement("tr");
+      const d=row.soldDate?new Date(row.soldDate):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
+      const titleCell = row.webUrl ? `<a href="#" class="cmps-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
+      tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
+        <td style="font-size:12px;">${titleCell}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>—</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
+      const lk=tr.querySelector(".cmps-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); try{ window.open(lk.dataset.url,'_blank'); }catch(_){} };
+      const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
+      x.onclick=()=>{ const i=it.compareSold.items.indexOf(row); if(i>=0) it.compareSold.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
+      tb.appendChild(tr); });
   }
   function historyTab(){
     const hist=(it.history||[]).slice().sort((a,b)=> new Date(b.at)-new Date(a.at));
@@ -3628,6 +3693,8 @@ function openEbayFind(it, onDone){
   let chosen=null;            // {id, leaf, path} of the picked eBay category
   let foundTitle="";          // suggested listing title from Browse
   let lastQuery="";           // the search text used
+  let listingTab="active";    // "active" | "sold" | "catalog"
+  let activeItems=[], soldItems=[], soldTried=false, soldError=null, catalogItems=[];
   function searchScreen(){
     body.innerHTML=`<div style="padding:14px;overflow:auto;height:100%;">
       <div class="ff" style="grid-template-columns:90px 1fr auto;gap:8px;align-items:center;">
@@ -3663,7 +3730,21 @@ function openEbayFind(it, onDone){
   }
   function condText(s){ return s.condition || (s.conditionId?("Condition "+s.conditionId):"") || ""; }
   function thumbOf(s){ return (s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl) || (s.image&&s.image.imageUrl) || ""; }
+  function fldS(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
+  function priceVal(s){ const p=fldS(s,["lastSoldPrice","soldPrice","price"],null); if(p==null) return ""; return (typeof p==="object")?(p.value||""):p; }
+  function findCatalogMatches(q){
+    const qq=(q||"").toLowerCase().trim(); if(!qq) return [];
+    const words=qq.split(/\s+/).filter(w=>w.length>2);
+    return (DB.items||[]).filter(x=>{
+      const d=(x.desc||"").toLowerCase(); if(!d) return false;
+      if(d.includes(qq)) return true;
+      if(!words.length) return false;
+      const hits=words.filter(w=>d.includes(w)).length;
+      return hits>=Math.ceil(words.length*0.6);
+    }).slice(0,20);
+  }
   async function loadListings(){ if(!chosen){ searchScreen(); return; }
+    listingTab="active"; soldTried=false; soldItems=[]; soldError=null;
     setMsg("Pulling similar eBay listings…");
     let items=[];
     try{ const q2=lastQuery||it.desc||chosen.leaf;
@@ -3673,30 +3754,98 @@ function openEbayFind(it, onDone){
       if(!items.length){ const r2=await EBAY.app("/buy/browse/v1/item_summary/search?limit=10&q="+encodeURIComponent(q2));
         if(r2.ok) items=(JSON.parse(r2.body).itemSummaries)||[]; }
     }catch(e){ setMsg("Could not reach eBay: "+(e&&e.message?e.message:e)); return; }
+    activeItems=items;
+    catalogItems=findCatalogMatches(lastQuery||it.desc||chosen.leaf);
+    paintListingScreen();
+  }
+  function paintListingScreen(){
     body.innerHTML=`<div style="padding:14px;overflow:auto;height:100%;">
       <div style="font-size:12.5px;color:#555;">eBay category: <b>${esc(chosen.path)}</b></div>
-      <div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap;">
         <button class="btn sm" id="ef-back">‹ Back</button>
-        <span class="col-title" style="text-align:left;margin:0;">Pick the closest listing to copy</span>
+        <button class="btn sm ef-tab" data-tab="active" style="${listingTab==='active'?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">Active</button>
+        <button class="btn sm ef-tab" data-tab="sold" style="${listingTab==='sold'?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">Sold Items</button>
+        <button class="btn sm ef-tab" data-tab="catalog" ${catalogItems.length?'':'disabled'} title="${catalogItems.length?'':'No matches in your WIM catalog for this search'}" style="${listingTab==='catalog'?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':(catalogItems.length?'color:#3b7dd8;border-color:#3b7dd8;':'opacity:.45;')}">Catalog${catalogItems.length?(' ('+catalogItems.length+')'):''}</button>
         <span style="flex:1;"></span><a href="#" id="ef-manual" class="smallhint" style="text-decoration:underline;">just use the category fields</a></div>
       <div id="ef-list"></div>
       <div id="ef-msg" class="err" style="margin-top:8px;"></div></div>`;
     body.querySelector("#ef-back").onclick=()=>{ chosen=null; searchScreen(); body.querySelector("#ef-q")&&(body.querySelector("#ef-q").value=lastQuery); doSearch(lastQuery); };
     body.querySelector("#ef-manual").onclick=(e)=>{ e.preventDefault(); loadAspects(); };
-    const host=body.querySelector("#ef-list");
-    if(!items.length){ const sb=((DB.ebay&&DB.ebay.env)!=="production");
-      host.innerHTML=`<div class="smallhint">${sb?'You\'re connected to <b>Sandbox</b>, which has almost no real listings — switch to <b>Production</b> in Configuration → eBay Connection to see comparable listings.<br><br>':''}No listings came back for this search. Use “just use the category fields” to fill them in manually.</div>`; return; }
-    items.forEach(s=>{ const card=document.createElement("div");
-      card.style.cssText="display:flex;gap:10px;align-items:center;border:1px solid #d8d8d8;border-radius:4px;padding:8px;margin-bottom:8px;background:#fff;";
-      const thumb=thumbOf(s); const price=(s.price&&s.price.value)?("$"+s.price.value):"—"; const cat=(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"";
-      card.innerHTML=`${thumb?`<img src="${esc(thumb)}" style="width:56px;height:56px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:`<div style="width:56px;height:56px;background:#f0f0f0;border:1px solid #eee;"></div>`}
-        <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.title||"")}</div>
-          <div class="smallhint">${esc(condText(s))}${cat?" · "+esc(cat):""}</div></div>
-        <div style="font-weight:600;white-space:nowrap;">${esc(price)}</div>
-        <button class="btn sm ef-use">Use this</button>`;
-      card.querySelector(".ef-use").onclick=()=>applyPicked(s);
-      host.appendChild(card);
-    });
+    body.querySelectorAll(".ef-tab").forEach(b=>b.onclick=()=>{ if(b.disabled) return; listingTab=b.dataset.tab; paintListingScreen(); if(listingTab==="sold"&&!soldTried) loadSoldItems(); });
+    renderListingList();
+  }
+  function rowCard(thumb,titleHtml,sub,price,useFn){
+    const card=document.createElement("div");
+    card.style.cssText="display:flex;gap:10px;align-items:center;border:1px solid #d8d8d8;border-radius:4px;padding:8px;margin-bottom:8px;background:#fff;";
+    card.innerHTML=`${thumb?`<img src="${esc(thumb)}" style="width:56px;height:56px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:`<div style="width:56px;height:56px;background:#f0f0f0;border:1px solid #eee;"></div>`}
+      <div style="flex:1;min-width:0;">${titleHtml}
+        <div class="smallhint">${sub}</div></div>
+      <div style="font-weight:600;white-space:nowrap;">${esc(price)}</div>
+      <button class="btn sm ef-use">Use this</button>`;
+    card.querySelector(".ef-use").onclick=useFn;
+    const lk=card.querySelector(".ef-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); try{ window.open(lk.dataset.url,'_blank'); }catch(_){} };
+    return card;
+  }
+  function titleHtmlFor(s){ const url=s.itemWebUrl||""; const t=esc(s.title||"");
+    return url?`<a href="#" class="ef-titlelink" data-url="${esc(url)}" style="font-size:13px;font-weight:600;color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t}</a>`
+      :`<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t}</div>`; }
+  function renderListingList(){
+    const host=body.querySelector("#ef-list"); if(!host) return; host.innerHTML="";
+    if(listingTab==="active") return renderActiveList(host);
+    if(listingTab==="sold") return renderSoldList(host);
+    if(listingTab==="catalog") return renderCatalogList(host);
+  }
+  function renderActiveList(host){
+    if(!activeItems.length){ const sb=((DB.ebay&&DB.ebay.env)!=="production");
+      host.innerHTML=`<div class="smallhint">${sb?'You\'re connected to <b>Sandbox</b>, which has almost no real listings — switch to <b>Production</b> in Configuration → eBay Connection to see comparable listings.<br><br>':''}No active listings came back for this search. Use “just use the category fields” to fill them in manually.</div>`; return; }
+    activeItems.forEach(s=>{ const cat=(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"";
+      const price=(s.price&&s.price.value)?("$"+s.price.value):"—";
+      host.appendChild(rowCard(thumbOf(s),titleHtmlFor(s),esc(condText(s))+(cat?" · "+esc(cat):""),price,()=>applyPicked(s))); });
+  }
+  async function loadSoldItems(){
+    soldTried=true; const host=body.querySelector("#ef-list"); if(host&&listingTab==="sold") host.innerHTML=`<div class="smallhint">Checking eBay's sold-listings data…</div>`;
+    const q2=lastQuery||it.desc||chosen.leaf;
+    try{
+      const r=await EBAY.app("/buy/marketplace_insights/v1_beta/item_sales/search?limit=10&category_ids="+encodeURIComponent(chosen.id)+"&q="+encodeURIComponent(q2), "https://api.ebay.com/oauth/api_scope/buy.marketplace.insights");
+      if(!r.ok){ soldItems=[]; soldError=r; if(listingTab==="sold") renderListingList(); return; }
+      let data={}; try{ data=JSON.parse(r.body); }catch(e){}
+      const raw=data.itemSales||data.itemSummaries||data.sales||[];
+      soldItems=raw.map(s=>({ itemId:fldS(s,["itemId","legacyItemId"],""), title:fldS(s,["title"],""),
+        price:{value:priceVal(s)}, condition:fldS(s,["condition"],""), conditionId:fldS(s,["conditionId"],""),
+        thumbnailImages:s.thumbnailImages||(s.image?[{imageUrl:s.image.imageUrl}]:[]),
+        categories:s.categories||[], itemWebUrl:fldS(s,["itemWebUrl","itemAffiliateWebUrl"],""),
+        lastSoldDate:fldS(s,["lastSoldDate","soldDate"],"") }));
+      soldError=null;
+    }catch(e){ soldItems=[]; soldError={status:0,body:(e&&e.message)||String(e)}; }
+    if(listingTab==="sold") renderListingList();
+  }
+  function renderSoldList(host){
+    if(soldError){ host.innerHTML=`<div class="smallhint" style="color:#c0392b;">Sold listings aren't available on this connection (HTTP ${soldError.status}).<br><br>${esc((soldError.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.</div>`; return; }
+    if(!soldTried){ host.innerHTML=`<div class="smallhint">Loading…</div>`; return; }
+    if(!soldItems.length){ host.innerHTML=`<div class="smallhint">No recently sold listings came back for this search.</div>`; return; }
+    soldItems.slice(0,10).forEach(s=>{ const cat=(s.categories&&s.categories[0]&&s.categories[0].categoryName)||"";
+      const price=(s.price&&s.price.value)?("$"+s.price.value):"—";
+      const d=s.lastSoldDate?new Date(s.lastSoldDate):null; const dateStr=(d&&!isNaN(d))?("Sold "+d.toLocaleDateString()):"";
+      host.appendChild(rowCard(thumbOf(s),titleHtmlFor(s),esc(condText(s))+(cat?" · "+esc(cat):"")+(dateStr?" · "+esc(dateStr):""),price,()=>applyPicked(s))); });
+  }
+  function renderCatalogList(host){
+    if(!catalogItems.length){ host.innerHTML=`<div class="smallhint">No matches in your WIM catalog for this search.</div>`; return; }
+    catalogItems.forEach(ci=>{ const price=(ci.listing&&ci.listing.price)?("$"+ci.listing.price):(ci.retail?("$"+ci.retail):"—");
+      const titleHtml=`<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(ci.desc||"(no description)")}</div>`;
+      const sub=esc(ci.condition||"—")+(ci.sold?" · previously sold":" · in your inventory")+(ci.sku?(" · SKU "+esc(ci.sku)):"");
+      host.appendChild(rowCard(ci.image||"",titleHtml,sub,price,()=>applyCatalogItem(ci))); });
+  }
+  function applyCatalogItem(ci){
+    if(!it.listing) it.listing={status:"none"};
+    if(ci.desc){ it.desc=ci.desc; it.listing.title=ci.desc; it.listing.descBody=ci.desc; }
+    if(ci.condition) it.condition=ci.condition;
+    const p=(ci.listing&&ci.listing.price)||ci.retail; if(p) it.listing.price=String(p);
+    if(ci.image) it.image=ci.image;
+    if(ci.section && DB.sections.includes(ci.section)) it.section=ci.section;
+    if(ci.subCategory) it.subCategory=ci.subCategory;
+    addHistory(it,"Copied from WIM catalog: "+(ci.desc||""));
+    save(); if(onDone) onDone(); close();
+    uiAlert("Loaded from your WIM catalog.\nCategory: "+it.section+(it.subCategory?(" · Sub category: "+it.subCategory):""));
   }
   function ensureCategory(mainCat, done){
     if(DB.sections.includes(mainCat)){ it.section=mainCat; done(); return; }
@@ -3809,8 +3958,8 @@ async function pullNewListings(after){
 /* ============================================================ FIND BY PHOTO (eBay image search → price range) ============================================================ */
 function openFindByPhoto(){
   const id="find-by-photo"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Find by Photo",width:940,height:640,popoutKey:"findbyphoto",
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Match a photo to similar eBay listings and get a price range</span>`});
+  const {body}=buildWindow({id,title:"Find by Photo",width:1020,height:660,popoutKey:"findbyphoto",
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Match a photo to similar eBay listings and get a price range &middot; results are <b>active</b> listings only (eBay's public API can't show sold listings without separate approval)</span>`});
   let results=[]; const sel=new Set();
   function render(){
     body.innerHTML=`<div style="padding:14px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">
@@ -3822,7 +3971,7 @@ function openFindByPhoto(){
         </div>
         <div style="flex:1;min-width:300px;">
           <div id="fp-stats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;"></div>
-          <div class="resultwrap" style="margin:0;"><table class="res"><thead><tr><th style="width:40px;"></th><th style="width:46px;"></th><th>Title</th><th style="width:110px;">Condition</th><th style="width:90px;">Price</th></tr></thead><tbody id="fp-tb"></tbody></table></div>
+          <div class="resultwrap" style="margin:0;"><table class="res"><thead><tr><th style="width:40px;"></th><th style="width:46px;"></th><th>Title</th><th style="width:100px;">Condition</th><th style="width:64px;">Status</th><th style="width:90px;">Buying</th><th style="width:90px;">Price</th><th style="width:120px;"></th></tr></thead><tbody id="fp-tb"></tbody></table></div>
         </div></div>`;
     const box=body.querySelector("#fp-box"), file=body.querySelector("#fp-file"), go=body.querySelector("#fp-go"), msg=body.querySelector("#fp-msg");
     let b64="";
@@ -3837,7 +3986,7 @@ function openFindByPhoto(){
       try{ const r=await EBAY.searchByImage(b64,15);
         if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="eBay image search failed (HTTP "+r.status+"): "+(r.body||"").slice(0,160); go.disabled=false; return; }
         const items=(JSON.parse(r.body).itemSummaries)||[];
-        results=items.map(s=>({ itemId:s.itemId||"", thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"", title:s.title||"", condition:s.condition||"", price:(s.price&&s.price.value)?s.price.value:"" }));
+        results=items.map(s=>({ itemId:s.itemId||"", thumb:(s.thumbnailImages&&s.thumbnailImages[0]&&s.thumbnailImages[0].imageUrl)||(s.image&&s.image.imageUrl)||"", title:s.title||"", condition:s.condition||"", price:(s.price&&s.price.value)?s.price.value:"", webUrl:s.itemWebUrl||s.itemAffiliateWebUrl||"", buying:(s.buyingOptions||[]).join(", ") }));
         sel.clear(); results.forEach((_,i)=>sel.add(i));
         msg.style.color=results.length?"#1f7244":"#c0392b"; msg.textContent=results.length?(results.length+" matches found."):"No similar listings came back.";
         paint();
@@ -3853,13 +4002,20 @@ function openFindByPhoto(){
     const card=(l,v)=>`<div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 1px 4px rgba(31,45,71,.05);"><div class="smallhint">${l}</div><div style="font-size:18px;font-weight:700;color:#28313f;">${v}</div></div>`;
     stats.innerHTML = card("Median (selected)", fmt(median)) + card("Range", prices.length?(fmt(prices[0])+" – "+fmt(prices[prices.length-1])):"—") + card("Selected", chosen.length+" of "+results.length);
     tb.innerHTML="";
-    if(!results.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">Choose a photo and click <b>Find Matches</b> to see similar eBay listings. Tick rows to include them in the price range.</td></tr>`; return; }
+    if(!results.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">Choose a photo and click <b>Find Matches</b> to see similar eBay listings. Tick rows to include them in the price range.</td></tr>`; return; }
     results.forEach((r,i)=>{ const tr=document.createElement("tr");
       const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("span"); cb.className="chk"+(sel.has(i)?" on":""); cb.onclick=()=>{ if(sel.has(i)) sel.delete(i); else sel.add(i); cb.classList.toggle("on"); paint(); }; tdC.appendChild(cb); tr.appendChild(tdC);
       const td2=document.createElement("td"); td2.innerHTML=r.thumb?`<img src="${esc(r.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:6px;">`:""; tr.appendChild(td2);
       const td3=document.createElement("td"); td3.style.fontSize="12px"; td3.textContent=r.title; tr.appendChild(td3);
       const td4=document.createElement("td"); td4.textContent=r.condition||"—"; tr.appendChild(td4);
-      const td5=document.createElement("td"); td5.textContent=r.price?("$"+r.price):"—"; tr.appendChild(td5);
+      const td5=document.createElement("td"); td5.innerHTML=`<span title="eBay's API only returns active listings — sold items aren't available here." style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#1f7244;font-weight:600;"><span style="width:7px;height:7px;border-radius:50%;background:#1f9d55;display:inline-block;"></span>Active</span>`; tr.appendChild(td5);
+      const td6=document.createElement("td"); td6.style.fontSize="11.5px"; td6.style.color="#5b6470"; td6.textContent=r.buying||"—"; tr.appendChild(td6);
+      const td7=document.createElement("td"); td7.textContent=r.price?("$"+r.price):"—"; tr.appendChild(td7);
+      const td8=document.createElement("td"); td8.style.whiteSpace="nowrap";
+      if(r.webUrl){ const a=document.createElement("a"); a.href="#"; a.textContent="View"; a.style.cssText="color:#3b7dd8;font-size:11.5px;margin-right:8px;"; a.onclick=(e)=>{ e.preventDefault(); try{ window.open(r.webUrl,'_blank'); }catch(_){} }; td8.appendChild(a); }
+      const cBtn=document.createElement("button"); cBtn.className="btn sm"; cBtn.textContent="+ Create item"; cBtn.title="Start a new WIM item pre-filled from this listing";
+      cBtn.onclick=()=>openItemDetail({ desc:r.title, condition:r.condition||"New", image:r.thumb||"", retail:r.price||"0.00" }, "new");
+      td8.appendChild(cBtn); tr.appendChild(td8);
       tb.appendChild(tr); });
   }
   render();
