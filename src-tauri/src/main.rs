@@ -260,6 +260,15 @@ async fn exchange_auth_code(
 //      which the user has pointed at this same local listener.
 //   4. WIM reads the authorization code off that one request and exchanges it for a refresh
 //      token, immediately, in the same process — no external step, no paste-in.
+// Opens a URL in the user's default system browser. JS's window.open() does not reliably do
+// this inside a Tauri webview (it's not a real browser — there's no "new tab" to open into),
+// which is exactly why the eBay sign-in flow already used open::that() directly rather than
+// window.open(). Every "open this in your browser" link in the app should go through this.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn ebay_oauth_login(
     env: String,
@@ -777,7 +786,8 @@ fn main() {
             ebay_upload_picture,
             ebay_search_by_image,
             ebay_token_probe,
-            ebay_oauth_login
+            ebay_oauth_login,
+            open_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");

@@ -343,6 +343,13 @@
 /* ---- desktop (Tauri) bridge: present only in the standalone build ---- */
 const wimDesktop = (window.__TAURI__ && window.__TAURI__.core) ? { invoke:(c,a)=>window.__TAURI__.core.invoke(c,a) } : null;
 const WIM_IS_DESKTOP = !!wimDesktop;
+// window.open() does not reliably launch the user's real system browser from inside a Tauri
+// webview (it isn't a browser — there's nothing for "open a new tab" to mean). Every link that
+// should open in the user's actual browser must go through this instead.
+function openExternal(url){
+  if(WIM_IS_DESKTOP){ wimDesktop.invoke("open_url",{url}).catch(()=>{ try{ window.open(url,'_blank'); }catch(_){} }); }
+  else { try{ window.open(url,'_blank'); }catch(_){} }
+}
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
 const WIM_POPOUT_KEY=WIM_POPOUT_MATCH?decodeURIComponent(WIM_POPOUT_MATCH[1]):null;
@@ -361,7 +368,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.6", BUILD_DATE="2026-06-29", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.12", BUILD_DATE="2026-07-01", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -420,6 +427,12 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.12","Fixed the Rust build error from 2.9.11: when open_url was inserted, it accidentally landed between ebay_oauth_login's #[tauri::command] attribute and the function itself, leaving ebay_oauth_login with no attribute at all (and open_url with a misplaced one) -- causing defined multiple times / cannot find macro errors. Each function now has exactly one attribute directly above it, confirmed against the actual attribute and command counts."],
+  ["2.9.11","Fixed every \"open this in your browser\" link in the app (Open Product Research, View links in Find on eBay/Find by Photo/Price Compare, the eBay sold-search fallback, the Messages notification link) -- they were using window.open(), which does not reliably launch the real system browser from inside a Tauri window since it is not an actual browser. They now go through the same mechanism that already worked for eBay sign-in (Rust's open crate via a Tauri command), which is the proper way to do this. This was likely broken since it was first introduced and is a correction, not a new feature."],
+  ["2.9.10","Renamed Research on eBay to Open Product Research (matches eBay's own name for the tool). Fixed photos not coming through on paste in Sold Items: a plain textarea can only ever receive plain text on paste -- that is a browser limitation, not something WIM controls -- so the paste box now reads the richer pasted content directly and pulls the real photo URLs out of it (filtered to eBay's own image hosting so logos/icons do not get swept in). Photos are matched by position (1st photo to 1st row, etc.) since there is no reliable way to tie a specific photo to a specific row from copied text alone -- the preview now shows a thumbnail per row so you can confirm they line up correctly before adding."],
+  ["2.9.9","Fixed a mismatch in Sold Items: clicking Pull Sold Listings (after the API attempt failed) opened the plain eBay sold-search page, but pasting that into the box gave a confusing wrong-parser error if you actually had the Seller Hub Research tool open. All fallback paths -- Pull Sold Listings, the error screen's manual button, and Research on eBay -- now consistently copy the search text to your clipboard and open the Research tool, so there is one single, working paste flow instead of two that could mismatch."],
+  ["2.9.8","Sold Items gained a second source: Research on eBay copies the item's search text to your clipboard and opens eBay's Seller Hub Research tool (richer than the plain sold-search page -- avg sold price, total units sold, last-sold date), then walks you through pasting the results back into WIM with a parser built and tested against a real sample of that exact page. Also added a Condition filter on Sold Items so Suggested Price and Price Range recalculate for just that condition, and results now default-sort by most recently sold. Confirmed: neither this source nor the plain sold-search page expose an original listing date, so Days Listed still is not available from manual sources -- only true with eBay-approved access."],
+  ["2.9.7","Price Compare Sold Items now has a real, no-ToS-risk way to get sold data: Pull Sold Listings tries eBay's Marketplace Insights API first (so it auto-upgrades itself for free the day that's ever approved), and falls back to opening a normal eBay sold-listings search in your browser plus a paste box in WIM. Paste what you copy and WIM parses it into rows (title, condition, price, sold date), pre-flagging bundle/lot listings to leave unchecked, with a preview before anything is added. This involves no automated access to eBay -- it is a person reading a webpage and copying text, the same as using Terapeak manually, just streamlined."],
   ["2.9.6","Real eBay Publish/Delist: the listing screen now has Publish to eBay and Delist from eBay buttons that actually talk to eBay (createOrReplaceInventoryItem -> createOffer -> publishOffer, and withdrawOffer to delist), instead of only flipping a local status flag. New one-time Listing setup section in Configuration -> eBay Connection to load and pick your existing shipping/payment/return policies and inventory location (eBay requires these on every offer; WIM cannot invent them). A plain local-status-only toggle link remains for items listed manually outside WIM. Also: Items Needing SKU dashboard widget is now wired to real data (reuses the existing Listed, no SKU puller in the background, refreshes automatically). This is a first build against eBay's well-documented Sell Inventory API, not a beta one, but it has not been tested against a real account yet -- every failure shows eBay's exact response so we can fix anything precisely on the first real attempt, the same way Messages got fixed."],
   ["2.9.5","Find by Photo overhaul: added a Status column, a Buying Option column (fixed price / auction / best offer), a View link to the actual eBay listing, and a + Create item button per row that opens a new WIM item pre-filled from that match (every row correctly shows Active since eBay's image-search API cannot return sold items at all). Replaced the flat gear icon with the new silver 3D gear icon everywhere it appears (Configuration in the tree, widget settings gear, widget settings popup, Configure Widgets button). Find on eBay now has Active / Sold Items / Catalog tabs -- Catalog is your own WIM history and lights up blue only when a match is found, autofilling from Use this. Listing titles are now clickable links to the real eBay listing in Find on eBay and Price Compare. Price Compare gained matching Active / Sold Items tabs, and Date is now Date Listed. Sold Items in both places call eBay's real Marketplace Insights API and show eBay's exact error if the account isn't approved for it -- this requires eBay's separate Application Growth Check process (developer.ebay.com/grow/application-growth-check), not a WIM setting. Days Listed and the Pricing Calculator are intentionally not built yet, pending real approved access to confirm the data is even available."],
   ["2.9.2","Fixed Messages (and any other app) saying \"not connected\" right after connecting via the taskbar Connect button or Configuration. Cause: by default every app opens in its own separate window, which is a genuinely separate program in memory from the main window -- so the online/offline state from 2.9.0 wasn't reaching it. The connection state is now shared across every open window via local storage, and updates live in all of them the instant you Connect or Disconnect anywhere."],
@@ -2971,6 +2984,7 @@ function openItemDetail(item,mode,nav){
     }catch(e){ it.compareSold={ pulledAt:new Date().toISOString(), items:[], error:{status:0,body:(e&&e.message)||String(e)} }; save(); compareTab(); }
   }
   let cmpFilter={}; let cmpGroup=null; let cmpMode="active";
+  let soldPasteMode=false; let soldPasteRows=null; let soldPasteSource="sellerhub"; let soldCondFilter="";
   function compareTab(){
     if(cmpMode==="sold") return compareSoldTab();
     const cmp=it.compare||null;
@@ -3046,7 +3060,7 @@ function openItemDetail(item,mode,nav){
         const titleCell = row.webUrl ? `<a href="#" class="cmp-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
         tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
           <td style="font-size:12px;">${titleCell}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
-        const lk=tr.querySelector(".cmp-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); try{ window.open(lk.dataset.url,'_blank'); }catch(_){} };
+        const lk=tr.querySelector(".cmp-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
         const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
         cb.onclick=()=>{ const changes=[];
           if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
@@ -3063,9 +3077,12 @@ function openItemDetail(item,mode,nav){
     repaint();
   }
   function compareSoldTab(){
+    if(soldPasteMode) return compareSoldPasteUI();
     const cmp=it.compareSold||null;
     const fmtP=v=>{ const n=parseFloat(v); return isNaN(n)?"—":("$"+n.toFixed(2)); };
-    const rows=(cmp&&cmp.items)?cmp.items:[];
+    const allRows=((cmp&&cmp.items)?cmp.items:[]).slice().sort((a,b)=>{ const da=a.soldDate?new Date(a.soldDate).getTime():0, db=b.soldDate?new Date(b.soldDate).getTime():0; return db-da; }); // most recently sold first
+    const conds=Array.from(new Set(allRows.map(r=>r.condition).filter(Boolean)));
+    const rows = soldCondFilter ? allRows.filter(r=>r.condition===soldCondFilter) : allRows;
     const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
     const stats=rows.length?compareStats(rows):null;
     tabbody.innerHTML=`
@@ -3073,29 +3090,128 @@ function openItemDetail(item,mode,nav){
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?(fmtP(stats.min)+" – "+fmtP(stats.max)):"—"}</div></div>
-        <div class="smallhint">${rows.length} of ${rows.length} shown</div>
+        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Condition</div><select class="cmb" id="cmps-condfilter" style="margin-top:2px;"><option value="">All (${allRows.length})</option>${conds.map(c=>`<option value="${esc(c)}" ${soldCondFilter===c?'selected':''}>${esc(c)} (${allRows.filter(r=>r.condition===c).length})</option>`).join("")}</select></div>
+        <div class="smallhint">${rows.length} of ${allRows.length} shown · sorted by most recently sold</div>
         <span style="flex:1;"></span>
-        <div style="text-align:right;"><button class="btn sm" id="cmps-update" ${ro?'disabled':''}>Update Listings</button>
+        <div style="text-align:right;"><button class="btn sm" id="cmps-update" ${ro?'disabled':''}>Pull Sold Listings</button> <button class="btn sm" id="cmps-research" ${ro?'disabled':''} title="Copies this item's search text and opens eBay's Product Research tool">Open Product Research</button>
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
       <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:100px;">Condition</th><th style="width:80px;">Price</th><th style="width:100px;">Date Listed</th><th style="width:100px;">Date Sold</th><th>Category</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
     tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
-    const upd=tabbody.querySelector("#cmps-update"); if(upd) upd.onclick=pullSoldCompare;
+    const cf=tabbody.querySelector("#cmps-condfilter"); if(cf) cf.onchange=()=>{ soldCondFilter=cf.value; compareTab(); };
+    const qText=()=> it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
+    const upd=tabbody.querySelector("#cmps-update");
+    if(upd) upd.onclick=async ()=>{
+      if(!EBAY.ready()){ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); return; }
+      upd.disabled=true; await pullSoldCompare(); upd.disabled=false;
+      if(it.compareSold && it.compareSold.error){ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); }
+    };
+    const rsrch=tabbody.querySelector("#cmps-research");
+    if(rsrch) rsrch.onclick=()=>{
+      const q=qText();
+      try{ navigator.clipboard && navigator.clipboard.writeText(q); }catch(_){}
+      openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD");
+      soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; compareTab();
+    };
     if(!cmp && !it._compareSoldAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareSoldAutoTried=true; pullSoldCompare(); return; }
     const tb=tabbody.querySelector("#cmps-tb");
-    if(cmp&&cmp.error){ tb.innerHTML=`<tr><td colspan="8" style="color:#c0392b;">Sold listings aren't available on this connection (HTTP ${cmp.error.status}).<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.</td></tr>`; return; }
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings yet. Click <b>Update Listings</b> to pull the most recent sold comps.</td></tr>`; return; }
+    if(cmp&&cmp.error){ tb.innerHTML=`<tr><td colspan="8" style="color:#c0392b;">Sold listings aren't available on this connection (HTTP ${cmp.error.status}).<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.<br><br><button class="btn sm" id="cmps-gomanual" style="margin-top:6px;">Research &amp; paste sold listings manually instead</button></td></tr>`;
+      const gm=tb.querySelector("#cmps-gomanual"); if(gm) gm.onclick=()=>{ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); };
+      return; }
+    if(!allRows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings yet. Click <b>Pull Sold Listings</b> or <b>Open Product Research</b> to fetch sold comps.</td></tr>`; return; }
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings match condition “${esc(soldCondFilter)}”.</td></tr>`; return; }
     tb.innerHTML="";
     rows.forEach((row)=>{ const tr=document.createElement("tr");
       const d=row.soldDate?new Date(row.soldDate):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
       const titleCell = row.webUrl ? `<a href="#" class="cmps-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
       tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
         <td style="font-size:12px;">${titleCell}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>—</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
-      const lk=tr.querySelector(".cmps-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); try{ window.open(lk.dataset.url,'_blank'); }catch(_){} };
+      const lk=tr.querySelector(".cmps-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
       const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
       x.onclick=()=>{ const i=it.compareSold.items.indexOf(row); if(i>=0) it.compareSold.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
       tb.appendChild(tr); });
+  }
+  function compareSoldPasteUI(){
+    const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
+    const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
+    const isSH=soldPasteSource==="sellerhub";
+    if(!soldPasteRows){
+      const instructions = isSH
+        ? `This item's search text was copied to your clipboard, and a tab opened to eBay's Research tool. Click into its search bar, paste (Ctrl+V / Cmd+V) and press Enter or click Research, switch to the <b>Sold</b> tab there, then select the results (click-drag) or press Ctrl+A, copy (Ctrl+C / Cmd+C), and paste below.`
+        : `A browser tab should have opened to eBay's sold listings for this item. Select the rows you want (click-drag with your mouse), copy them (Ctrl+C / Cmd+C), then paste below.`;
+      const reopenUrl = isSH ? "https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD" : ebaySoldSearchUrl(q);
+      tabbody.innerHTML=`
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
+        <div class="note" style="margin-bottom:10px;">${instructions}</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;"><button class="btn sm" id="cmps-reopen">${isSH?"Reopen Research tool":"Reopen eBay sold search"}</button><button class="btn sm" id="cmps-cancelpaste">Cancel</button></div>
+        <div id="cmps-pastebox" contenteditable="true" data-placeholder="Paste copied eBay sold listings here…" style="width:100%;min-height:160px;max-height:300px;overflow:auto;font-family:inherit;font-size:12px;padding:8px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;white-space:pre-wrap;outline:none;"></div>
+        <div style="margin-top:8px;"><button class="btn primary" id="cmps-parse">Parse pasted listings</button> <span class="smallhint" id="cmps-pastemsg"></span></div>`;
+      tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; soldPasteMode=false; compareTab(); });
+      tabbody.querySelector("#cmps-reopen").onclick=()=>{
+        if(isSH){ try{ navigator.clipboard && navigator.clipboard.writeText(q); }catch(_){} }
+        openExternal(reopenUrl);
+      };
+      tabbody.querySelector("#cmps-cancelpaste").onclick=()=>{ soldPasteMode=false; compareTab(); };
+      const pastebox=tabbody.querySelector("#cmps-pastebox");
+      let lastPasteText="", lastPasteHtml="";
+      // A plain <textarea> can only ever receive plain text on paste — browsers strip images
+      // out by design. This is a contenteditable instead specifically so we can also read the
+      // pasted HTML (via clipboardData) and pull the real photo URLs out of it.
+      pastebox.addEventListener("paste",(e)=>{
+        e.preventDefault();
+        const cd=e.clipboardData||window.clipboardData; if(!cd) return;
+        lastPasteText=cd.getData("text/plain")||"";
+        lastPasteHtml=cd.getData("text/html")||"";
+        pastebox.textContent=lastPasteText; // show plain text only, same as a textarea would
+      });
+      if(!pastebox.textContent) pastebox.innerHTML=`<span style="color:#9aa3ad;">${esc(pastebox.dataset.placeholder)}</span>`;
+      pastebox.addEventListener("focus",()=>{ if(!lastPasteText) pastebox.textContent=""; });
+      tabbody.querySelector("#cmps-parse").onclick=()=>{
+        const raw=lastPasteText||pastebox.textContent||"";
+        const parsed = isSH ? parseEbaySellerHubResearch(raw) : parseEbaySoldPaste(raw);
+        const msg=tabbody.querySelector("#cmps-pastemsg");
+        if(!parsed.length){ msg.style.color="#c0392b"; msg.textContent=isSH?"Couldn't find any listings in that paste — make sure you copied the results table from the Sold tab on eBay's Research tool.":"Couldn't find any sold listings in that paste — make sure you copied the area with the “Sold [date]” lines."; return; }
+        // Best-effort: real eBay listing photos are hosted on i.ebayimg.com specifically, which
+        // filters out eBay's own logos/icons/UI chrome that might have been swept into the
+        // selection. Matched positionally (Nth image -> Nth listing) since there's no reliable
+        // way to tie a specific <img> to a specific row from copied HTML alone — review the
+        // thumbnails in the preview below before adding, in case anything lines up wrong.
+        const imgUrls=[...lastPasteHtml.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map(m=>m[1]).filter(u=>/ebayimg\.com/i.test(u));
+        parsed.forEach((row,i)=>{ row.thumb=imgUrls[i]||""; });
+        soldPasteRows=parsed.map(p=>({...p, picked:!p.isLot}));
+        compareTab();
+      };
+      return;
+    }
+    tabbody.innerHTML=`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
+      <div class="note" style="margin-bottom:8px;">Found ${soldPasteRows.length} sold listing(s)${isSH?' (condition guessed from each title — double-check before adding)':''}. Bundles/lots and price ranges are unchecked by default — review before adding. Photos are matched by position (1st photo → 1st row, etc.) since there's no reliable way to tie a specific photo to a specific row from copied text — double check they line up.</div>
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;max-height:320px;overflow:auto;"><table class="res"><thead><tr><th style="width:36px;"></th><th style="width:46px;"></th><th>Title</th><th style="width:100px;">Condition</th><th style="width:80px;">Price</th>${isSH?'<th style="width:70px;">Total sold</th>':''}<th style="width:100px;">Date Sold</th><th style="width:70px;"></th></tr></thead><tbody id="cmps-prevtb"></tbody></table></div>
+      <div style="margin-top:10px;display:flex;gap:8px;"><button class="btn primary" id="cmps-confirm">Add selected to comparison</button><button class="btn sm" id="cmps-back">Back</button></div>`;
+    tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; soldPasteMode=false; soldPasteRows=null; compareTab(); });
+    const ptb=tabbody.querySelector("#cmps-prevtb");
+    soldPasteRows.forEach((r)=>{ const tr=document.createElement("tr");
+      const d=r.soldDate?new Date(r.soldDate):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
+      const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=r.picked; cb.onchange=()=>{ r.picked=cb.checked; }; tdC.appendChild(cb); tr.appendChild(tdC);
+      const tdT=document.createElement("td"); tdT.innerHTML=r.thumb?`<img src="${esc(r.thumb)}" style="width:32px;height:32px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:""; tr.appendChild(tdT);
+      const td2=document.createElement("td"); td2.style.fontSize="12px"; td2.textContent=r.title; tr.appendChild(td2);
+      const td3=document.createElement("td"); td3.textContent=r.condition||"—"; tr.appendChild(td3);
+      const td4=document.createElement("td"); const pn=parseFloat(r.price); td4.textContent=isNaN(pn)?"—":("$"+pn.toFixed(2)); tr.appendChild(td4);
+      if(isSH){ const td4b=document.createElement("td"); td4b.textContent=(r.totalSold!=null)?String(r.totalSold):"—"; tr.appendChild(td4b); }
+      const td5=document.createElement("td"); td5.textContent=dStr; tr.appendChild(td5);
+      const td6=document.createElement("td"); td6.style.fontSize="10px"; td6.style.color="#c0392b"; td6.textContent=r.isLot?"lot/range":""; tr.appendChild(td6);
+      ptb.appendChild(tr); });
+    tabbody.querySelector("#cmps-confirm").onclick=()=>{
+      const picked=soldPasteRows.filter(r=>r.picked);
+      if(!it.compareSold) it.compareSold={ pulledAt:new Date().toISOString(), error:null, items:[] };
+      const sc=subcatObj(it.section,it.subCategory);
+      picked.forEach(r=>{ it.compareSold.items.push({ itemId:"", thumb:r.thumb||"", title:r.title, condition:r.condition, price:r.price, soldDate:r.soldDate, webUrl:"", category:(sc&&sc.ebayName)||it.subCategory||"" }); });
+      it.compareSold.pulledAt=new Date().toISOString(); it.compareSold.error=null;
+      addHistory(it,"Added "+picked.length+" sold comp(s) from a manual eBay paste"+(isSH?" (Research tool)":""));
+      save(); soldPasteMode=false; soldPasteRows=null; compareTab();
+    };
+    tabbody.querySelector("#cmps-back").onclick=()=>{ soldPasteRows=null; compareTab(); };
   }
   function historyTab(){
     const hist=(it.history||[]).slice().sort((a,b)=> new Date(b.at)-new Date(a.at));
@@ -3954,7 +4070,7 @@ function openEbayFind(it, onDone){
       <div style="font-weight:600;white-space:nowrap;">${esc(price)}</div>
       <button class="btn sm ef-use">Use this</button>`;
     card.querySelector(".ef-use").onclick=useFn;
-    const lk=card.querySelector(".ef-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); try{ window.open(lk.dataset.url,'_blank'); }catch(_){} };
+    const lk=card.querySelector(".ef-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
     return card;
   }
   function titleHtmlFor(s){ const url=s.itemWebUrl||""; const t=esc(s.title||"");
@@ -4127,6 +4243,78 @@ function ebayCondEnum(text){
 }
 function ebayCondGuessed(text){ const t=(text||"").toLowerCase().trim();
   return !/for parts|not working|spare|new with defects|new \(other\)|new other|open box|refurb|like new|brand new|^new$|excellent|very good|acceptable|^good$|new/.test(t); }
+// Builds eBay's public sold-listings search URL — same thing the "Sold Items" checkbox
+// on eBay's own site produces. No scraping happens here; this just opens a normal browser
+// tab to a normal webpage, the same as a person typing the search in themselves.
+function ebaySoldSearchUrl(query){ return "https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(query||"")+"&LH_Sold=1&LH_Complete=1"; }
+// Parses text copy-pasted from an eBay sold-listings search page into structured rows.
+// Built directly against a real sample of what that page's text looks like when copied —
+// each sold item reliably has a "Sold <Month> <Day>, <Year>" line, which is used as the
+// anchor (this also conveniently filters out "Shop on eBay" ads and other non-sold filler,
+// since those blocks never have a Sold line at all).
+const EBAY_COND_WORDS=["Brand New","Pre-Owned","New (Other)","New (other)","New with tags","New with defects","Open box","For parts or not working","Certified - Refurbished","Certified Refurbished","Seller refurbished","Manufacturer refurbished","Like New","Very Good","Acceptable","Used"];
+function parseEbaySoldPaste(raw){
+  const lines=(raw||"").split(/\r?\n/).map(l=>l.trim());
+  const soldRe=/^Sold\s+([A-Za-z]{3,9}\.?\s+\d{1,2},\s*\d{4})$/;
+  const priceLineRe=/^\$([\d,]+\.\d{2})(?:\$[\d,]+\.\d{2})?(?:\s*to\s*\$[\d,]+\.\d{2})?$/;
+  const isLotRe=/\sto\s\$/;
+  const out=[];
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(soldRe); if(!m) continue;
+    let p=i-1; while(p>=0 && !lines[p]) p--;
+    const titleLine=(lines[p]||"").trim();
+    if(!titleLine || /^Sold\s/.test(titleLine)) continue;
+    let condition="", priceStr="", isLot=false;
+    // line i+1 is reliably the duplicate "<title>Opens in a new window or tab" line — skip it
+    for(let j=i+2; j<lines.length && j<i+16; j++){
+      const L=lines[j]; if(!L) continue;
+      if(/^Sell one like this$/i.test(L)) break;
+      if(!condition){ const hit=EBAY_COND_WORDS.find(w=>L.toLowerCase().startsWith(w.toLowerCase())); if(hit){ condition=hit; continue; } }
+      if(!priceStr){ const pm=L.match(priceLineRe); if(pm){ priceStr=pm[1].replace(/,/g,""); isLot=isLotRe.test(L); continue; } }
+    }
+    if(!priceStr) continue; // couldn't find a usable price for this block — skip rather than guess
+    const d=new Date(m[1]);
+    out.push({ title:titleLine.replace(/Opens in a new window or tab$/i,"").trim(), condition, price:priceStr, soldDate:isNaN(d)?"":d.toISOString(), isLot });
+  }
+  return out;
+}
+// eBay's Seller Hub "Research products" tool gives richer aggregated data per listing
+// (avg sold price, total units sold, last-sold date) than the plain sold-search page —
+// but it has no URL to deep-link a search term into, and condition is baked into the
+// title text rather than a separate field. Built and verified against a real sample.
+const SH_COND_PHRASES=["very good","like new","brand new","new with tags","new with defects","new (other)","acceptable","excellent","good","fair","poor"];
+function inferConditionFromTitle(title){
+  const t=(title||"").toLowerCase();
+  for(const p of SH_COND_PHRASES){ if(t.includes(p)) return p.replace(/\b\w/g,c=>c.toUpperCase()); }
+  return "";
+}
+function parseEbaySellerHubResearch(raw){
+  const lines=(raw||"").split(/\r?\n/).map(l=>l.trim());
+  const anchorRe=/^,\s*preview full size image$/i;
+  const priceRe=/^\$([\d,]+\.\d{2})$/;
+  const dateRe=/^[A-Za-z]{3,9}\.?\s+\d{1,2},\s*\d{4}$/;
+  const out=[];
+  for(let i=0;i<lines.length;i++){
+    if(!anchorRe.test(lines[i])) continue;
+    let p=i-1; while(p>=0 && !lines[p]) p--;
+    const title=(lines[p]||"").trim(); if(!title) continue;
+    let j=i+1;
+    if(lines[j]===title) j++; // duplicate title line
+    if(/^Edit$/i.test(lines[j]||"")) j++;
+    while(lines[j]==="") j++; // blank line before the numbers start
+    const avgPriceM=(lines[j]||"").match(priceRe); if(!avgPriceM) continue; const avgPrice=avgPriceM[1].replace(/,/g,""); j++;
+    j++; // format ("Fixed price" etc.) — not needed for pricing, skip
+    const avgShipM=(lines[j]||"").match(priceRe); const avgShip=avgShipM?avgShipM[1]:""; j++;
+    j++; // "N% Free shipping" line
+    const totalSoldLine=lines[j]||""; const totalSold=/^\d+$/.test(totalSoldLine)?parseInt(totalSoldLine,10):null; j++;
+    j++; // item sales $ total — not needed individually
+    j++; // bids
+    const dateLine=lines[j]||""; let dateLastSold="";
+    if(dateRe.test(dateLine)){ const d=new Date(dateLine); if(!isNaN(d)) dateLastSold=d.toISOString(); }
+    out.push({ title, condition:inferConditionFromTitle(title), price:avgPrice, avgShip, totalSold, soldDate:dateLastSold });
+  }
+  return out;
+}
 async function pullNewListings(after,silent){
   if(!EBAY.ready()){ if(!silent) uiAlert("Not connected to eBay yet — click Connect next to Live Mode (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
   if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
@@ -4209,7 +4397,7 @@ function openFindByPhoto(){
       const td6=document.createElement("td"); td6.style.fontSize="11.5px"; td6.style.color="#5b6470"; td6.textContent=r.buying||"—"; tr.appendChild(td6);
       const td7=document.createElement("td"); td7.textContent=r.price?("$"+r.price):"—"; tr.appendChild(td7);
       const td8=document.createElement("td"); td8.style.whiteSpace="nowrap";
-      if(r.webUrl){ const a=document.createElement("a"); a.href="#"; a.textContent="View"; a.style.cssText="color:#3b7dd8;font-size:11.5px;margin-right:8px;"; a.onclick=(e)=>{ e.preventDefault(); try{ window.open(r.webUrl,'_blank'); }catch(_){} }; td8.appendChild(a); }
+      if(r.webUrl){ const a=document.createElement("a"); a.href="#"; a.textContent="View"; a.style.cssText="color:#3b7dd8;font-size:11.5px;margin-right:8px;"; a.onclick=(e)=>{ e.preventDefault(); openExternal(r.webUrl); }; td8.appendChild(a); }
       const cBtn=document.createElement("button"); cBtn.className="btn sm"; cBtn.textContent="+ Create item"; cBtn.title="Start a new WIM item pre-filled from this listing";
       cBtn.onclick=()=>openItemDetail({ desc:r.title, condition:r.condition||"New", image:r.thumb||"", retail:r.price||"0.00" }, "new");
       td8.appendChild(cBtn); tr.appendChild(td8);
@@ -4427,7 +4615,7 @@ function openCommunication(){
         <div style="font-weight:600;color:#28313f;margin-bottom:4px;">${esc(subjectOf(c))}</div>
         <div>This is an automated notification from eBay itself (account alert, password reset, promo, etc.) — not a message from a buyer or seller. eBay's API doesn't provide the full notification text through this endpoint, only the title and date you see in the list.</div>
         <div style="margin-top:8px;">To read the full notification, check it on <a href="#" id="cm-open-ebay" style="color:#3b7dd8;">eBay.com → My eBay → Messages</a>.</div></div>`;
-      const lnk=msgsEl.querySelector("#cm-open-ebay"); if(lnk) lnk.onclick=(e)=>{ e.preventDefault(); try{ window.open("https://mesg.ebay.com/mesgweb/ViewMessages/0",'_blank'); }catch(_){ } };
+      const lnk=msgsEl.querySelector("#cm-open-ebay"); if(lnk) lnk.onclick=(e)=>{ e.preventDefault(); openExternal("https://mesg.ebay.com/mesgweb/ViewMessages/0"); };
       replyWrap.innerHTML=`<div class="smallhint">eBay's own notifications can't be replied to.</div>`;
       return;
     }
