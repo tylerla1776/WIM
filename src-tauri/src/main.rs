@@ -264,6 +264,39 @@ async fn exchange_auth_code(
 // this inside a Tauri webview (it's not a real browser — there's no "new tab" to open into),
 // which is exactly why the eBay sign-in flow already used open::that() directly rather than
 // window.open(). Every "open this in your browser" link in the app should go through this.
+// Calls one of WIM's Supabase Postgres functions (login, get_items, upsert_item, etc.)
+// over its REST API. Uses the "apikey" header rather than "Authorization: Bearer" —
+// that's how Supabase's newer publishable/secret key system authenticates, unlike the
+// older JWT-based anon keys some older examples show.
+#[tauri::command]
+async fn supabase_rpc(url: String, anon_key: String, function_name: String, payload_json: String) -> ApiResult {
+    let full_url = format!("{}/rest/v1/rpc/{}", url.trim_end_matches('/'), function_name);
+    let client = reqwest::Client::new();
+    let req = client
+        .post(&full_url)
+        .header("apikey", &anon_key)
+        .header("Content-Type", "application/json")
+        .body(payload_json.clone());
+    match req.send().await {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let body = r.text().await.unwrap_or_default();
+            let ok = (200..300).contains(&status);
+            let body = if ok {
+                body
+            } else {
+                format!("[POST {}]\nSent: {}\n{}", full_url, payload_json, body)
+            };
+            ApiResult { ok, status, body }
+        }
+        Err(e) => ApiResult {
+            ok: false,
+            status: 0,
+            body: format!("[POST {}]\nSent: {}\n{}", full_url, payload_json, e),
+        },
+    }
+}
+
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
@@ -787,7 +820,8 @@ fn main() {
             ebay_search_by_image,
             ebay_token_probe,
             ebay_oauth_login,
-            open_url
+            open_url,
+            supabase_rpc
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");

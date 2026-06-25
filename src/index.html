@@ -350,6 +350,17 @@ function openExternal(url){
   if(WIM_IS_DESKTOP){ wimDesktop.invoke("open_url",{url}).catch(()=>{ try{ window.open(url,'_blank'); }catch(_){} }); }
   else { try{ window.open(url,'_blank'); }catch(_){} }
 }
+// ---- Cloud sync (Supabase) — early test wiring, not yet the real data path ----
+const CLOUD_URL="https://qlpcoicrpvdxkeadlpqp.supabase.co";
+const CLOUD_KEY="sb_publishable_cNFYmWjZIZcTbnZ6Lhv0xQ_8MhgCRD4"; // publishable key — safe to ship in the app
+const Cloud={
+  rpc(fn,payload){ if(!WIM_IS_DESKTOP) return Promise.resolve({ok:false,status:0,body:"Cloud sync runs in the desktop app."});
+    return wimDesktop.invoke("supabase_rpc",{url:CLOUD_URL,anonKey:CLOUD_KEY,functionName:fn,payloadJson:JSON.stringify(payload)}); },
+  login(teamCode,name,pin){ return Cloud.rpc("login",{p_team_code:teamCode,p_staff_name:name,p_pin:pin}); },
+  getItems(token){ return Cloud.rpc("get_items",{p_session_token:token}); },
+  upsertItem(token,itemId,expectedUpdatedAt,data){ return Cloud.rpc("upsert_item",{p_session_token:token,p_item_id:itemId,p_expected_updated_at:expectedUpdatedAt,p_data:data}); },
+  addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); }
+};
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
 const WIM_POPOUT_KEY=WIM_POPOUT_MATCH?decodeURIComponent(WIM_POPOUT_MATCH[1]):null;
@@ -368,7 +379,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.12", BUILD_DATE="2026-07-01", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.18", BUILD_DATE="2026-07-04", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -427,6 +438,12 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.18","Both the eBay Live Mode badge and the cloud connectivity indicator now react instantly to a real network loss (airplane mode, wifi dropping) -- the OS reports this directly with no polling involved, so both flip to offline immediately at zero bandwidth cost. When the network comes back, that one moment triggers a real check of both eBay and Supabase to find the true state again. Clicking Connect/Disconnect never triggers this -- only an actual change in the network adapter itself does, so the two can not get confused with each other. Note: this catches your whole connection dropping, not eBay or Supabase individually having a bad day with the network otherwise fine -- that would need actual periodic polling, not built here."],
+  ["2.9.17","Merged the separate eBay Connect button into the Live Mode badge itself -- click the badge to connect or disconnect, no second button needed. eBay now also auto-attempts connecting silently the moment Live mode opens (if Production keys are saved), instead of requiring a manual click every time; it never shows green until that real check actually succeeds, and a background attempt failing stays silent rather than popping an alert. Added the real cloud-database connectivity indicator next to the username/role text (outlined cloud = connected, cloud with a line through it = can't reach it right now) -- only appears once a device is connected to cloud sync, defaults to assuming online, and rechecks automatically every couple of minutes."],
+  ["2.9.16","Fixed a real regression from 2.9.15: connecting a device to cloud sync made the login screen check ONLY the cloud, which broke existing local logins (like the default admin) that were never added to the cloud staff list. Local login is now always checked first, unconditionally -- connecting cloud sync never breaks an existing local login. The cloud is only ever consulted as an additional way to log in, for staff who exist there but not in this device's local list."],
+  ["2.9.15","Real cloud login flow: a new Cloud Sync Setup screen (Configuration, admin only) connects a device to your team once with the team code -- after that, the regular User Login screen quietly checks the cloud instead of the local user list, with no team code ever shown to staff again. The login banner now reflects whether this device is connected. A Disconnect option lets an admin undo it if needed. Devices that never connect keep working exactly as they always have, fully local-only."],
+  ["2.9.14","Cloud Sync (Test) gained two more buttons: Create Test Item (proves writing to the cloud database works) and Test Conflict Detection (deliberately tries to save a stale version of an item on purpose, to prove the safety check that catches two people editing the same thing at once actually rejects it rather than silently overwriting). Still test scaffolding, not the real migration."],
+  ["2.9.13","First real cloud sync test: a Cloud Sync (Test) screen (Configuration, admin only) that logs in against the real Supabase backend with your team code/name/PIN and fetches your items back -- the actual login -> fetch pipeline working end to end from inside WIM, not just the Supabase SQL editor. This is scaffolding to prove the connection works, not the final UI -- the real migration (every screen moving from local-only to networked) comes next."],
   ["2.9.12","Fixed the Rust build error from 2.9.11: when open_url was inserted, it accidentally landed between ebay_oauth_login's #[tauri::command] attribute and the function itself, leaving ebay_oauth_login with no attribute at all (and open_url with a misplaced one) -- causing defined multiple times / cannot find macro errors. Each function now has exactly one attribute directly above it, confirmed against the actual attribute and command counts."],
   ["2.9.11","Fixed every \"open this in your browser\" link in the app (Open Product Research, View links in Find on eBay/Find by Photo/Price Compare, the eBay sold-search fallback, the Messages notification link) -- they were using window.open(), which does not reliably launch the real system browser from inside a Tauri window since it is not an actual browser. They now go through the same mechanism that already worked for eBay sign-in (Rust's open crate via a Tauri command), which is the proper way to do this. This was likely broken since it was first introduced and is a correction, not a new feature."],
   ["2.9.10","Renamed Research on eBay to Open Product Research (matches eBay's own name for the tool). Fixed photos not coming through on paste in Sold Items: a plain textarea can only ever receive plain text on paste -- that is a browser limitation, not something WIM controls -- so the paste box now reads the richer pasted content directly and pulls the real photo URLs out of it (filtered to eBay's own image hosting so logos/icons do not get swept in). Photos are matched by position (1st photo to 1st row, etc.) since there is no reliable way to tie a specific photo to a specific row from copied text alone -- the preview now shows a thumbnail per row so you can confirm they line up correctly before adding."],
@@ -545,6 +562,8 @@ const POPOUT_APPS={
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
+  cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
+  cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
   findbyphoto:{ title:"Find by Photo", open:()=>openFindByPhoto() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
@@ -736,6 +755,7 @@ function migrate(d){
   if(!d.printTemplate) d.printTemplate={ layout:"sl100", fields:["sku","desc","condition"], size:"medium", showTitle:true, title:"WIM" };
   if(!d.printTemplate.layout) d.printTemplate.layout="sl100";
   if(!d.ebay) d.ebay={ env:"sandbox", appId:"", certId:"", refreshToken:"", ruName:"", marketplace:"EBAY_US", connected:false };
+  if(!d.cloud) d.cloud={};
   if(!d.ebay.creds){ d.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:"",ruName:""}, production:{appId:"",certId:"",refreshToken:"",ruName:""} };
     const ev=d.ebay.env||"sandbox"; d.ebay.creds[ev]={ appId:d.ebay.appId||"", certId:d.ebay.certId||"", refreshToken:d.ebay.refreshToken||"", ruName:d.ebay.ruName||"" }; }
   // ---- V2.2.2: eBay-aware categories, sub-categories, listing + description model ----
@@ -801,9 +821,48 @@ let SESSION={ user:null, mode:"warehouse" };
 // connecting or disconnecting in one window is reflected everywhere immediately.
 let EBAY_ONLINE=false;
 let ebayConnectGen=0; // bumped on Disconnect (or a new Connect) so a stale in-flight attempt can't override a later state.
+let ebayAutoConnectTried=false; // only auto-attempt the silent connect once per running session, not on every re-render
+// Cloud database connectivity indicator — defaults to assuming online (same philosophy as
+// eBay) and only flips to offline once an actual check proves it can't be reached, rather
+// than starting pessimistic and making someone wait to find out.
+let CLOUD_ONLINE=true;
+let cloudCheckTimerStarted=false;
+function paintCloudBadge(){
+  const el=document.getElementById("cloud-badge"); if(!el) return;
+  if(!(DB.cloud&&DB.cloud.teamCode)){ el.style.display="none"; return; }
+  el.style.display="inline-flex";
+  el.innerHTML=CLOUD_ONLINE?ICON_CLOUD_ON:ICON_CLOUD_OFF;
+  el.title=CLOUD_ONLINE?"Connected to the cloud database":"Can't reach the cloud database right now — working from this device's local copy";
+}
+async function checkCloudReachability(){
+  if(!(DB.cloud&&DB.cloud.teamCode) || !cloudSession) return;
+  try{ const r=await Cloud.getItems(cloudSession.session_token); CLOUD_ONLINE=!!(r&&r.ok); }
+  catch(e){ CLOUD_ONLINE=false; }
+  paintCloudBadge();
+}
+function startCloudWatcher(){
+  if(cloudCheckTimerStarted) return; cloudCheckTimerStarted=true;
+  checkCloudReachability();
+  setInterval(checkCloudReachability, 120000);
+}
 function setEbayOnline(v){ EBAY_ONLINE=!!v; try{ localStorage.setItem("WIM_EBAY_ONLINE", EBAY_ONLINE?"1":"0"); }catch(e){} paintLiveBadge(); }
 window.addEventListener("storage", e=>{
   if(e.key==="WIM_EBAY_ONLINE"){ EBAY_ONLINE = e.newValue==="1"; ebayConnectGen++; paintLiveBadge(); try{ renderDashboard(); }catch(_){} }
+});
+// The OS tells the browser the instant the network adapter itself goes up or down — no
+// polling involved, so this costs nothing bandwidth-wise. A real network loss (airplane
+// mode, wifi dropping) flips both indicators offline immediately, with no need to "confirm"
+// it first since the OS already has. Coming back online is the one moment worth spending an
+// actual check on, to find out the true state again. This never fires from clicking
+// Connect/Disconnect — that doesn't touch the network adapter, only WIM's own state.
+window.addEventListener("offline", ()=>{
+  ebayConnectGen++; // invalidate any in-flight connect attempt — the network just dropped out from under it
+  setEbayOnline(false);
+  CLOUD_ONLINE=false; try{ paintCloudBadge(); }catch(e){}
+});
+window.addEventListener("online", ()=>{
+  if(isLive() && ebayProdCredsReady()) connectEbay(true);
+  try{ checkCloudReachability(); }catch(e){}
 });
 function subcatsOf(cat){ return (DB.subcats&&DB.subcats[cat])||[]; }
 function subcatObj(cat,name){ return subcatsOf(cat).find(s=>s.name===name)||null; }
@@ -1040,6 +1099,8 @@ function renderTaskbar(){ tbWindows.innerHTML="";
   Object.entries(openWindows).forEach(([id,w])=>{ const b=document.createElement("div"); b.className="tb-item";
     b.innerHTML=`<div class="tb-logo"></div> ${w.title}`; b.onclick=()=>{ w.el.classList.remove("hidden"); focusWin(w.el); }; tbWindows.appendChild(b); }); }
 
+const ICON_CLOUD_ON='<svg width="17" height="13" viewBox="0 0 24 18" fill="none"><path d="M7 14.5C4.5 14.5 2.5 12.5 2.5 10C2.5 7.7 4.2 5.8 6.4 5.55C7.1 3.1 9.35 1.3 12 1.3C15.1 1.3 17.65 3.7 17.95 6.75C20.2 7.05 22 8.95 22 11.25C22 13.75 19.95 15.8 17.4 15.8H7.3C7.2 15.8 7.1 15.75 7 15.75" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_CLOUD_OFF='<svg width="17" height="13" viewBox="0 0 24 18" fill="none"><path d="M7 14.5C4.5 14.5 2.5 12.5 2.5 10C2.5 7.7 4.2 5.8 6.4 5.55C7.1 3.1 9.35 1.3 12 1.3C15.1 1.3 17.65 3.7 17.95 6.75C20.2 7.05 22 8.95 22 11.25C22 13.75 19.95 15.8 17.4 15.8H7.3C7.2 15.8 7.1 15.75 7 15.75" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><line x1="1.5" y1="17" x2="22.5" y2="1" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round"/></svg>';
 const I={
   save:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 2h9l3 3v9H2z"/><path d="M5 2v4h6V2M5 14v-4h6v4" fill="#cfe1f5"/></svg>`,
   plus:`<svg viewBox="0 0 16 16" fill="currentColor"><path d="M7 2h2v5h5v2H9v5H7V9H2V7h5z"/></svg>`,
@@ -1138,9 +1199,10 @@ function showLogin(msg){
   closeAllModals(); clearScreen(); setDesktopWindow("login");
   const wrap=document.createElement("div"); wrap.className="center-screen";
   const win=document.createElement("div"); win.className="window login"; win.style.position="static";
+  const cloudConnected=!!(DB.cloud&&DB.cloud.teamCode);
   win.innerHTML=`<div class="titlebar"><span class="appicon"></span><span class="ttl">User Login</span><div class="winbtns"><button class="winbtn close">&#10005;</button></div></div>
     <div class="body" style="position:relative;"><div class="help">?</div>
-      <div class="banner">WIM runs entirely on this computer &mdash; offline, no account needed.</div>
+      <div class="banner">${cloudConnected?("Connected to <b>"+esc(DB.cloud.teamName||"your team")+"</b> — signing in here syncs with your team."):"WIM runs entirely on this computer &mdash; offline, no account needed."}</div>
       <div class="row"><label class="fld">User Name</label><input class="txt" id="lg-user" autocomplete="off"></div>
       <div class="row"><label class="fld">Password</label><input class="txt" id="lg-pass" type="password" autocomplete="off"></div>
       <div class="row"><label class="fld">Mode</label><select class="cmb" id="lg-mode" style="flex:1;"><option value="warehouse">Warehouse</option><option value="live">Live (eBay)</option></select></div>
@@ -1150,9 +1212,31 @@ function showLogin(msg){
   wrap.appendChild(win); screenEl.appendChild(wrap);
   runUpdateCheck(win.querySelector("#lg-update"));
   const u=win.querySelector("#lg-user"),p=win.querySelector("#lg-pass"),err=win.querySelector("#lg-err"); u.focus();
-  const attempt=()=>{ const uid=u.value.trim(),pw=p.value; const f=DB.users.find(x=>x.id===uid);
-    if(!f||f.password!==pw){ err.style.color="#c0392b"; err.textContent="Invalid user name or password."; p.value="";p.focus(); return; }
-    SESSION.user=f; SESSION.mode=win.querySelector("#lg-mode").value||"warehouse"; if(f.mustChange) showChangePassword(f,true); else showLauncher(); };
+  const okBtn=win.querySelector("#lg-ok");
+  const attempt=async ()=>{ const uid=u.value.trim(),pw=p.value; if(!uid||!pw) return;
+    // Local login is checked first, always — connecting the cloud must never break this.
+    const f=DB.users.find(x=>x.id===uid);
+    if(f && f.password===pw){
+      SESSION.user=f; SESSION.mode=win.querySelector("#lg-mode").value||"warehouse"; if(f.mustChange) showChangePassword(f,true); else showLauncher(); return;
+    }
+    // Not a local match — if this device is connected, try the cloud as an additional
+    // way to log in (for staff who exist there but aren't in this device's local list).
+    if(cloudConnected){
+      okBtn.disabled=true; err.style.color="#555"; err.textContent="Checking…";
+      try{
+        const r=await Cloud.login(DB.cloud.teamCode,uid,pw);
+        okBtn.disabled=false;
+        let rows=[]; if(r.ok){ try{ rows=JSON.parse(r.body); }catch(e){} }
+        const row=rows&&rows[0];
+        if(!r.ok || !row){ err.style.color="#c0392b"; err.textContent="Invalid user name or password."; p.value="";p.focus(); return; }
+        cloudSession=row;
+        SESSION.user={ id:row.staff_name, role:row.role, password:pw, mustChange:false };
+        SESSION.mode=win.querySelector("#lg-mode").value||"warehouse";
+        showLauncher();
+      }catch(e){ okBtn.disabled=false; err.style.color="#c0392b"; err.textContent="Invalid user name or password."; }
+      return;
+    }
+    err.style.color="#c0392b"; err.textContent="Invalid user name or password."; p.value="";p.focus(); };
   win.querySelector("#lg-ok").onclick=attempt;
   win.querySelector("#lg-cancel").onclick=()=>{ u.value="";p.value="";err.textContent="";u.focus(); };
   win.querySelector(".close").onclick=()=>{ u.value="";p.value="";err.style.color="#c0392b";err.textContent="Login required to use WIM."; };
@@ -1209,8 +1293,8 @@ function isLive(){ return SESSION.mode==="live"; }
 function nodeVisible(node){ if(node.key==="security") return role()==="admin"||role()==="leadership"; return true; }
 function nodeActions(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin") a.push("Backup & Updates"); a.push("About / Version"); return a; }
+    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
   if(node.key==="security") return ["Modify Users"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
@@ -1232,9 +1316,9 @@ function showLauncher(){
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
   win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
   const modeBadge = isLive()
-    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">Live Mode — Offline</span></span><button class="btn sm" id="ebay-connect-btn" style="min-width:0;padding:2px 12px;margin-left:6px;">Connect</button>`
+    ? `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;cursor:pointer;" title="Click to connect/disconnect from eBay"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">Live Mode — Offline</span></span>`
     : `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#33506e;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;">Warehouse Mode</span>`;
-  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span>${modeBadge}
+  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span><span id="cloud-badge" style="display:none;margin-left:8px;align-items:center;"></span>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;align-items:center;"><span id="lc-float" title="${(DB.meta&&DB.meta.floatWindows===false)?'Apps open docked in this window — click to make them float in their own windows':'Apps open in their own movable windows — click to dock them in one window'}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;font-size:16px;margin-right:2px;line-height:1;${(DB.meta&&DB.meta.floatWindows===false)?'color:rgba(255,255,255,.55);':'color:#ffffff;'}">&#10696;</span><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
     <div class="body"><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
       <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
@@ -1242,8 +1326,14 @@ function showLauncher(){
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
   win.querySelector("#lc-switch").onclick=()=>{ SESSION.mode=isLive()?"warehouse":"live"; treeState={expanded:{},sel:null}; showLauncher(); };
   win.querySelector("#foot-about").onclick=openAbout;
-  const ebtn=win.querySelector("#ebay-connect-btn"); if(ebtn) ebtn.onclick=()=>{ if(EBAY_ONLINE) disconnectEbay(); else connectEbay(); };
+  const mbadge=win.querySelector("#mode-badge"); if(mbadge) mbadge.onclick=()=>{ if(EBAY_ONLINE) disconnectEbay(); else connectEbay(); };
   paintLiveBadge();
+  paintCloudBadge(); startCloudWatcher();
+  // Default behavior: if this device already has working Production keys, try connecting
+  // automatically the moment Live mode is shown, instead of making someone click first.
+  // This deliberately does NOT show green until the real connection is verified — it just
+  // means you don't have to click anything for that verification to happen.
+  if(isLive() && !EBAY_ONLINE && !ebayAutoConnectTried && ebayProdCredsReady()){ ebayAutoConnectTried=true; connectEbay(true); }
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
@@ -1670,19 +1760,22 @@ function openListingEfficiency(){
 }
 // Paints the Live Mode badge purely from the current EBAY_ONLINE flag — no network call here.
 function paintLiveBadge(){
-  const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text"), btn=document.getElementById("ebay-connect-btn");
+  const badge=document.getElementById("mode-badge"), dot=document.getElementById("mode-dot"), txt=document.getElementById("mode-text");
   if(!badge||!dot||!txt) return;
   if(EBAY_ONLINE){ badge.style.background="#e7f6ec"; badge.style.color="#1f7244"; badge.style.borderColor="#b6e0c4"; dot.style.background="#1f9d55"; txt.textContent="Live Mode"; }
   else { badge.style.background="#eef1f4"; badge.style.color="#7a8694"; badge.style.borderColor="#cdd6df"; dot.style.background="#9aa3ad"; txt.textContent="Live Mode — Offline"; }
-  if(btn){ btn.textContent=EBAY_ONLINE?"Disconnect":"Connect"; btn.disabled=false; }
 }
 function ebayProdCredsReady(){ const c=DB.ebay&&DB.ebay.creds&&DB.ebay.creds.production; return !!(c&&c.appId&&c.certId&&c.refreshToken); }
 // Connects using the already-saved Production keys — no need to open eBay Connection first.
-async function connectEbay(){
-  if(!WIM_IS_DESKTOP){ uiAlert("eBay connections run in the desktop app."); return; }
-  if(!ebayProdCredsReady()){ uiAlert("No Production eBay connection is saved yet. Open Configuration → eBay Connection, set up Production, and Connect with eBay once — after that this button will use it directly."); return; }
+// silent=true is used for the automatic attempt when Live mode opens: the badge still
+// updates the same way, but it never pops an alert on failure — a background attempt
+// shouldn't interrupt someone who didn't explicitly ask to connect just now. Explicit
+// clicks (silent not set) still explain what went wrong.
+async function connectEbay(silent){
+  if(!WIM_IS_DESKTOP){ if(!silent) uiAlert("eBay connections run in the desktop app."); return; }
+  if(!ebayProdCredsReady()){ if(!silent) uiAlert("No Production eBay connection is saved yet. Open Configuration → eBay Connection, set up Production, and Connect with eBay once — after that this badge will use it directly."); return; }
   const myGen=++ebayConnectGen;
-  const btn=document.getElementById("ebay-connect-btn"); if(btn){ btn.disabled=true; btn.textContent="Connecting…"; }
+  const txt=document.getElementById("mode-text"); if(txt) txt.textContent="Live Mode — Connecting…";
   const c=DB.ebay.creds.production;
   try{
     const r=await wimDesktop.invoke("ebay_test",{ env:"production", appId:c.appId, certId:c.certId, refreshToken:c.refreshToken });
@@ -1692,12 +1785,12 @@ async function connectEbay(){
       setEbayOnline(true);
     } else {
       setEbayOnline(false);
-      uiAlert("Couldn't connect to eBay Production (HTTP "+(r&&r.status)+"): "+((r&&r.body)||"").slice(0,200));
+      if(!silent) uiAlert("Couldn't connect to eBay Production (HTTP "+(r&&r.status)+"): "+((r&&r.body)||"").slice(0,200));
     }
   }catch(e){
     if(myGen!==ebayConnectGen) return;
     setEbayOnline(false);
-    uiAlert("Could not reach eBay: "+(e&&e.message?e.message:e));
+    if(!silent) uiAlert("Could not reach eBay: "+(e&&e.message?e.message:e));
   }
 }
 // Immediately drops the live session, overriding any connect attempt still in flight, across every open window.
@@ -1747,6 +1840,8 @@ function handleAction(k,a){
   if(k==="config"&&a==="eBay Connection") return launchApp("ebaycfg");
   if(k==="config"&&a==="Listing Configuration") return launchApp("listingcfg");
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
+  if(k==="config"&&a==="Cloud Sync Setup") return launchApp("cloudsetup");
+  if(k==="config"&&a==="Cloud Sync (Test)") return launchApp("cloudsync");
   if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
   if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
   if(k==="config"&&a==="Dashboard Widgets") return launchApp("dashwidgets");
@@ -3776,6 +3871,137 @@ function openItemReport(){
 }
 
 /* ============================================================ BACKUP / ABOUT ============================================================ */
+// Early test screen for the cloud sync work — lets us actually exercise the real
+// login -> fetch items pipeline from inside WIM, not just the Supabase SQL editor.
+// This is NOT the final UI; it's scaffolding to prove the pieces work before the
+// real migration (every screen moving from local-only to networked) begins.
+let cloudSession=null; // {session_token, staff_id, staff_name, role, team_id, team_name}
+// The one-time, admin-only step that connects THIS DEVICE to your team's cloud
+// database. Once this succeeds, DB.cloud.teamCode is saved locally and the
+// regular User Login screen quietly starts checking the cloud instead of the
+// local user list — staff never see a team code, ever, after this one step.
+function openCloudSyncSetup(){
+  const id="cloud-sync-setup"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Cloud Sync Setup",width:600,height:480,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">One-time, per device — admin only</span>`});
+  function render(){
+    const connected=!!(DB.cloud&&DB.cloud.teamCode);
+    body.innerHTML=`<div style="padding:16px;">
+      ${connected
+        ? `<div class="note" style="margin-bottom:12px;">This device is connected to <b>${esc(DB.cloud.teamName||"your team")}</b>. Staff sign in here using the regular User Login screen — name and PIN only, no team code needed.</div>
+           <button class="btn" id="cs-disconnect">Disconnect this device</button>`
+        : `<div class="note" style="margin-bottom:12px;">Connect this device to your team's cloud database, once. After this, the regular User Login screen handles everything — no team code is ever shown to staff.</div>
+           <fieldset class="gb"><legend>Connect this device</legend>
+             <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Team Code</label><input class="txt" id="cs-team"></div>
+             <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Your Name</label><input class="txt" id="cs-name"></div>
+             <div class="ff" style="grid-template-columns:110px 1fr;"><label class="fld">Your PIN</label><input class="txt" id="cs-pin" type="password"></div>
+             <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn primary" id="cs-connect">Connect This Device</button><span class="smallhint" id="cs-msg"></span></div></fieldset>`}
+      </div>`;
+    if(connected){ body.querySelector("#cs-disconnect").onclick=()=>{
+      if(!confirm("Disconnect this device from "+(DB.cloud.teamName||"your team")+"? Staff logins on this device will go back to the local-only list until it's reconnected.")) return;
+      DB.cloud={}; save(); render(); try{ paintCloudBadge(); }catch(e){} }; return; }
+    body.querySelector("#cs-connect").onclick=async ()=>{
+      const team=body.querySelector("#cs-team").value.trim(), name=body.querySelector("#cs-name").value.trim(), pin=body.querySelector("#cs-pin").value.trim();
+      const msg=body.querySelector("#cs-msg");
+      if(!team||!name||!pin){ msg.style.color="#c0392b"; msg.textContent="Fill in all three fields."; return; }
+      msg.style.color="#555"; msg.textContent="Connecting…";
+      try{
+        const r=await Cloud.login(team,name,pin);
+        if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="Couldn't connect (HTTP "+r.status+"): "+(r.body||"").slice(0,200); return; }
+        let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+        const row=rows&&rows[0];
+        if(!row){ msg.style.color="#c0392b"; msg.textContent="Team code, name, or PIN not recognized."; return; }
+        DB.cloud={ teamCode:team, teamId:row.team_id, teamName:row.team_name, connectedAt:new Date().toISOString() };
+        cloudSession=row; save();
+        msg.style.color="#1f7244"; msg.textContent="Connected!";
+        setTimeout(render,400);
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach the server: "+(e&&e.message?e.message:e); }
+    };
+  }
+  render();
+}
+function openCloudSyncTest(){
+  const id="cloud-sync-test"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Cloud Sync (Test)",width:680,height:560,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Early test screen — proves login and data fetch work, not the final UI</span>`});
+  body.innerHTML=`<div style="padding:16px;overflow:auto;">
+    <div class="note" style="margin-bottom:12px;">This talks to the real Supabase backend. Use it to confirm login works and items come back correctly before any real data migration happens.</div>
+    <fieldset class="gb"><legend>Log in</legend>
+      <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Team Code</label><input class="txt" id="cs-team"></div>
+      <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Name</label><input class="txt" id="cs-name"></div>
+      <div class="ff" style="grid-template-columns:110px 1fr;"><label class="fld">PIN</label><input class="txt" id="cs-pin" type="password"></div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn primary" id="cs-login">Log In</button><span class="smallhint" id="cs-loginmsg"></span></div></fieldset>
+    <fieldset class="gb" style="margin-top:12px;"><legend>Session</legend>
+      <div id="cs-session" class="smallhint">Not logged in yet.</div></fieldset>
+    <fieldset class="gb" style="margin-top:12px;"><legend>Data test</legend>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+        <button class="btn" id="cs-fetch" disabled>Fetch Items</button>
+        <button class="btn" id="cs-create" disabled>Create Test Item</button>
+        <button class="btn" id="cs-conflict" disabled title="Tries to save an old version on purpose, to prove the safety check catches it">Test Conflict Detection</button>
+        <span class="smallhint" id="cs-fetchmsg"></span></div>
+      <pre id="cs-result" style="background:#f6f7f9;border:1px solid #e3e7ee;border-radius:8px;padding:10px;font-size:11px;max-height:260px;overflow:auto;white-space:pre-wrap;">(nothing fetched yet)</pre></fieldset></div>`;
+  const loginMsg=body.querySelector("#cs-loginmsg"), sessionBox=body.querySelector("#cs-session"), fetchBtn=body.querySelector("#cs-fetch"), createBtn=body.querySelector("#cs-create"), conflictBtn=body.querySelector("#cs-conflict"), fetchMsg=body.querySelector("#cs-fetchmsg"), resultBox=body.querySelector("#cs-result");
+  let lastItems=[];
+  function paintSession(){
+    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; return; }
+    sessionBox.innerHTML=`Logged in as <b>${esc(cloudSession.staff_name)}</b> (${esc(cloudSession.role)}) on team <b>${esc(cloudSession.team_name)}</b><br>Session token: <code style="font-size:10px;">${esc(cloudSession.session_token.slice(0,16))}…</code>`;
+    fetchBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false;
+  }
+  paintSession();
+  body.querySelector("#cs-login").onclick=async ()=>{
+    const team=body.querySelector("#cs-team").value.trim(), name=body.querySelector("#cs-name").value.trim(), pin=body.querySelector("#cs-pin").value.trim();
+    if(!team||!name||!pin){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Fill in all three fields."; return; }
+    loginMsg.style.color="#555"; loginMsg.textContent="Logging in…";
+    try{
+      const r=await Cloud.login(team,name,pin);
+      if(!r.ok){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Login failed (HTTP "+r.status+"): "+(r.body||"").slice(0,300); return; }
+      let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+      const row=rows&&rows[0];
+      if(!row){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Login returned no data: "+(r.body||"").slice(0,300); return; }
+      cloudSession=row; paintSession();
+      loginMsg.style.color="#1f7244"; loginMsg.textContent="Logged in.";
+    }catch(e){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  fetchBtn.onclick=async ()=>{
+    if(!cloudSession){ return; }
+    fetchMsg.style.color="#555"; fetchMsg.textContent="Fetching…";
+    try{
+      const r=await Cloud.getItems(cloudSession.session_token);
+      if(!r.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Fetch failed (HTTP "+r.status+")"; resultBox.textContent=r.body||""; return; }
+      let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+      lastItems=rows;
+      fetchMsg.style.color="#1f7244"; fetchMsg.textContent=rows.length+" item(s) came back.";
+      resultBox.textContent=JSON.stringify(rows,null,2);
+    }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  createBtn.onclick=async ()=>{
+    if(!cloudSession) return;
+    fetchMsg.style.color="#555"; fetchMsg.textContent="Creating a test item…";
+    try{
+      const data={ sku:"TEST-"+Math.floor(Math.random()*10000), description:"Test item from WIM", condition:"New", retail:"9.99", on_hand:1 };
+      const r=await Cloud.upsertItem(cloudSession.session_token, null, null, data);
+      if(!r.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Create failed (HTTP "+r.status+")"; resultBox.textContent=r.body||""; return; }
+      fetchMsg.style.color="#1f7244"; fetchMsg.textContent="Created. Click Fetch Items to see it in the list.";
+      resultBox.textContent=r.body||"";
+    }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  conflictBtn.onclick=async ()=>{
+    if(!cloudSession) return;
+    if(!lastItems.length){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Click Fetch Items first (need at least one real item to test against)."; return; }
+    const target=lastItems[0];
+    fetchMsg.style.color="#555"; fetchMsg.textContent="Trying to save an old version of \""+(target.description||target.sku||target.id)+"\" on purpose…";
+    try{
+      // Deliberately send a stale "expected" timestamp (one second before the real one) to
+      // prove the server rejects it instead of silently overwriting — exactly the scenario
+      // of two people editing the same item at once.
+      const staleTimestamp=new Date(new Date(target.updated_at).getTime()-1000).toISOString();
+      const r=await Cloud.upsertItem(cloudSession.session_token, target.id, staleTimestamp, { ...target, description:(target.description||"")+" (conflicting edit)" });
+      if(!r.ok){ fetchMsg.style.color="#1f7244"; fetchMsg.textContent="✓ Correctly rejected — the safety check worked."; resultBox.textContent=r.body||""; return; }
+      fetchMsg.style.color="#c0392b"; fetchMsg.textContent="⚠ This should have been rejected but wasn't — worth flagging.";
+      resultBox.textContent=r.body||"";
+    }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+}
 function openBackup(){
   if(openWindows["admin-backup"]){ focusWin(openWindows["admin-backup"].el); return; }
   const {body}=buildWindow({id:"admin-backup",title:"Backup & Updates",width:660,height:580,toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Administrator tools</span>`});
