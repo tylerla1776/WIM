@@ -358,8 +358,12 @@ const Cloud={
     return wimDesktop.invoke("supabase_rpc",{url:CLOUD_URL,anonKey:CLOUD_KEY,functionName:fn,payloadJson:JSON.stringify(payload)}); },
   login(teamCode,name,pin){ return Cloud.rpc("login",{p_team_code:teamCode,p_staff_name:name,p_pin:pin}); },
   getItems(token){ return Cloud.rpc("get_items",{p_session_token:token}); },
+  getItemsSince(token,since){ return Cloud.rpc("get_items_since",{p_session_token:token,p_since:since}); },
   upsertItem(token,itemId,expectedUpdatedAt,data){ return Cloud.rpc("upsert_item",{p_session_token:token,p_item_id:itemId,p_expected_updated_at:expectedUpdatedAt,p_data:data}); },
-  addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); }
+  addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); },
+  claimItem(token,itemId){ return Cloud.rpc("claim_item",{p_session_token:token,p_item_id:itemId}); },
+  pingItemClaim(token,itemId){ return Cloud.rpc("ping_item_claim",{p_session_token:token,p_item_id:itemId}); },
+  releaseItem(token,itemId){ return Cloud.rpc("release_item",{p_session_token:token,p_item_id:itemId}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -379,7 +383,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.18", BUILD_DATE="2026-07-04", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.20", BUILD_DATE="2026-07-06", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -438,6 +442,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.20","Delta sync: Sync Changes Only (Cloud Sync Test screen) pulls just what changed since the last sync instead of the entire inventory every time, tracked by a watermark based on the server's own timestamps (not the device's clock, which can drift). The first sync on a device still pulls everything once -- there is nothing to compare against yet -- every sync after that only asks for what is new. Reset Sync Point lets you re-test the first-time behavior. Deletions are included in the delta results (not just new/changed items) so a device can find out an item was removed, not just that nothing changed."],
+  ["2.9.19","Two cloud-sync foundations, both proven against the Cloud Sync (Test) screen: (1) an offline queue -- if a save can not reach the cloud right now, it is queued instead of lost, and sent automatically the moment connectivity returns (try airplane mode, then Create Test Item, then turn it back off); (2) item locking -- claim/ping/release functions that stop two people from editing the same item at once, with a 90-second auto-expiry so a crash can never permanently lock someone out. Both are backend-proven now; wiring item locking into the real Item Maintenance screen happens as part of the bigger per-screen cloud migration, once items have a stable cloud ID."],
   ["2.9.18","Both the eBay Live Mode badge and the cloud connectivity indicator now react instantly to a real network loss (airplane mode, wifi dropping) -- the OS reports this directly with no polling involved, so both flip to offline immediately at zero bandwidth cost. When the network comes back, that one moment triggers a real check of both eBay and Supabase to find the true state again. Clicking Connect/Disconnect never triggers this -- only an actual change in the network adapter itself does, so the two can not get confused with each other. Note: this catches your whole connection dropping, not eBay or Supabase individually having a bad day with the network otherwise fine -- that would need actual periodic polling, not built here."],
   ["2.9.17","Merged the separate eBay Connect button into the Live Mode badge itself -- click the badge to connect or disconnect, no second button needed. eBay now also auto-attempts connecting silently the moment Live mode opens (if Production keys are saved), instead of requiring a manual click every time; it never shows green until that real check actually succeeds, and a background attempt failing stays silent rather than popping an alert. Added the real cloud-database connectivity indicator next to the username/role text (outlined cloud = connected, cloud with a line through it = can't reach it right now) -- only appears once a device is connected to cloud sync, defaults to assuming online, and rechecks automatically every couple of minutes."],
   ["2.9.16","Fixed a real regression from 2.9.15: connecting a device to cloud sync made the login screen check ONLY the cloud, which broke existing local logins (like the default admin) that were never added to the cloud staff list. Local login is now always checked first, unconditionally -- connecting cloud sync never breaks an existing local login. The cloud is only ever consulted as an additional way to log in, for staff who exist there but not in this device's local list."],
@@ -839,11 +845,93 @@ async function checkCloudReachability(){
   try{ const r=await Cloud.getItems(cloudSession.session_token); CLOUD_ONLINE=!!(r&&r.ok); }
   catch(e){ CLOUD_ONLINE=false; }
   paintCloudBadge();
+  if(CLOUD_ONLINE) flushCloudQueue();
 }
 function startCloudWatcher(){
   if(cloudCheckTimerStarted) return; cloudCheckTimerStarted=true;
   checkCloudReachability();
   setInterval(checkCloudReachability, 120000);
+}
+// ---- Offline queue: keep working when the cloud can't be reached, send it once it can ----
+// Queued operations live in DB.cloudQueue so they survive an app restart — if you go offline,
+// make changes, and close WIM before reconnecting, nothing is lost; it's still there next time.
+function queueCloudOp(type,payload){
+  if(!Array.isArray(DB.cloudQueue)) DB.cloudQueue=[];
+  DB.cloudQueue.push({ id:Date.now()+"-"+Math.random().toString(36).slice(2), type, payload, queuedAt:new Date().toISOString(), failed:false, lastError:"" });
+  save();
+}
+let cloudFlushInFlight=false;
+async function flushCloudQueue(){
+  if(cloudFlushInFlight) return;
+  if(!CLOUD_ONLINE || !cloudSession) return;
+  if(!Array.isArray(DB.cloudQueue) || !DB.cloudQueue.length) return;
+  cloudFlushInFlight=true;
+  try{
+    const remaining=[];
+    for(const op of DB.cloudQueue){
+      if(op.failed){ remaining.push(op); continue; } // already flagged as needing a person to look at it — don't keep retrying automatically
+      let r, networkError=false;
+      try{
+        if(op.type==="upsert_item") r=await Cloud.upsertItem(cloudSession.session_token, op.payload.itemId, op.payload.expectedUpdatedAt, op.payload.data);
+        else if(op.type==="add_item_history") r=await Cloud.addItemHistory(cloudSession.session_token, op.payload.itemId, op.payload.note);
+        else continue; // unknown op type — drop it rather than get stuck on it forever
+      }catch(e){ networkError=true; }
+      if(networkError){ remaining.push(op); continue; } // still can't actually reach it — keep it queued, try again next time
+      if(r && r.ok) continue; // succeeded — falls out of the queue
+      // A real rejection from the server (e.g. a genuine conflict with someone else's
+      // edit) — keep it for visibility, but flag it so it stops being retried
+      // automatically and doesn't block anything else queued behind it.
+      op.failed=true; op.lastError=(r&&r.body)||"Unknown error"; remaining.push(op);
+    }
+    DB.cloudQueue=remaining; save();
+  } finally { cloudFlushInFlight=false; }
+}
+// The single entry point any screen should use once it's wired up to save to the cloud.
+// Handles the offline case automatically — if the cloud can't be reached right now, the
+// save is queued and applied the moment connectivity returns, instead of blocking the
+// person or losing the change.
+async function saveItemSmart(itemId,expectedUpdatedAt,data){
+  if(CLOUD_ONLINE && cloudSession){
+    try{
+      const r=await Cloud.upsertItem(cloudSession.session_token,itemId,expectedUpdatedAt,data);
+      if(r && r.ok) return { ok:true, queued:false, result:r };
+      return { ok:false, queued:false, conflict:/CONFLICT/i.test(r&&r.body||""), result:r };
+    }catch(e){ /* thought we were online but couldn't actually reach it — fall through to queueing */ }
+  }
+  queueCloudOp("upsert_item",{ itemId, expectedUpdatedAt, data });
+  return { ok:true, queued:true };
+}
+async function addHistorySmart(itemId,note){
+  if(CLOUD_ONLINE && cloudSession){
+    try{ const r=await Cloud.addItemHistory(cloudSession.session_token,itemId,note); if(r&&r.ok) return { ok:true, queued:false }; }
+    catch(e){ /* fall through to queueing */ }
+  }
+  queueCloudOp("add_item_history",{ itemId, note });
+  return { ok:true, queued:true };
+}
+// Pulls only what's changed since the last successful sync, instead of the whole inventory
+// every time. The very first sync on a device has nothing to compare against, so it pulls
+// everything once — every sync after that only asks for changes. The watermark is the
+// newest "updated_at" actually seen in the server's response, not the device's own clock —
+// a device's clock can drift, the server's timestamps can't.
+async function syncDelta(){
+  if(!cloudSession) return { ok:false, error:"Not logged in" };
+  const since=DB.cloud&&DB.cloud.lastSyncedAt;
+  try{
+    const r = since ? await Cloud.getItemsSince(cloudSession.session_token,since) : await Cloud.getItems(cloudSession.session_token);
+    if(!r.ok) return { ok:false, error:r.body, status:r.status };
+    let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+    if(rows.length){
+      const maxUpdated=rows.reduce((m,row)=> (row.updated_at>m?row.updated_at:m), since||"");
+      if(!DB.cloud) DB.cloud={};
+      DB.cloud.lastSyncedAt=maxUpdated;
+    } else if(!since){
+      if(!DB.cloud) DB.cloud={};
+      DB.cloud.lastSyncedAt=new Date().toISOString(); // first sync, nothing existed yet — still mark it done
+    }
+    save();
+    return { ok:true, rows, full:!since };
+  }catch(e){ return { ok:false, error:(e&&e.message)||String(e) }; }
 }
 function setEbayOnline(v){ EBAY_ONLINE=!!v; try{ localStorage.setItem("WIM_EBAY_ONLINE", EBAY_ONLINE?"1":"0"); }catch(e){} paintLiveBadge(); }
 window.addEventListener("storage", e=>{
@@ -3935,19 +4023,37 @@ function openCloudSyncTest(){
       <div id="cs-session" class="smallhint">Not logged in yet.</div></fieldset>
     <fieldset class="gb" style="margin-top:12px;"><legend>Data test</legend>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-        <button class="btn" id="cs-fetch" disabled>Fetch Items</button>
+        <button class="btn" id="cs-fetch" disabled>Fetch Items (full)</button>
+        <button class="btn" id="cs-sync" disabled title="Only pulls what changed since the last sync">Sync Changes Only</button>
+        <button class="btn" id="cs-resetsync" disabled title="Clears the saved sync point, so the next Sync Changes Only pulls everything again like a first-time sync">Reset Sync Point</button>
         <button class="btn" id="cs-create" disabled>Create Test Item</button>
         <button class="btn" id="cs-conflict" disabled title="Tries to save an old version on purpose, to prove the safety check catches it">Test Conflict Detection</button>
         <span class="smallhint" id="cs-fetchmsg"></span></div>
-      <pre id="cs-result" style="background:#f6f7f9;border:1px solid #e3e7ee;border-radius:8px;padding:10px;font-size:11px;max-height:260px;overflow:auto;white-space:pre-wrap;">(nothing fetched yet)</pre></fieldset></div>`;
-  const loginMsg=body.querySelector("#cs-loginmsg"), sessionBox=body.querySelector("#cs-session"), fetchBtn=body.querySelector("#cs-fetch"), createBtn=body.querySelector("#cs-create"), conflictBtn=body.querySelector("#cs-conflict"), fetchMsg=body.querySelector("#cs-fetchmsg"), resultBox=body.querySelector("#cs-result");
-  let lastItems=[];
+      <div class="smallhint" id="cs-syncpoint" style="margin-bottom:6px;"></div>
+      <pre id="cs-result" style="background:#f6f7f9;border:1px solid #e3e7ee;border-radius:8px;padding:10px;font-size:11px;max-height:260px;overflow:auto;white-space:pre-wrap;">(nothing fetched yet)</pre></fieldset>
+    <fieldset class="gb" style="margin-top:12px;"><legend>Offline queue</legend>
+      <div class="smallhint" style="margin-bottom:6px;">Try turning on airplane mode, then Create Test Item — it should queue instead of failing. Turn airplane mode back off and it should send automatically within a couple of minutes, or click Flush Now.</div>
+      <div style="display:flex;gap:8px;align-items:center;"><button class="btn" id="cs-flush">Flush Now</button><span class="smallhint" id="cs-queuemsg"></span></div></fieldset>
+    <fieldset class="gb" style="margin-top:12px;"><legend>Item locking (tested against the test item above — not yet wired into real screens)</legend>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
+        <button class="btn" id="cs-claim" disabled>Claim Test Item</button>
+        <button class="btn" id="cs-ping" disabled>Ping (heartbeat)</button>
+        <button class="btn" id="cs-release" disabled>Release</button>
+        <span class="smallhint" id="cs-lockmsg"></span></div></fieldset></div>`;
+  const loginMsg=body.querySelector("#cs-loginmsg"), sessionBox=body.querySelector("#cs-session"), fetchBtn=body.querySelector("#cs-fetch"), syncBtn=body.querySelector("#cs-sync"), resetSyncBtn=body.querySelector("#cs-resetsync"), createBtn=body.querySelector("#cs-create"), conflictBtn=body.querySelector("#cs-conflict"), fetchMsg=body.querySelector("#cs-fetchmsg"), resultBox=body.querySelector("#cs-result"), syncPointBox=body.querySelector("#cs-syncpoint");
+  const flushBtn=body.querySelector("#cs-flush"), queueMsg=body.querySelector("#cs-queuemsg");
+  const claimBtn=body.querySelector("#cs-claim"), pingBtn=body.querySelector("#cs-ping"), releaseBtn=body.querySelector("#cs-release"), lockMsg=body.querySelector("#cs-lockmsg");
+  let lastItems=[], lastCreatedId=null;
+  function paintQueue(){ const n=(DB.cloudQueue||[]).length; const failed=(DB.cloudQueue||[]).filter(o=>o.failed).length;
+    queueMsg.textContent=n?(n+" pending"+(failed?(", "+failed+" need attention"):"")):"Queue is empty."; }
+  function paintSyncPoint(){ const s=DB.cloud&&DB.cloud.lastSyncedAt;
+    syncPointBox.textContent=s?("Last synced: "+new Date(s).toLocaleString()+" — Sync Changes Only will only pull what's newer than this."):"Never synced yet — Sync Changes Only will pull everything once, the same as a full fetch."; }
   function paintSession(){
-    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; return; }
+    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; return; }
     sessionBox.innerHTML=`Logged in as <b>${esc(cloudSession.staff_name)}</b> (${esc(cloudSession.role)}) on team <b>${esc(cloudSession.team_name)}</b><br>Session token: <code style="font-size:10px;">${esc(cloudSession.session_token.slice(0,16))}…</code>`;
-    fetchBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false;
+    fetchBtn.disabled=false; syncBtn.disabled=false; resetSyncBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false; claimBtn.disabled=!lastCreatedId;
   }
-  paintSession();
+  paintSession(); paintQueue(); paintSyncPoint();
   body.querySelector("#cs-login").onclick=async ()=>{
     const team=body.querySelector("#cs-team").value.trim(), name=body.querySelector("#cs-name").value.trim(), pin=body.querySelector("#cs-pin").value.trim();
     if(!team||!name||!pin){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Fill in all three fields."; return; }
@@ -3964,25 +4070,49 @@ function openCloudSyncTest(){
   };
   fetchBtn.onclick=async ()=>{
     if(!cloudSession){ return; }
-    fetchMsg.style.color="#555"; fetchMsg.textContent="Fetching…";
+    fetchMsg.style.color="#555"; fetchMsg.textContent="Fetching everything…";
     try{
       const r=await Cloud.getItems(cloudSession.session_token);
       if(!r.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Fetch failed (HTTP "+r.status+")"; resultBox.textContent=r.body||""; return; }
       let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
       lastItems=rows;
-      fetchMsg.style.color="#1f7244"; fetchMsg.textContent=rows.length+" item(s) came back.";
+      fetchMsg.style.color="#1f7244"; fetchMsg.textContent=rows.length+" item(s) came back (full pull — every item, every time).";
       resultBox.textContent=JSON.stringify(rows,null,2);
     }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  syncBtn.onclick=async ()=>{
+    if(!cloudSession) return;
+    const wasFirstSync=!(DB.cloud&&DB.cloud.lastSyncedAt);
+    fetchMsg.style.color="#555"; fetchMsg.textContent=wasFirstSync?"No sync point saved yet — pulling everything once…":"Pulling only what changed since the last sync…";
+    const res=await syncDelta();
+    if(!res.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Sync failed: "+(res.error||"").slice(0,200); return; }
+    lastItems=res.rows;
+    fetchMsg.style.color="#1f7244";
+    fetchMsg.textContent = res.full
+      ? (res.rows.length+" item(s) came back (first sync, so this one pulled everything — same as a full fetch)")
+      : (res.rows.length+" item(s) changed since last sync — that's the only data this pull actually used");
+    resultBox.textContent=JSON.stringify(res.rows,null,2);
+    paintSyncPoint();
+  };
+  resetSyncBtn.onclick=()=>{
+    if(!DB.cloud) DB.cloud={};
+    DB.cloud.lastSyncedAt=null; save(); paintSyncPoint();
+    fetchMsg.style.color="#555"; fetchMsg.textContent="Sync point cleared — next Sync Changes Only will pull everything, like a brand-new device.";
   };
   createBtn.onclick=async ()=>{
     if(!cloudSession) return;
     fetchMsg.style.color="#555"; fetchMsg.textContent="Creating a test item…";
     try{
       const data={ sku:"TEST-"+Math.floor(Math.random()*10000), description:"Test item from WIM", condition:"New", retail:"9.99", on_hand:1 };
-      const r=await Cloud.upsertItem(cloudSession.session_token, null, null, data);
-      if(!r.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Create failed (HTTP "+r.status+")"; resultBox.textContent=r.body||""; return; }
+      const res=await saveItemSmart(null, null, data);
+      if(res.queued){ fetchMsg.style.color="#b07a1e"; fetchMsg.textContent="Couldn't reach the cloud right now — queued instead. It'll send automatically once connected again."; paintQueue(); return; }
+      if(!res.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Create failed."; resultBox.textContent=(res.result&&res.result.body)||""; return; }
+      let rows=[]; try{ rows=JSON.parse(res.result.body); }catch(e){}
+      const createdRow=Array.isArray(rows)?rows[0]:rows;
+      if(createdRow && createdRow.id) lastCreatedId=createdRow.id;
+      claimBtn.disabled=!lastCreatedId;
       fetchMsg.style.color="#1f7244"; fetchMsg.textContent="Created. Click Fetch Items to see it in the list.";
-      resultBox.textContent=r.body||"";
+      resultBox.textContent=res.result.body||"";
     }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
   };
   conflictBtn.onclick=async ()=>{
@@ -4000,6 +4130,29 @@ function openCloudSyncTest(){
       fetchMsg.style.color="#c0392b"; fetchMsg.textContent="⚠ This should have been rejected but wasn't — worth flagging.";
       resultBox.textContent=r.body||"";
     }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  flushBtn.onclick=async ()=>{ queueMsg.style.color="#555"; queueMsg.textContent="Flushing…"; await flushCloudQueue(); paintQueue(); };
+  claimBtn.onclick=async ()=>{
+    if(!cloudSession||!lastCreatedId) return;
+    lockMsg.style.color="#555"; lockMsg.textContent="Claiming…";
+    try{
+      const r=await Cloud.claimItem(cloudSession.session_token, lastCreatedId);
+      if(!r.ok){ lockMsg.style.color="#c0392b"; lockMsg.textContent="Claim failed (HTTP "+r.status+")"; return; }
+      let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+      const row=rows&&rows[0];
+      if(row&&row.claimed){ lockMsg.style.color="#1f7244"; lockMsg.textContent="Claimed it. Ping/Release now enabled."; pingBtn.disabled=false; releaseBtn.disabled=false; }
+      else { lockMsg.style.color="#c0392b"; lockMsg.textContent="Already claimed by "+(row&&row.held_by)+" — correctly blocked."; }
+    }catch(e){ lockMsg.style.color="#c0392b"; lockMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  pingBtn.onclick=async ()=>{
+    if(!cloudSession||!lastCreatedId) return;
+    try{ const r=await Cloud.pingItemClaim(cloudSession.session_token,lastCreatedId); lockMsg.style.color=r.ok?"#1f7244":"#c0392b"; lockMsg.textContent=r.ok?"Heartbeat sent.":"Ping failed."; }
+    catch(e){ lockMsg.style.color="#c0392b"; lockMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  releaseBtn.onclick=async ()=>{
+    if(!cloudSession||!lastCreatedId) return;
+    try{ await Cloud.releaseItem(cloudSession.session_token,lastCreatedId); lockMsg.style.color="#1f7244"; lockMsg.textContent="Released."; pingBtn.disabled=true; releaseBtn.disabled=true; }
+    catch(e){ lockMsg.style.color="#c0392b"; lockMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
   };
 }
 function openBackup(){

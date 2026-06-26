@@ -1,0 +1,81 @@
+name: cloud-keepalive-backup
+# Two jobs that run on GitHub's own servers, on a schedule — neither depends on any
+# computer being turned on.
+#
+#   keepalive: touches the database every few days so Supabase's free tier never
+#              auto-pauses it from inactivity (it pauses after 7 days untouched).
+#   backup:    dumps the whole database every weekday and uploads it to OneDrive
+#              (Mon/Wed/Fri) or Google Drive (Tue/Thu), keeping a rolling history
+#              and deleting the oldest once the limit is hit.
+#
+# STATUS RIGHT NOW: the backup job produces a real database dump and currently
+# saves it as a temporary GitHub Actions artifact (auto-deleted after 14 days) —
+# that's a placeholder so there's something to verify works today. The actual
+# OneDrive and Google Drive upload steps are built in as their own separate
+# pieces once each of those is set up (that setup is its own multi-step process,
+# similar in size to the eBay sign-in work).
+#
+# Required repository secret (Settings -> Secrets and variables -> Actions):
+#     SUPABASE_DB_URL   -> the database connection string from Supabase
+#                          (Project Settings -> Database -> Connection string,
+#                          "Direct connection" -- starts with postgresql://postgres:...)
+#
+# Note on the 3am schedule: GitHub Actions cron always runs in UTC and does not
+# shift for daylight saving time, so this will actually run at 3am Central time
+# in winter (CST) and 4am in summer (CDT) -- a one-hour drift twice a year that
+# doesn't matter for an overnight backup.
+
+on:
+  schedule:
+    - cron: '0 9 */3 * *'        # keep-alive, roughly every 3 days
+    - cron: '0 9 * * 1,2,3,4,5'  # backup, every weekday
+  workflow_dispatch: {}           # lets you trigger either job manually from GitHub's Actions tab, for testing
+
+jobs:
+  keepalive:
+    if: github.event.schedule == '0 9 */3 * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install postgres client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Touch the database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: psql "$SUPABASE_DB_URL" -c "select 1;"
+
+  backup:
+    if: github.event.schedule == '0 9 * * 1,2,3,4,5' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install postgres client
+        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Dump the database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          mkdir -p backups
+          STAMP=$(date +%Y-%m-%d_%H%M)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges -f "backups/wim-backup-$STAMP.sql"
+          ls -lh backups/
+      - name: Decide today's destination (OneDrive Mon/Wed/Fri, Google Drive Tue/Thu)
+        id: dest
+        run: |
+          DOW=$(date +%u)  # 1=Monday ... 7=Sunday
+          if [ "$DOW" = "1" ] || [ "$DOW" = "3" ] || [ "$DOW" = "5" ]; then
+            echo "target=onedrive" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=gdrive" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload to OneDrive (not wired up yet)
+        if: steps.dest.outputs.target == 'onedrive'
+        run: 'echo "TODO: OneDrive upload + 90-file rotation goes here once OneDrive setup is done."'
+      - name: Upload to Google Drive (not wired up yet)
+        if: steps.dest.outputs.target == 'gdrive'
+        run: 'echo "TODO: Google Drive upload + 60-file rotation goes here once Google Drive setup is done."'
+      - name: Keep this run's backup as a temporary GitHub artifact (placeholder until uploads are wired up)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wim-backup-${{ env.STAMP }}
+          path: backups/*.sql
+          retention-days: 14
