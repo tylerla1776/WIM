@@ -36,8 +36,15 @@ jobs:
     if: github.event.schedule == '0 9 */3 * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: Install postgres client
-        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Install matching postgres client (v17, to match Supabase's server version)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget gnupg lsb-release
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - name: Touch the database
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -47,8 +54,15 @@ jobs:
     if: github.event.schedule == '0 9 * * 1,2,3,4,5' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: Install postgres client
-        run: sudo apt-get update -y && sudo apt-get install -y postgresql-client
+      - name: Install matching postgres client (v17, to match Supabase's server version)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget gnupg lsb-release
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - name: Dump the database
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
