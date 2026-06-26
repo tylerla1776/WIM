@@ -15,10 +15,19 @@ name: cloud-keepalive-backup
 # pieces once each of those is set up (that setup is its own multi-step process,
 # similar in size to the eBay sign-in work).
 #
-# Required repository secret (Settings -> Secrets and variables -> Actions):
-#     SUPABASE_DB_URL   -> the database connection string from Supabase
-#                          (Project Settings -> Database -> Connection string,
-#                          "Direct connection" -- starts with postgresql://postgres:...)
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#     SUPABASE_DB_URL        -> the database connection string from Supabase
+#                              (click Connect at the top of the dashboard -> Session pooler --
+#                              Direct connection uses IPv6, which GitHub's runners can't reach,
+#                              so Session pooler is the one that actually works here)
+#     ONEDRIVE_CLIENT_ID      -> from the Azure app registration
+#     ONEDRIVE_CLIENT_SECRET  -> from the Azure app registration
+#     ONEDRIVE_REFRESH_TOKEN  -> from the one-time sign-in/consent flow
+#
+# Note on the OneDrive refresh token: it's a long-lived credential, but if Microsoft
+# ever rotates it out from under us, the fix is just redoing that one-time sign-in flow
+# and dropping the new value into ONEDRIVE_REFRESH_TOKEN -- not something to over-engineer
+# automatic renewal for until it's actually needed.
 #
 # Note on the 3am schedule: GitHub Actions cron always runs in UTC and does not
 # shift for daylight saving time, so this will actually run at 3am Central time
@@ -81,9 +90,57 @@ jobs:
           else
             echo "target=gdrive" >> "$GITHUB_OUTPUT"
           fi
-      - name: Upload to OneDrive (not wired up yet)
+      - name: Upload to OneDrive (90-file rolling history)
         if: steps.dest.outputs.target == 'onedrive'
-        run: 'echo "TODO: OneDrive upload + 90-file rotation goes here once OneDrive setup is done."'
+        env:
+          CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.ONEDRIVE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.ONEDRIVE_REFRESH_TOKEN }}
+        run: |
+          set -e
+          FOLDER="WIM-Backups"
+          FILE=$(ls backups/*.sql | head -n1)
+          NAME=$(basename "$FILE")
+
+          # Trade a saved refresh token for a fresh, short-lived access token
+          TOKEN_RESPONSE=$(curl -s -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token \
+            -d "client_id=$CLIENT_ID" \
+            -d "client_secret=$CLIENT_SECRET" \
+            -d "refresh_token=$REFRESH_TOKEN" \
+            -d "grant_type=refresh_token" \
+            -d "scope=Files.ReadWrite offline_access")
+          ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+          if [ "$ACCESS_TOKEN" = "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+            echo "Could not get an access token. Response was:"
+            echo "$TOKEN_RESPONSE"
+            exit 1
+          fi
+
+          # Uploading to a path under a folder that doesn't exist yet creates the folder
+          # automatically -- no separate "create folder" step needed.
+          UPLOAD_RESPONSE=$(curl -s -X PUT \
+            "https://graph.microsoft.com/v1.0/me/drive/root:/$FOLDER/$NAME:/content" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@$FILE")
+          echo "$UPLOAD_RESPONSE" | jq '{name, size, id}'
+
+          # Rotation: once there are more than 90 backups in that folder, delete the
+          # oldest ones until exactly 90 remain.
+          curl -s "https://graph.microsoft.com/v1.0/me/drive/root:/$FOLDER:/children?\$select=id,name,createdDateTime&\$orderby=createdDateTime%20asc&\$top=999" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" > files.json
+
+          COUNT=$(jq '.value | length' files.json)
+          EXCESS=$((COUNT - 90))
+          if [ "$EXCESS" -gt 0 ]; then
+            echo "Have $COUNT backups in OneDrive, removing the oldest $EXCESS to stay at 90."
+            jq -r ".value[0:$EXCESS][].id" files.json | while read -r ID; do
+              curl -s -X DELETE "https://graph.microsoft.com/v1.0/me/drive/items/$ID" \
+                -H "Authorization: Bearer $ACCESS_TOKEN"
+            done
+          else
+            echo "Have $COUNT backups in OneDrive, under the 90 limit -- nothing to remove."
+          fi
       - name: Upload to Google Drive (not wired up yet)
         if: steps.dest.outputs.target == 'gdrive'
         run: 'echo "TODO: Google Drive upload + 60-file rotation goes here once Google Drive setup is done."'
