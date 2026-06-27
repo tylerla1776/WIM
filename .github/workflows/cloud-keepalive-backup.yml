@@ -38,7 +38,13 @@ on:
   schedule:
     - cron: '0 9 */3 * *'        # keep-alive, roughly every 3 days
     - cron: '0 9 * * 1,2,3,4,5'  # backup, every weekday
-  workflow_dispatch: {}           # lets you trigger either job manually from GitHub's Actions tab, for testing
+  workflow_dispatch:               # lets you trigger either job manually from GitHub's Actions tab, for testing
+    inputs:
+      force_destination:
+        description: 'Force the backup destination (testing only -- leave as auto for the real schedule)'
+        type: choice
+        options: [auto, onedrive, gdrive, local]
+        default: auto
 
 jobs:
   keepalive:
@@ -81,21 +87,33 @@ jobs:
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges -f "backups/wim-backup-$STAMP.sql"
           ls -lh backups/
-      - name: Decide today's destination (OneDrive Mon/Wed/Fri, Google Drive Tue/Thu)
+      - name: Decide today's destination (OneDrive Mon/Wed/Fri, Google Drive Tue/Thu, local Sat/Sun)
         id: dest
         run: |
-          DOW=$(date +%u)  # 1=Monday ... 7=Sunday
-          if [ "$DOW" = "1" ] || [ "$DOW" = "3" ] || [ "$DOW" = "5" ]; then
-            echo "target=onedrive" >> "$GITHUB_OUTPUT"
+          OVERRIDE="${{ github.event.inputs.force_destination }}"
+          if [ -n "$OVERRIDE" ] && [ "$OVERRIDE" != "auto" ]; then
+            echo "target=$OVERRIDE" >> "$GITHUB_OUTPUT"
+            echo "Using manual override: $OVERRIDE"
           else
-            echo "target=gdrive" >> "$GITHUB_OUTPUT"
+            DOW=$(date +%u)  # 1=Monday ... 7=Sunday
+            if [ "$DOW" = "1" ] || [ "$DOW" = "3" ] || [ "$DOW" = "5" ]; then
+              echo "target=onedrive" >> "$GITHUB_OUTPUT"
+            elif [ "$DOW" = "2" ] || [ "$DOW" = "4" ]; then
+              echo "target=gdrive" >> "$GITHUB_OUTPUT"
+            else
+              echo "target=local" >> "$GITHUB_OUTPUT"
+            fi
           fi
+      - name: Saturday/Sunday is a local-PC backup day, not a cloud day
+        if: steps.dest.outputs.target == 'local'
+        run: echo "Today's backup is meant to happen on your own computer (built into WIM itself), not from GitHub's servers -- nothing to upload here today, this is expected."
       - name: Upload to OneDrive (90-file rolling history)
         if: steps.dest.outputs.target == 'onedrive'
         env:
           CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.ONEDRIVE_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.ONEDRIVE_REFRESH_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -e
           FOLDER="WIM-Backups"
@@ -140,6 +158,21 @@ jobs:
             done
           else
             echo "Have $COUNT backups in OneDrive, under the 90 limit -- nothing to remove."
+          fi
+
+          # Check how much space is actually left, write it to the database so WIM can
+          # show admins an in-app warning, and fail this step (which triggers GitHub's
+          # own "workflow failed" email) if it's getting low.
+          QUOTA=$(curl -s "https://graph.microsoft.com/v1.0/me/drive" -H "Authorization: Bearer $ACCESS_TOKEN")
+          REMAINING=$(echo "$QUOTA" | jq -r '.quota.remaining')
+          echo "OneDrive space remaining: $REMAINING bytes"
+
+          # psql is already installed and on PATH from the earlier step in this job.
+          psql "$SUPABASE_DB_URL" -c "update backup_status set onedrive_remaining_bytes = $REMAINING, onedrive_checked_at = now() where id = 1;"
+
+          if [ "$REMAINING" -lt 524288000 ]; then
+            echo "::error::OneDrive has less than 500MB free ($REMAINING bytes remaining) -- the backup itself succeeded, but space is running low."
+            exit 1
           fi
       - name: Upload to Google Drive (not wired up yet)
         if: steps.dest.outputs.target == 'gdrive'

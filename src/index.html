@@ -363,7 +363,8 @@ const Cloud={
   addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); },
   claimItem(token,itemId){ return Cloud.rpc("claim_item",{p_session_token:token,p_item_id:itemId}); },
   pingItemClaim(token,itemId){ return Cloud.rpc("ping_item_claim",{p_session_token:token,p_item_id:itemId}); },
-  releaseItem(token,itemId){ return Cloud.rpc("release_item",{p_session_token:token,p_item_id:itemId}); }
+  releaseItem(token,itemId){ return Cloud.rpc("release_item",{p_session_token:token,p_item_id:itemId}); },
+  getBackupStatus(token){ return Cloud.rpc("get_backup_status",{p_session_token:token}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -383,7 +384,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.20", BUILD_DATE="2026-07-06", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.22", BUILD_DATE="2026-07-08", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -442,6 +443,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.22","Low cloud-storage warning, on both ends: the OneDrive upload step now checks real remaining space after every backup, writes it to the database, and fails the GitHub Action itself (triggering GitHub's own email) if either drive drops under 500MB. WIM now also reads those same numbers and shows an in-app warning banner to admins -- reusing the same banner style as the existing local-backup reminder -- rather than relying on an email getting noticed. Google Drive's side of this will be added once that upload step itself is built."],
+  ["2.9.21","Added the GitHub Actions workflow that keeps Supabase from auto-pausing (a quick ping every few days, well under the 7-day pause window) and dumps a real backup of the whole database every weekday -- both run on GitHub's own servers on a schedule, with no computer needing to be on. The backup currently saves as a temporary GitHub artifact (auto-deleted after 14 days) as a placeholder you can verify works today; the actual OneDrive and Google Drive uploads (with the 90/60-file rotation) are their own next steps, each needing a one-time app setup similar in size to the eBay sign-in work."],
   ["2.9.20","Delta sync: Sync Changes Only (Cloud Sync Test screen) pulls just what changed since the last sync instead of the entire inventory every time, tracked by a watermark based on the server's own timestamps (not the device's clock, which can drift). The first sync on a device still pulls everything once -- there is nothing to compare against yet -- every sync after that only asks for what is new. Reset Sync Point lets you re-test the first-time behavior. Deletions are included in the delta results (not just new/changed items) so a device can find out an item was removed, not just that nothing changed."],
   ["2.9.19","Two cloud-sync foundations, both proven against the Cloud Sync (Test) screen: (1) an offline queue -- if a save can not reach the cloud right now, it is queued instead of lost, and sent automatically the moment connectivity returns (try airplane mode, then Create Test Item, then turn it back off); (2) item locking -- claim/ping/release functions that stop two people from editing the same item at once, with a 90-second auto-expiry so a crash can never permanently lock someone out. Both are backend-proven now; wiring item locking into the real Item Maintenance screen happens as part of the bigger per-screen cloud migration, once items have a stable cloud ID."],
   ["2.9.18","Both the eBay Live Mode badge and the cloud connectivity indicator now react instantly to a real network loss (airplane mode, wifi dropping) -- the OS reports this directly with no polling involved, so both flip to offline immediately at zero bandwidth cost. When the network comes back, that one moment triggers a real check of both eBay and Supabase to find the true state again. Clicking Connect/Disconnect never triggers this -- only an actual change in the network adapter itself does, so the two can not get confused with each other. Note: this catches your whole connection dropping, not eBay or Supabase individually having a bad day with the network otherwise fine -- that would need actual periodic polling, not built here."],
@@ -1424,6 +1427,7 @@ function showLauncher(){
   if(isLive() && !EBAY_ONLINE && !ebayAutoConnectTried && ebayProdCredsReady()){ ebayAutoConnectTried=true; connectEbay(true); }
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
+  try{ checkCloudBackupSpace(); }catch(e){ console.error("checkCloudBackupSpace failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
   try{ if(!treeState.sel) renderDashboard(); }catch(e){ console.error("renderDashboard failed:",e); }
   const homeGo=()=>{ treeState.sel=null; renderTree(); renderDashboard(); };
@@ -1903,6 +1907,32 @@ function renderBackupReminder(){
   const go=document.createElement("button"); go.className="btn sm"; go.textContent="Back Up Now"; go.onclick=()=>openBackup();
   const dismiss=document.createElement("button"); dismiss.className="btn sm"; dismiss.textContent="Dismiss"; dismiss.onclick=()=>{ host.innerHTML=""; };
   bar.appendChild(go); bar.appendChild(dismiss); host.appendChild(bar);
+}
+// Admin-only, checked once per running session: warns inside WIM itself if either cloud
+// backup destination is genuinely running low on space, using the real numbers the
+// GitHub Actions backup job writes to the database each time it checks.
+let cloudBackupSpaceChecked=false;
+async function checkCloudBackupSpace(){
+  if(cloudBackupSpaceChecked) return;
+  if(role()!=="admin" || !cloudSession) return;
+  cloudBackupSpaceChecked=true;
+  try{
+    const r=await Cloud.getBackupStatus(cloudSession.session_token);
+    if(!r.ok) return;
+    let row={}; try{ const parsed=JSON.parse(r.body); row=Array.isArray(parsed)?parsed[0]:parsed; }catch(e){}
+    if(!row) return;
+    const LOW=500*1024*1024; // 500 MB
+    const warnings=[];
+    if(row.onedrive_remaining_bytes!=null && row.onedrive_remaining_bytes<LOW) warnings.push("OneDrive ("+Math.round(row.onedrive_remaining_bytes/1024/1024)+" MB left)");
+    if(row.gdrive_remaining_bytes!=null && row.gdrive_remaining_bytes<LOW) warnings.push("Google Drive ("+Math.round(row.gdrive_remaining_bytes/1024/1024)+" MB left)");
+    if(!warnings.length) return;
+    const host=document.getElementById("backup-reminder"); if(!host) return;
+    const bar=document.createElement("div");
+    bar.style.cssText="display:flex;align-items:center;gap:10px;background:#fde8e8;border:1px solid #e0a0a0;border-radius:4px;margin:8px 10px 0;padding:7px 10px;font-size:12.5px;color:#7a2020;";
+    bar.innerHTML=`<span style="font-size:15px;">&#9888;</span><span style="flex:1;"><b>Cloud backup storage is running low.</b> ${esc(warnings.join(" and "))} — free up space there or backups may start failing.</span>`;
+    const d=document.createElement("button"); d.className="btn sm"; d.textContent="Dismiss"; d.onclick=()=>{ bar.remove(); };
+    bar.appendChild(d); host.appendChild(bar);
+  }catch(e){ /* not worth surfacing a network hiccup as an error here */ }
 }
 function renderTree(){
   const pane=document.getElementById("tree-pane"); if(!pane) return; pane.innerHTML="";
