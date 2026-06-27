@@ -384,7 +384,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.22", BUILD_DATE="2026-07-08", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.23", BUILD_DATE="2026-07-09", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -443,6 +443,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.23","Fixed the backup schedule: it now actually runs every day (OneDrive Mon/Wed/Fri/Sat, Google Drive Tue/Thu/Sun) with no local-only day anymore -- relying on a person remembering to back up on weekends was exactly what the 7-day fail-safe is meant to replace, so it does not make sense to also keep a fixed local day on the calendar. Rotation limits updated to 91/69 to match. Added Pause/Resume Cloud Sync (Configuration -> Cloud Sync Setup, admin only): while paused, nothing reads from or writes to the cloud -- not even queued for later -- and the Cloud Sync (Test) screen's data buttons lock accordingly, while login keeps working normally. Built specifically for actively developing/testing WIM without test runs quietly filling the real shared database."],
   ["2.9.22","Low cloud-storage warning, on both ends: the OneDrive upload step now checks real remaining space after every backup, writes it to the database, and fails the GitHub Action itself (triggering GitHub's own email) if either drive drops under 500MB. WIM now also reads those same numbers and shows an in-app warning banner to admins -- reusing the same banner style as the existing local-backup reminder -- rather than relying on an email getting noticed. Google Drive's side of this will be added once that upload step itself is built."],
   ["2.9.21","Added the GitHub Actions workflow that keeps Supabase from auto-pausing (a quick ping every few days, well under the 7-day pause window) and dumps a real backup of the whole database every weekday -- both run on GitHub's own servers on a schedule, with no computer needing to be on. The backup currently saves as a temporary GitHub artifact (auto-deleted after 14 days) as a placeholder you can verify works today; the actual OneDrive and Google Drive uploads (with the 90/60-file rotation) are their own next steps, each needing a one-time app setup similar in size to the eBay sign-in work."],
   ["2.9.20","Delta sync: Sync Changes Only (Cloud Sync Test screen) pulls just what changed since the last sync instead of the entire inventory every time, tracked by a watermark based on the server's own timestamps (not the device's clock, which can drift). The first sync on a device still pulls everything once -- there is nothing to compare against yet -- every sync after that only asks for what is new. Reset Sync Point lets you re-test the first-time behavior. Deletions are included in the delta results (not just new/changed items) so a device can find out an item was removed, not just that nothing changed."],
@@ -836,15 +837,22 @@ let ebayAutoConnectTried=false; // only auto-attempt the silent connect once per
 // than starting pessimistic and making someone wait to find out.
 let CLOUD_ONLINE=true;
 let cloudCheckTimerStarted=false;
+// A deliberate "don't talk to the cloud right now" switch, separate from being offline.
+// Meant for actively developing/testing WIM itself without every test run quietly
+// writing into the real shared database. Login still works while paused — this only
+// stops data sync, not access.
+function cloudSyncPaused(){ return !!(DB.cloud && DB.cloud.syncPaused); }
 function paintCloudBadge(){
   const el=document.getElementById("cloud-badge"); if(!el) return;
   if(!(DB.cloud&&DB.cloud.teamCode)){ el.style.display="none"; return; }
   el.style.display="inline-flex";
+  if(cloudSyncPaused()){ el.innerHTML=ICON_CLOUD_OFF; el.title="Cloud sync is paused — resume it in Cloud Sync Setup"; return; }
   el.innerHTML=CLOUD_ONLINE?ICON_CLOUD_ON:ICON_CLOUD_OFF;
   el.title=CLOUD_ONLINE?"Connected to the cloud database":"Can't reach the cloud database right now — working from this device's local copy";
 }
 async function checkCloudReachability(){
   if(!(DB.cloud&&DB.cloud.teamCode) || !cloudSession) return;
+  if(cloudSyncPaused()){ paintCloudBadge(); return; }
   try{ const r=await Cloud.getItems(cloudSession.session_token); CLOUD_ONLINE=!!(r&&r.ok); }
   catch(e){ CLOUD_ONLINE=false; }
   paintCloudBadge();
@@ -894,6 +902,7 @@ async function flushCloudQueue(){
 // save is queued and applied the moment connectivity returns, instead of blocking the
 // person or losing the change.
 async function saveItemSmart(itemId,expectedUpdatedAt,data){
+  if(cloudSyncPaused()) return { ok:true, queued:false, paused:true };
   if(CLOUD_ONLINE && cloudSession){
     try{
       const r=await Cloud.upsertItem(cloudSession.session_token,itemId,expectedUpdatedAt,data);
@@ -905,6 +914,7 @@ async function saveItemSmart(itemId,expectedUpdatedAt,data){
   return { ok:true, queued:true };
 }
 async function addHistorySmart(itemId,note){
+  if(cloudSyncPaused()) return { ok:true, queued:false, paused:true };
   if(CLOUD_ONLINE && cloudSession){
     try{ const r=await Cloud.addItemHistory(cloudSession.session_token,itemId,note); if(r&&r.ok) return { ok:true, queued:false }; }
     catch(e){ /* fall through to queueing */ }
@@ -4004,10 +4014,14 @@ function openCloudSyncSetup(){
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">One-time, per device — admin only</span>`});
   function render(){
     const connected=!!(DB.cloud&&DB.cloud.teamCode);
+    const paused=connected&&cloudSyncPaused();
     body.innerHTML=`<div style="padding:16px;">
       ${connected
         ? `<div class="note" style="margin-bottom:12px;">This device is connected to <b>${esc(DB.cloud.teamName||"your team")}</b>. Staff sign in here using the regular User Login screen — name and PIN only, no team code needed.</div>
-           <button class="btn" id="cs-disconnect">Disconnect this device</button>`
+           ${paused?`<div class="note" style="margin-bottom:12px;background:#fff7e0;border-color:#e6c200;color:#6b5400;"><b>Cloud sync is paused.</b> Logins still work, but nothing is being read from or written to the cloud right now — useful while actively developing/testing without filling the shared database with test data.</div>`:``}
+           <div style="display:flex;gap:8px;margin-bottom:12px;">
+             <button class="btn ${paused?'primary':''}" id="cs-pausetoggle">${paused?"Resume Cloud Sync":"Pause Cloud Sync"}</button>
+             <button class="btn" id="cs-disconnect">Disconnect this device</button></div>`
         : `<div class="note" style="margin-bottom:12px;">Connect this device to your team's cloud database, once. After this, the regular User Login screen handles everything — no team code is ever shown to staff.</div>
            <fieldset class="gb"><legend>Connect this device</legend>
              <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Team Code</label><input class="txt" id="cs-team"></div>
@@ -4015,7 +4029,12 @@ function openCloudSyncSetup(){
              <div class="ff" style="grid-template-columns:110px 1fr;"><label class="fld">Your PIN</label><input class="txt" id="cs-pin" type="password"></div>
              <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn primary" id="cs-connect">Connect This Device</button><span class="smallhint" id="cs-msg"></span></div></fieldset>`}
       </div>`;
-    if(connected){ body.querySelector("#cs-disconnect").onclick=()=>{
+    if(connected){
+      body.querySelector("#cs-pausetoggle").onclick=()=>{
+        DB.cloud.syncPaused=!paused; save(); render();
+        try{ paintCloudBadge(); }catch(e){}
+      };
+      body.querySelector("#cs-disconnect").onclick=()=>{
       if(!confirm("Disconnect this device from "+(DB.cloud.teamName||"your team")+"? Staff logins on this device will go back to the local-only list until it's reconnected.")) return;
       DB.cloud={}; save(); render(); try{ paintCloudBadge(); }catch(e){} }; return; }
     body.querySelector("#cs-connect").onclick=async ()=>{
@@ -4044,6 +4063,7 @@ function openCloudSyncTest(){
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Early test screen — proves login and data fetch work, not the final UI</span>`});
   body.innerHTML=`<div style="padding:16px;overflow:auto;">
     <div class="note" style="margin-bottom:12px;">This talks to the real Supabase backend. Use it to confirm login works and items come back correctly before any real data migration happens.</div>
+    ${cloudSyncPaused()?`<div class="note" style="margin-bottom:12px;background:#fff7e0;border-color:#e6c200;color:#6b5400;"><b>Cloud sync is paused.</b> Login still works below, but all the data-test buttons are disabled until sync is resumed (Configuration → Cloud Sync Setup) — this keeps test runs from writing into the real shared database while paused.</div>`:``}
     <fieldset class="gb"><legend>Log in</legend>
       <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Team Code</label><input class="txt" id="cs-team"></div>
       <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Name</label><input class="txt" id="cs-name"></div>
@@ -4081,6 +4101,7 @@ function openCloudSyncTest(){
   function paintSession(){
     if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; return; }
     sessionBox.innerHTML=`Logged in as <b>${esc(cloudSession.staff_name)}</b> (${esc(cloudSession.role)}) on team <b>${esc(cloudSession.team_name)}</b><br>Session token: <code style="font-size:10px;">${esc(cloudSession.session_token.slice(0,16))}…</code>`;
+    if(cloudSyncPaused()){ fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; return; }
     fetchBtn.disabled=false; syncBtn.disabled=false; resetSyncBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false; claimBtn.disabled=!lastCreatedId;
   }
   paintSession(); paintQueue(); paintSyncPoint();
