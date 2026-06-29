@@ -364,7 +364,14 @@ const Cloud={
   claimItem(token,itemId){ return Cloud.rpc("claim_item",{p_session_token:token,p_item_id:itemId}); },
   pingItemClaim(token,itemId){ return Cloud.rpc("ping_item_claim",{p_session_token:token,p_item_id:itemId}); },
   releaseItem(token,itemId){ return Cloud.rpc("release_item",{p_session_token:token,p_item_id:itemId}); },
-  getBackupStatus(token){ return Cloud.rpc("get_backup_status",{p_session_token:token}); }
+  getBackupStatus(token){ return Cloud.rpc("get_backup_status",{p_session_token:token}); },
+  getSyncPaused(token){ return Cloud.rpc("get_sync_paused",{p_session_token:token}); },
+  setSyncPaused(token,paused){ return Cloud.rpc("set_sync_paused",{p_session_token:token,p_paused:paused}); },
+  registerDevice(token,deviceKey,deviceName){ return Cloud.rpc("register_device",{p_session_token:token,p_device_key:deviceKey,p_device_name:deviceName}); },
+  listDevices(token){ return Cloud.rpc("list_devices",{p_session_token:token}); },
+  setDevicePaused(token,deviceKey,paused){ return Cloud.rpc("set_device_paused",{p_session_token:token,p_device_key:deviceKey,p_paused:paused}); },
+  getDevicePaused(token,deviceKey){ return Cloud.rpc("get_device_paused",{p_session_token:token,p_device_key:deviceKey}); },
+  renameDevice(token,deviceKey,newName){ return Cloud.rpc("rename_device",{p_session_token:token,p_device_key:deviceKey,p_new_name:newName}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -384,7 +391,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.23", BUILD_DATE="2026-07-09", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.25", BUILD_DATE="2026-07-11", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -443,6 +450,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.25","New Manage Devices screen (Configuration, admin only): lists every device that has ever connected to the team, with a Pause/Resume button per row and a Rename option -- letting an admin remotely control any specific device's sync state from one screen, without needing to walk up to that computer. The This Device Only pause in Cloud Sync Setup is now backed by the same shared device record (it can also be toggled remotely from Manage Devices), instead of being purely local-only as it was in 2.9.24. Connecting a new device now also asks for a Device Name, so it shows up identifiably in the list."],
+  ["2.9.24","Two separate pause controls now, not one: Pause This Device (purely local, instant, doesn't touch the database, doesn't affect anyone else -- for routine dev/test work on one machine) and Pause Cloud Sync / All Devices (a real team-wide flag stored on the shared team record, so one admin's click genuinely affects every device, immediately -- for when something bigger is happening). Corrects a real gap from 2.9.23, where the pause toggle only ever lived on one device's local copy and could never have affected anyone else despite looking like a real switch. Everyone now sees a banner when the team-wide pause is on; the device-only pause stays a quiet, admin-only local reminder since nobody else is actually affected by it."],
   ["2.9.23","Fixed the backup schedule: it now actually runs every day (OneDrive Mon/Wed/Fri/Sat, Google Drive Tue/Thu/Sun) with no local-only day anymore -- relying on a person remembering to back up on weekends was exactly what the 7-day fail-safe is meant to replace, so it does not make sense to also keep a fixed local day on the calendar. Rotation limits updated to 91/69 to match. Added Pause/Resume Cloud Sync (Configuration -> Cloud Sync Setup, admin only): while paused, nothing reads from or writes to the cloud -- not even queued for later -- and the Cloud Sync (Test) screen's data buttons lock accordingly, while login keeps working normally. Built specifically for actively developing/testing WIM without test runs quietly filling the real shared database."],
   ["2.9.22","Low cloud-storage warning, on both ends: the OneDrive upload step now checks real remaining space after every backup, writes it to the database, and fails the GitHub Action itself (triggering GitHub's own email) if either drive drops under 500MB. WIM now also reads those same numbers and shows an in-app warning banner to admins -- reusing the same banner style as the existing local-backup reminder -- rather than relying on an email getting noticed. Google Drive's side of this will be added once that upload step itself is built."],
   ["2.9.21","Added the GitHub Actions workflow that keeps Supabase from auto-pausing (a quick ping every few days, well under the 7-day pause window) and dumps a real backup of the whole database every weekday -- both run on GitHub's own servers on a schedule, with no computer needing to be on. The backup currently saves as a temporary GitHub artifact (auto-deleted after 14 days) as a placeholder you can verify works today; the actual OneDrive and Google Drive uploads (with the 90/60-file rotation) are their own next steps, each needing a one-time app setup similar in size to the eBay sign-in work."],
@@ -574,6 +583,7 @@ const POPOUT_APPS={
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
+  managedevices:{ title:"Manage Devices", open:()=>openManageDevices() },
   findbyphoto:{ title:"Find by Photo", open:()=>openFindByPhoto() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
@@ -841,7 +851,61 @@ let cloudCheckTimerStarted=false;
 // Meant for actively developing/testing WIM itself without every test run quietly
 // writing into the real shared database. Login still works while paused — this only
 // stops data sync, not access.
-function cloudSyncPaused(){ return !!(DB.cloud && DB.cloud.syncPaused); }
+// A deliberate "don't talk to the cloud right now" switch, separate from being offline.
+// CLOUD_SYNC_PAUSED is team-wide (lives on the shared team record -- one admin pausing it
+// affects every device). DEVICE_SYNC_PAUSED is specific to THIS device, but — unlike an
+// earlier version of this — it's also stored in the cloud (one row per device), so an
+// admin can pause or resume any device remotely from one screen, not just by physically
+// being at that computer. Both are in-memory caches refreshed periodically so every check
+// elsewhere can stay instant/synchronous rather than needing its own network round-trip.
+let CLOUD_SYNC_PAUSED=false;
+let DEVICE_SYNC_PAUSED=false;
+function cloudSyncPaused(){ return CLOUD_SYNC_PAUSED || DEVICE_SYNC_PAUSED; }
+// A random ID generated once and saved locally forever — this is what ties a row in the
+// devices table to this specific computer. Not personally identifying, just a label.
+function thisDeviceKey(){
+  if(!DB.cloud) DB.cloud={};
+  if(!DB.cloud.deviceKey){ DB.cloud.deviceKey=(crypto&&crypto.randomUUID)?crypto.randomUUID():(Date.now()+"-"+Math.random().toString(36).slice(2)); save(); }
+  return DB.cloud.deviceKey;
+}
+async function refreshSyncPausedState(){
+  if(!cloudSession) return;
+  try{
+    const r=await Cloud.getSyncPaused(cloudSession.session_token);
+    if(r.ok) CLOUD_SYNC_PAUSED = JSON.parse(r.body)===true;
+    const dr=await Cloud.getDevicePaused(cloudSession.session_token,thisDeviceKey());
+    if(dr.ok) DEVICE_SYNC_PAUSED = JSON.parse(dr.body)===true;
+    try{ paintCloudBadge(); renderSyncPausedBanner(); }catch(e){}
+  }catch(e){ /* leave the last-known cached values in place on a transient failure */ }
+}
+// Lets an admin see this device in the Manage Devices list, and keeps "last seen" fresh
+// so stale/unused devices are obvious. Safe to call often — it's just an upsert.
+async function registerThisDevice(){
+  if(!cloudSession) return;
+  try{ await Cloud.registerDevice(cloudSession.session_token, thisDeviceKey(), (DB.cloud&&DB.cloud.deviceName)||"Unnamed device"); }catch(e){}
+}
+// Visible to every staff member, not just admins -- if sync is paused, everyone should
+// know why their changes might not be showing up elsewhere, not just the person who
+// paused it.
+function renderSyncPausedBanner(){
+  const host=document.getElementById("sync-paused-banner"); if(!host) return;
+  host.innerHTML="";
+  if(CLOUD_SYNC_PAUSED){
+    const bar=document.createElement("div");
+    bar.style.cssText="display:flex;align-items:center;gap:10px;background:#fff7e0;border:1px solid #e6c200;border-radius:4px;margin:8px 10px 0;padding:7px 10px;font-size:12.5px;color:#6b5400;";
+    bar.innerHTML=`<span style="font-size:15px;">&#9888;</span><span style="flex:1;"><b>Cloud sync is paused for everyone right now.</b> Changes aren't being sent to or pulled from the shared database${role()==="admin"?" — resume it in Configuration → Cloud Sync Setup when you're ready.":". Ask an admin if you're not sure why."}</span>`;
+    host.appendChild(bar);
+    return;
+  }
+  if(DEVICE_SYNC_PAUSED && role()==="admin"){
+    // Quiet, admin-only reminder for THIS device specifically — nobody else is affected,
+    // so this doesn't need to alarm the whole team the way the banner above does.
+    const bar=document.createElement("div");
+    bar.style.cssText="display:flex;align-items:center;gap:10px;background:#eef1f4;border:1px solid #cdd6df;border-radius:4px;margin:8px 10px 0;padding:5px 10px;font-size:12px;color:#555;";
+    bar.innerHTML=`<span style="flex:1;">Cloud sync is paused on this device only — other devices are unaffected.</span>`;
+    host.appendChild(bar);
+  }
+}
 function paintCloudBadge(){
   const el=document.getElementById("cloud-badge"); if(!el) return;
   if(!(DB.cloud&&DB.cloud.teamCode)){ el.style.display="none"; return; }
@@ -860,8 +924,8 @@ async function checkCloudReachability(){
 }
 function startCloudWatcher(){
   if(cloudCheckTimerStarted) return; cloudCheckTimerStarted=true;
-  checkCloudReachability();
-  setInterval(checkCloudReachability, 120000);
+  checkCloudReachability(); refreshSyncPausedState(); registerThisDevice();
+  setInterval(()=>{ checkCloudReachability(); refreshSyncPausedState(); registerThisDevice(); }, 120000);
 }
 // ---- Offline queue: keep working when the cloud can't be reached, send it once it can ----
 // Queued operations live in DB.cloudQueue so they survive an app restart — if you go offline,
@@ -1394,8 +1458,8 @@ function isLive(){ return SESSION.mode==="live"; }
 function nodeVisible(node){ if(node.key==="security") return role()==="admin"||role()==="leadership"; return true; }
 function nodeActions(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
   if(node.key==="security") return ["Modify Users"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
@@ -1421,7 +1485,7 @@ function showLauncher(){
     : `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#33506e;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;">Warehouse Mode</span>`;
   win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span><span id="cloud-badge" style="display:none;margin-left:8px;align-items:center;"></span>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;align-items:center;"><span id="lc-float" title="${(DB.meta&&DB.meta.floatWindows===false)?'Apps open docked in this window — click to make them float in their own windows':'Apps open in their own movable windows — click to dock them in one window'}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;font-size:16px;margin-right:2px;line-height:1;${(DB.meta&&DB.meta.floatWindows===false)?'color:rgba(255,255,255,.55);':'color:#ffffff;'}">&#10696;</span><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
-    <div class="body"><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
+    <div class="body"><div id="sync-paused-banner"></div><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
       <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
@@ -1438,6 +1502,7 @@ function showLauncher(){
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ checkCloudBackupSpace(); }catch(e){ console.error("checkCloudBackupSpace failed:",e); }
+  try{ renderSyncPausedBanner(); }catch(e){ console.error("renderSyncPausedBanner failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
   try{ if(!treeState.sel) renderDashboard(); }catch(e){ console.error("renderDashboard failed:",e); }
   const homeGo=()=>{ treeState.sel=null; renderTree(); renderDashboard(); };
@@ -1969,6 +2034,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Listing Configuration") return launchApp("listingcfg");
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
   if(k==="config"&&a==="Cloud Sync Setup") return launchApp("cloudsetup");
+  if(k==="config"&&a==="Manage Devices") return launchApp("managedevices");
   if(k==="config"&&a==="Cloud Sync (Test)") return launchApp("cloudsync");
   if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
   if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
@@ -4014,33 +4080,58 @@ function openCloudSyncSetup(){
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">One-time, per device — admin only</span>`});
   function render(){
     const connected=!!(DB.cloud&&DB.cloud.teamCode);
-    const paused=connected&&cloudSyncPaused();
+    const teamPaused=connected&&CLOUD_SYNC_PAUSED;
+    const devPaused=connected&&DEVICE_SYNC_PAUSED;
     body.innerHTML=`<div style="padding:16px;">
       ${connected
         ? `<div class="note" style="margin-bottom:12px;">This device is connected to <b>${esc(DB.cloud.teamName||"your team")}</b>. Staff sign in here using the regular User Login screen — name and PIN only, no team code needed.</div>
-           ${paused?`<div class="note" style="margin-bottom:12px;background:#fff7e0;border-color:#e6c200;color:#6b5400;"><b>Cloud sync is paused.</b> Logins still work, but nothing is being read from or written to the cloud right now — useful while actively developing/testing without filling the shared database with test data.</div>`:``}
-           <div style="display:flex;gap:8px;margin-bottom:12px;">
-             <button class="btn ${paused?'primary':''}" id="cs-pausetoggle">${paused?"Resume Cloud Sync":"Pause Cloud Sync"}</button>
-             <button class="btn" id="cs-disconnect">Disconnect this device</button></div>`
+           ${teamPaused?`<div class="note" style="margin-bottom:10px;background:#fff7e0;border-color:#e6c200;color:#6b5400;"><b>Cloud sync is paused for everyone, on every device.</b> Use this when something risky is happening (a migration, a schema change) and nobody anywhere should sync right now.</div>`:``}
+           ${devPaused?`<div class="note" style="margin-bottom:10px;background:#eef1f4;border-color:#cdd6df;color:#555;"><b>Cloud sync is paused on this device only.</b> Other devices keep syncing normally — useful for testing/dev work on this one machine without filling the shared database.</div>`:``}
+           <fieldset class="gb" style="margin-bottom:10px;"><legend>This device only</legend>
+             <div class="smallhint" style="margin-bottom:8px;">Stops just this computer from syncing — nobody else is affected. Stored centrally (not just on this machine), so an admin can also pause or resume this exact device from the Manage Devices screen, without needing to be sitting at it.</div>
+             <button class="btn ${devPaused?'primary':''}" id="cs-devtoggle">${devPaused?"Resume This Device":"Pause This Device"}</button></fieldset>
+           <fieldset class="gb" style="margin-bottom:12px;"><legend>Everyone, everywhere</legend>
+             <div class="smallhint" style="margin-bottom:8px;">Stops every device on the team from syncing — for when something bigger is going on, not routine dev work on one machine.</div>
+             <button class="btn ${teamPaused?'primary':''}" id="cs-pausetoggle">${teamPaused?"Resume Cloud Sync (All Devices)":"Pause Cloud Sync (All Devices)"}</button></fieldset>
+           <button class="btn" id="cs-disconnect">Disconnect this device</button>`
         : `<div class="note" style="margin-bottom:12px;">Connect this device to your team's cloud database, once. After this, the regular User Login screen handles everything — no team code is ever shown to staff.</div>
            <fieldset class="gb"><legend>Connect this device</legend>
              <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Team Code</label><input class="txt" id="cs-team"></div>
+             <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Device Name</label><input class="txt" id="cs-devname" placeholder="e.g. Tyler's Laptop, Warehouse PC"></div>
              <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Your Name</label><input class="txt" id="cs-name"></div>
              <div class="ff" style="grid-template-columns:110px 1fr;"><label class="fld">Your PIN</label><input class="txt" id="cs-pin" type="password"></div>
              <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn primary" id="cs-connect">Connect This Device</button><span class="smallhint" id="cs-msg"></span></div></fieldset>`}
       </div>`;
     if(connected){
-      body.querySelector("#cs-pausetoggle").onclick=()=>{
-        DB.cloud.syncPaused=!paused; save(); render();
-        try{ paintCloudBadge(); }catch(e){}
+      const devBtn=body.querySelector("#cs-devtoggle");
+      devBtn.onclick=async ()=>{
+        if(!cloudSession){ alert("You need to be logged in through the cloud (not just connected locally) to change this — log out and back in with your cloud account first."); return; }
+        devBtn.disabled=true;
+        try{
+          const r=await Cloud.setDevicePaused(cloudSession.session_token,thisDeviceKey(),!devPaused);
+          if(!r.ok){ alert("Couldn't change this (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); devBtn.disabled=false; return; }
+          await refreshSyncPausedState();
+          render();
+        }catch(e){ alert("Could not reach the server: "+(e&&e.message?e.message:e)); devBtn.disabled=false; }
+      };
+      const ptBtn=body.querySelector("#cs-pausetoggle");
+      ptBtn.onclick=async ()=>{
+        if(!cloudSession){ alert("You need to be logged in through the cloud (not just connected locally) to change this — log out and back in with your cloud account first."); return; }
+        ptBtn.disabled=true;
+        try{
+          const r=await Cloud.setSyncPaused(cloudSession.session_token,!teamPaused);
+          if(!r.ok){ alert("Couldn't change this (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); ptBtn.disabled=false; return; }
+          await refreshSyncPausedState();
+          render();
+        }catch(e){ alert("Could not reach the server: "+(e&&e.message?e.message:e)); ptBtn.disabled=false; }
       };
       body.querySelector("#cs-disconnect").onclick=()=>{
       if(!confirm("Disconnect this device from "+(DB.cloud.teamName||"your team")+"? Staff logins on this device will go back to the local-only list until it's reconnected.")) return;
       DB.cloud={}; save(); render(); try{ paintCloudBadge(); }catch(e){} }; return; }
     body.querySelector("#cs-connect").onclick=async ()=>{
-      const team=body.querySelector("#cs-team").value.trim(), name=body.querySelector("#cs-name").value.trim(), pin=body.querySelector("#cs-pin").value.trim();
+      const team=body.querySelector("#cs-team").value.trim(), devName=body.querySelector("#cs-devname").value.trim(), name=body.querySelector("#cs-name").value.trim(), pin=body.querySelector("#cs-pin").value.trim();
       const msg=body.querySelector("#cs-msg");
-      if(!team||!name||!pin){ msg.style.color="#c0392b"; msg.textContent="Fill in all three fields."; return; }
+      if(!team||!devName||!name||!pin){ msg.style.color="#c0392b"; msg.textContent="Fill in all four fields."; return; }
       msg.style.color="#555"; msg.textContent="Connecting…";
       try{
         const r=await Cloud.login(team,name,pin);
@@ -4048,8 +4139,9 @@ function openCloudSyncSetup(){
         let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
         const row=rows&&rows[0];
         if(!row){ msg.style.color="#c0392b"; msg.textContent="Team code, name, or PIN not recognized."; return; }
-        DB.cloud={ teamCode:team, teamId:row.team_id, teamName:row.team_name, connectedAt:new Date().toISOString() };
+        DB.cloud={ teamCode:team, teamId:row.team_id, teamName:row.team_name, deviceName:devName, connectedAt:new Date().toISOString() };
         cloudSession=row; save();
+        await Cloud.registerDevice(cloudSession.session_token, thisDeviceKey(), devName);
         msg.style.color="#1f7244"; msg.textContent="Connected!";
         setTimeout(render,400);
       }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach the server: "+(e&&e.message?e.message:e); }
@@ -4057,13 +4149,73 @@ function openCloudSyncSetup(){
   }
   render();
 }
+// Lets an admin see every device connected to the team, and pause/resume any of them
+// remotely from here — without needing to walk up to that specific computer and use
+// its own local toggle in Cloud Sync Setup.
+function openManageDevices(){
+  const id="manage-devices"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Manage Devices",width:680,height:480,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Remotely pause/resume any device on the team — admin only</span>`});
+  let devices=[];
+  async function load(){
+    body.innerHTML=`<div style="padding:16px;">Loading…</div>`;
+    if(!cloudSession){ body.innerHTML=`<div style="padding:16px;" class="note">Log in through the cloud first (the regular User Login screen) to manage devices.</div>`; return; }
+    try{
+      const r=await Cloud.listDevices(cloudSession.session_token);
+      if(!r.ok){ body.innerHTML=`<div style="padding:16px;color:#c0392b;">Couldn't load devices (HTTP ${r.status}): ${esc((r.body||"").slice(0,200))}</div>`; return; }
+      try{ devices=JSON.parse(r.body)||[]; }catch(e){ devices=[]; }
+      render();
+    }catch(e){ body.innerHTML=`<div style="padding:16px;color:#c0392b;">Could not reach the server: ${esc(e&&e.message?e.message:String(e))}</div>`; }
+  }
+  function render(){
+    const myKey=thisDeviceKey();
+    body.innerHTML=`<div style="padding:16px;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn sm" id="md-refresh">Refresh</button></div>
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th>Device</th><th style="width:140px;">Last seen</th><th style="width:90px;">Status</th><th style="width:200px;"></th></tr></thead><tbody id="md-tb"></tbody></table></div>
+      ${!devices.length?`<div class="smallhint" style="margin-top:10px;">No devices have checked in yet.</div>`:``}
+      </div>`;
+    body.querySelector("#md-refresh").onclick=load;
+    const tb=body.querySelector("#md-tb");
+    devices.forEach(d=>{
+      const isMe=d.device_key===myKey;
+      const tr=document.createElement("tr");
+      const seen=d.last_seen_at?new Date(d.last_seen_at):null;
+      const td1=document.createElement("td"); td1.style.fontSize="12.5px";
+      td1.innerHTML=`${esc(d.device_name)}${isMe?' <span class="smallhint">(this device)</span>':''}`;
+      const td2=document.createElement("td"); td2.style.fontSize="12px"; td2.textContent=seen&&!isNaN(seen)?seen.toLocaleString():"—";
+      const td3=document.createElement("td"); td3.innerHTML = d.device_paused
+        ? `<span style="color:#7a8694;">Paused</span>` : `<span style="color:#1f7244;">Active</span>`;
+      const td4=document.createElement("td");
+      const toggleBtn=document.createElement("button"); toggleBtn.className="btn sm"; toggleBtn.textContent=d.device_paused?"Resume":"Pause";
+      toggleBtn.onclick=async ()=>{
+        toggleBtn.disabled=true;
+        try{
+          const r=await Cloud.setDevicePaused(cloudSession.session_token,d.device_key,!d.device_paused);
+          if(!r.ok){ alert("Couldn't change this (HTTP "+r.status+"): "+(r.body||"").slice(0,200)); toggleBtn.disabled=false; return; }
+          if(isMe) await refreshSyncPausedState();
+          await load();
+        }catch(e){ alert("Could not reach the server: "+(e&&e.message?e.message:e)); toggleBtn.disabled=false; }
+      };
+      const renameBtn=document.createElement("button"); renameBtn.className="btn sm"; renameBtn.style.marginLeft="6px"; renameBtn.textContent="Rename";
+      renameBtn.onclick=async ()=>{
+        const newName=prompt("Rename this device:",d.device_name); if(!newName||!newName.trim()) return;
+        try{ const r=await Cloud.renameDevice(cloudSession.session_token,d.device_key,newName.trim()); if(!r.ok){ alert("Couldn't rename (HTTP "+r.status+")"); return; } await load(); }
+        catch(e){ alert("Could not reach the server: "+(e&&e.message?e.message:e)); }
+      };
+      td4.appendChild(toggleBtn); td4.appendChild(renameBtn);
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+      tb.appendChild(tr);
+    });
+  }
+  load();
+}
 function openCloudSyncTest(){
   const id="cloud-sync-test"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Cloud Sync (Test)",width:680,height:560,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Early test screen — proves login and data fetch work, not the final UI</span>`});
   body.innerHTML=`<div style="padding:16px;overflow:auto;">
     <div class="note" style="margin-bottom:12px;">This talks to the real Supabase backend. Use it to confirm login works and items come back correctly before any real data migration happens.</div>
-    ${cloudSyncPaused()?`<div class="note" style="margin-bottom:12px;background:#fff7e0;border-color:#e6c200;color:#6b5400;"><b>Cloud sync is paused.</b> Login still works below, but all the data-test buttons are disabled until sync is resumed (Configuration → Cloud Sync Setup) — this keeps test runs from writing into the real shared database while paused.</div>`:``}
+    ${cloudSyncPaused()?`<div class="note" style="margin-bottom:12px;background:#fff7e0;border-color:#e6c200;color:#6b5400;"><b>Cloud sync is paused${CLOUD_SYNC_PAUSED?" for everyone, on every device":" on this device only"}.</b> Login still works below, but all the data-test buttons are disabled until sync is resumed (Configuration → Cloud Sync Setup) — this keeps test runs from writing into the real shared database while paused.</div>`:``}
     <fieldset class="gb"><legend>Log in</legend>
       <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Team Code</label><input class="txt" id="cs-team"></div>
       <div class="ff" style="grid-template-columns:110px 1fr;margin-bottom:6px;"><label class="fld">Name</label><input class="txt" id="cs-name"></div>
