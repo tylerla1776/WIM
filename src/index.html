@@ -391,7 +391,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.25", BUILD_DATE="2026-07-11", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.26", BUILD_DATE="2026-07-12", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -450,6 +450,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.26","7-day backup fail-safe: if the automated GitHub Actions backup hasn't actually succeeded in 7+ days, WIM downloads an emergency JSON copy of your current cloud items itself and shows a clear warning -- a sign the automation broke (expired token, etc.), not something to wait out quietly. Deliberately does not mark the real automation as healthy when this fires, so the alarm stays accurate. Also fixed a real gap in the GitHub Action itself: it was not actually checking whether the OneDrive upload succeeded before marking the backup successful -- a failed upload (expired token, network blip) would have silently been recorded as a success. Added a Test Fail-Safe Backup Now button to Cloud Sync (Test) to verify this without waiting a real week."],
   ["2.9.25","New Manage Devices screen (Configuration, admin only): lists every device that has ever connected to the team, with a Pause/Resume button per row and a Rename option -- letting an admin remotely control any specific device's sync state from one screen, without needing to walk up to that computer. The This Device Only pause in Cloud Sync Setup is now backed by the same shared device record (it can also be toggled remotely from Manage Devices), instead of being purely local-only as it was in 2.9.24. Connecting a new device now also asks for a Device Name, so it shows up identifiably in the list."],
   ["2.9.24","Two separate pause controls now, not one: Pause This Device (purely local, instant, doesn't touch the database, doesn't affect anyone else -- for routine dev/test work on one machine) and Pause Cloud Sync / All Devices (a real team-wide flag stored on the shared team record, so one admin's click genuinely affects every device, immediately -- for when something bigger is happening). Corrects a real gap from 2.9.23, where the pause toggle only ever lived on one device's local copy and could never have affected anyone else despite looking like a real switch. Everyone now sees a banner when the team-wide pause is on; the device-only pause stays a quiet, admin-only local reminder since nobody else is actually affected by it."],
   ["2.9.23","Fixed the backup schedule: it now actually runs every day (OneDrive Mon/Wed/Fri/Sat, Google Drive Tue/Thu/Sun) with no local-only day anymore -- relying on a person remembering to back up on weekends was exactly what the 7-day fail-safe is meant to replace, so it does not make sense to also keep a fixed local day on the calendar. Rotation limits updated to 91/69 to match. Added Pause/Resume Cloud Sync (Configuration -> Cloud Sync Setup, admin only): while paused, nothing reads from or writes to the cloud -- not even queued for later -- and the Cloud Sync (Test) screen's data buttons lock accordingly, while login keeps working normally. Built specifically for actively developing/testing WIM without test runs quietly filling the real shared database."],
@@ -1502,6 +1503,7 @@ function showLauncher(){
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ checkCloudBackupSpace(); }catch(e){ console.error("checkCloudBackupSpace failed:",e); }
+  try{ checkBackupFailsafe(); }catch(e){ console.error("checkBackupFailsafe failed:",e); }
   try{ renderSyncPausedBanner(); }catch(e){ console.error("renderSyncPausedBanner failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
   try{ if(!treeState.sel) renderDashboard(); }catch(e){ console.error("renderDashboard failed:",e); }
@@ -2008,6 +2010,43 @@ async function checkCloudBackupSpace(){
     const d=document.createElement("button"); d.className="btn sm"; d.textContent="Dismiss"; d.onclick=()=>{ bar.remove(); };
     bar.appendChild(d); host.appendChild(bar);
   }catch(e){ /* not worth surfacing a network hiccup as an error here */ }
+}
+// Admin-only, checked once per running session: if the automated GitHub Actions backup
+// hasn't actually succeeded in 7+ days, that's a sign the automation itself broke
+// (an expired token, GitHub having a bad day) -- not something to wait out quietly.
+// This does NOT touch last_backup_at itself -- only the real automation gets to mark
+// itself successful -- so the alarm stays accurate even after this fires.
+let backupFailsafeChecked=false;
+async function checkBackupFailsafe(){
+  if(backupFailsafeChecked) return;
+  if(role()!=="admin" || !cloudSession) return;
+  backupFailsafeChecked=true;
+  try{
+    const r=await Cloud.getBackupStatus(cloudSession.session_token);
+    if(!r.ok) return;
+    let row={}; try{ const parsed=JSON.parse(r.body); row=Array.isArray(parsed)?parsed[0]:parsed; }catch(e){}
+    const last=row&&row.last_backup_at?new Date(row.last_backup_at):null;
+    const days=last&&!isNaN(last)?(Date.now()-last.getTime())/86400000:Infinity;
+    if(days<7) return; // the real automation is healthy — nothing to do
+    // Don't re-download every single time WIM opens while the underlying problem
+    // persists — once a day is enough of a nudge without being obnoxious about it.
+    const lastOwn=DB.cloud&&DB.cloud.lastFailsafeBackupAt?new Date(DB.cloud.lastFailsafeBackupAt):null;
+    if(lastOwn && !isNaN(lastOwn) && (Date.now()-lastOwn.getTime())<86400000) return;
+    await runFailsafeBackup(last);
+  }catch(e){ /* not worth surfacing a network hiccup as an error here */ }
+}
+async function runFailsafeBackup(lastRealBackup){
+  try{
+    const r=await Cloud.getItems(cloudSession.session_token);
+    let items=[]; if(r.ok){ try{ items=JSON.parse(r.body)||[]; }catch(e){} }
+    const payload={ exportedAt:new Date().toISOString(), source:"WIM 7-day fail-safe — the automated GitHub Actions backup hasn't succeeded recently", items };
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download="WIM-cloud-failsafe-backup-"+new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")+".json"; a.click();
+    URL.revokeObjectURL(url);
+    if(!DB.cloud) DB.cloud={}; DB.cloud.lastFailsafeBackupAt=new Date().toISOString(); save();
+    uiAlert("The automated cloud backup hasn't succeeded in over 7 days"+(lastRealBackup&&!isNaN(lastRealBackup)?(" (last real success: "+lastRealBackup.toLocaleString()+")"):" (no successful run has ever been recorded)")+" — WIM just downloaded an emergency backup of your current cloud items as a precaution.\n\nThis only covers your inventory items, not the full database — please check the GitHub Actions automation to see what's actually wrong.");
+  }catch(e){ /* if even the fail-safe itself can't reach the cloud, there's nothing more WIM can do from here */ }
 }
 function renderTree(){
   const pane=document.getElementById("tree-pane"); if(!pane) return; pane.innerHTML="";
@@ -4241,20 +4280,24 @@ function openCloudSyncTest(){
         <button class="btn" id="cs-claim" disabled>Claim Test Item</button>
         <button class="btn" id="cs-ping" disabled>Ping (heartbeat)</button>
         <button class="btn" id="cs-release" disabled>Release</button>
-        <span class="smallhint" id="cs-lockmsg"></span></div></fieldset></div>`;
+        <span class="smallhint" id="cs-lockmsg"></span></div></fieldset>
+    <fieldset class="gb" style="margin-top:12px;"><legend>7-day backup fail-safe</legend>
+      <div class="smallhint" style="margin-bottom:6px;">Forces the fail-safe to run right now, bypassing the real 7-day/24-hour checks — should download a small JSON file of your current cloud items and show the warning alert, the same as it would if the real automation had actually gone stale.</div>
+      <div style="display:flex;gap:8px;align-items:center;"><button class="btn" id="cs-testfailsafe" disabled>Test Fail-Safe Backup Now</button><span class="smallhint" id="cs-failsafemsg"></span></div></fieldset></div>`;
   const loginMsg=body.querySelector("#cs-loginmsg"), sessionBox=body.querySelector("#cs-session"), fetchBtn=body.querySelector("#cs-fetch"), syncBtn=body.querySelector("#cs-sync"), resetSyncBtn=body.querySelector("#cs-resetsync"), createBtn=body.querySelector("#cs-create"), conflictBtn=body.querySelector("#cs-conflict"), fetchMsg=body.querySelector("#cs-fetchmsg"), resultBox=body.querySelector("#cs-result"), syncPointBox=body.querySelector("#cs-syncpoint");
   const flushBtn=body.querySelector("#cs-flush"), queueMsg=body.querySelector("#cs-queuemsg");
   const claimBtn=body.querySelector("#cs-claim"), pingBtn=body.querySelector("#cs-ping"), releaseBtn=body.querySelector("#cs-release"), lockMsg=body.querySelector("#cs-lockmsg");
+  const testFailsafeBtn=body.querySelector("#cs-testfailsafe"), failsafeMsg=body.querySelector("#cs-failsafemsg");
   let lastItems=[], lastCreatedId=null;
   function paintQueue(){ const n=(DB.cloudQueue||[]).length; const failed=(DB.cloudQueue||[]).filter(o=>o.failed).length;
     queueMsg.textContent=n?(n+" pending"+(failed?(", "+failed+" need attention"):"")):"Queue is empty."; }
   function paintSyncPoint(){ const s=DB.cloud&&DB.cloud.lastSyncedAt;
     syncPointBox.textContent=s?("Last synced: "+new Date(s).toLocaleString()+" — Sync Changes Only will only pull what's newer than this."):"Never synced yet — Sync Changes Only will pull everything once, the same as a full fetch."; }
   function paintSession(){
-    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; return; }
+    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; testFailsafeBtn.disabled=true; return; }
     sessionBox.innerHTML=`Logged in as <b>${esc(cloudSession.staff_name)}</b> (${esc(cloudSession.role)}) on team <b>${esc(cloudSession.team_name)}</b><br>Session token: <code style="font-size:10px;">${esc(cloudSession.session_token.slice(0,16))}…</code>`;
-    if(cloudSyncPaused()){ fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; return; }
-    fetchBtn.disabled=false; syncBtn.disabled=false; resetSyncBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false; claimBtn.disabled=!lastCreatedId;
+    if(cloudSyncPaused()){ fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; testFailsafeBtn.disabled=true; return; }
+    fetchBtn.disabled=false; syncBtn.disabled=false; resetSyncBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false; claimBtn.disabled=!lastCreatedId; testFailsafeBtn.disabled=false;
   }
   paintSession(); paintQueue(); paintSyncPoint();
   body.querySelector("#cs-login").onclick=async ()=>{
@@ -4356,6 +4399,12 @@ function openCloudSyncTest(){
     if(!cloudSession||!lastCreatedId) return;
     try{ await Cloud.releaseItem(cloudSession.session_token,lastCreatedId); lockMsg.style.color="#1f7244"; lockMsg.textContent="Released."; pingBtn.disabled=true; releaseBtn.disabled=true; }
     catch(e){ lockMsg.style.color="#c0392b"; lockMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  testFailsafeBtn.onclick=async ()=>{
+    if(!cloudSession) return;
+    failsafeMsg.style.color="#555"; failsafeMsg.textContent="Running…";
+    try{ await runFailsafeBackup(null); failsafeMsg.style.color="#1f7244"; failsafeMsg.textContent="Done — check your Downloads folder and confirm the alert appeared."; }
+    catch(e){ failsafeMsg.style.color="#c0392b"; failsafeMsg.textContent="Failed: "+(e&&e.message?e.message:e); }
   };
 }
 function openBackup(){

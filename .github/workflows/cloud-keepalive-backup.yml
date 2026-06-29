@@ -115,6 +115,12 @@ jobs:
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@$FILE")
+          UPLOADED_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.id // empty')
+          if [ -z "$UPLOADED_ID" ]; then
+            echo "::error::Upload to OneDrive failed -- not marking this as a successful backup. Response was:"
+            echo "$UPLOAD_RESPONSE"
+            exit 1
+          fi
           echo "$UPLOAD_RESPONSE" | jq '{name, size, id}'
 
           # Rotation: once there are more than 160 backups in that folder, delete the
@@ -142,7 +148,7 @@ jobs:
           echo "OneDrive space remaining: $REMAINING bytes"
 
           # psql is already installed and on PATH from the earlier step in this job.
-          psql "$SUPABASE_DB_URL" -c "update backup_status set onedrive_remaining_bytes = $REMAINING, onedrive_checked_at = now() where id = 1;"
+          psql "$SUPABASE_DB_URL" -c "update backup_status set onedrive_remaining_bytes = $REMAINING, onedrive_checked_at = now(), last_backup_at = now() where id = 1;"
 
           if [ "$REMAINING" -lt 524288000 ]; then
             echo "::error::OneDrive has less than 500MB free ($REMAINING bytes remaining) -- the backup itself succeeded, but space is running low."
