@@ -4,21 +4,17 @@ name: cloud-keepalive-backup
 #
 #   keepalive: touches the database every few days so Supabase's free tier never
 #              auto-pauses it from inactivity (it pauses after 7 days untouched).
-#   backup:    dumps the whole database every day and uploads it to OneDrive
-#              (Mon/Wed/Fri/Sat) or Google Drive (Tue/Thu/Sun) -- every day is now
-#              covered by one cloud destination or the other, keeping a rolling history
-#              (91 kept on OneDrive, 69 on Google Drive -- about 160 days combined) and
-#              deleting the oldest once each destination's own limit is hit. There's no
-#              local-only day anymore: relying on a person remembering to back up
-#              manually on weekends was exactly what we wanted to avoid, so the 7-day
-#              fail-safe inside WIM itself covers that instead of a fixed local day.
-#
-# STATUS RIGHT NOW: the backup job produces a real database dump and currently
-# saves it as a temporary GitHub Actions artifact (auto-deleted after 14 days) —
-# that's a placeholder so there's something to verify works today. The actual
-# OneDrive and Google Drive upload steps are built in as their own separate
-# pieces once each of those is set up (that setup is its own multi-step process,
-# similar in size to the eBay sign-in work).
+#   backup:    dumps the whole database every single day and uploads it to OneDrive,
+#              keeping a rolling 160-day history and deleting the oldest once that
+#              limit is hit. A second cloud destination (for cross-provider redundancy)
+#              was considered -- Google Drive needed a multi-week Google verification
+#              wait for a non-expiring credential, Dropbox's free tier (300MB) was too
+#              small to be useful here -- so for now it's OneDrive alone, which has
+#              comfortable room (1TB) for this at any realistic inventory size. There's
+#              no local-only day either: relying on a person remembering to back up
+#              manually was exactly what we wanted to avoid, so the 7-day fail-safe
+#              inside WIM itself is the actual safety net for "what if this silently
+#              stops working," not a fixed local day on the calendar.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #     SUPABASE_DB_URL        -> the database connection string from Supabase
@@ -42,14 +38,8 @@ name: cloud-keepalive-backup
 on:
   schedule:
     - cron: '0 9 */3 * *'   # keep-alive, roughly every 3 days
-    - cron: '0 9 * * *'     # backup, every single day -- OneDrive and Google Drive split the week between them now (see "Decide today's destination" below); there's no local-only day anymore
-  workflow_dispatch:               # lets you trigger either job manually from GitHub's Actions tab, for testing
-    inputs:
-      force_destination:
-        description: 'Force the backup destination (testing only -- leave as auto for the real schedule)'
-        type: choice
-        options: [auto, onedrive, gdrive]
-        default: auto
+    - cron: '0 9 * * *'     # backup, every single day -- all going to OneDrive (1TB headroom comfortably covers it); Google Drive/Dropbox were considered for a second destination but ruled out (Drive needed a multi-week Google verification wait, Dropbox's free tier was too small) -- no local-only day either, that's what the 7-day fail-safe inside WIM is for instead
+  workflow_dispatch: {}              # lets you trigger this manually from GitHub's Actions tab, for testing
 
 jobs:
   keepalive:
@@ -92,23 +82,7 @@ jobs:
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges -f "backups/wim-backup-$STAMP.sql"
           ls -lh backups/
-      - name: Decide today's destination (OneDrive Mon/Wed/Fri/Sat, Google Drive Tue/Thu/Sun)
-        id: dest
-        run: |
-          OVERRIDE="${{ github.event.inputs.force_destination }}"
-          if [ -n "$OVERRIDE" ] && [ "$OVERRIDE" != "auto" ]; then
-            echo "target=$OVERRIDE" >> "$GITHUB_OUTPUT"
-            echo "Using manual override: $OVERRIDE"
-          else
-            DOW=$(date +%u)  # 1=Monday ... 7=Sunday
-            if [ "$DOW" = "1" ] || [ "$DOW" = "3" ] || [ "$DOW" = "5" ] || [ "$DOW" = "6" ]; then
-              echo "target=onedrive" >> "$GITHUB_OUTPUT"
-            else
-              echo "target=gdrive" >> "$GITHUB_OUTPUT"
-            fi
-          fi
-      - name: Upload to OneDrive (91-file rolling history)
-        if: steps.dest.outputs.target == 'onedrive'
+      - name: Upload to OneDrive (160-file rolling history)
         env:
           CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.ONEDRIVE_CLIENT_SECRET }}
@@ -143,21 +117,21 @@ jobs:
             --data-binary "@$FILE")
           echo "$UPLOAD_RESPONSE" | jq '{name, size, id}'
 
-          # Rotation: once there are more than 90 backups in that folder, delete the
-          # oldest ones until exactly 90 remain.
+          # Rotation: once there are more than 160 backups in that folder, delete the
+          # oldest ones until exactly 160 remain.
           curl -s "https://graph.microsoft.com/v1.0/me/drive/root:/$FOLDER:/children?\$select=id,name,createdDateTime&\$orderby=createdDateTime%20asc&\$top=999" \
             -H "Authorization: Bearer $ACCESS_TOKEN" > files.json
 
           COUNT=$(jq '.value | length' files.json)
-          EXCESS=$((COUNT - 91))
+          EXCESS=$((COUNT - 160))
           if [ "$EXCESS" -gt 0 ]; then
-            echo "Have $COUNT backups in OneDrive, removing the oldest $EXCESS to stay at 91."
+            echo "Have $COUNT backups in OneDrive, removing the oldest $EXCESS to stay at 160."
             jq -r ".value[0:$EXCESS][].id" files.json | while read -r ID; do
               curl -s -X DELETE "https://graph.microsoft.com/v1.0/me/drive/items/$ID" \
                 -H "Authorization: Bearer $ACCESS_TOKEN"
             done
           else
-            echo "Have $COUNT backups in OneDrive, under the 91 limit -- nothing to remove."
+            echo "Have $COUNT backups in OneDrive, under the 160 limit -- nothing to remove."
           fi
 
           # Check how much space is actually left, write it to the database so WIM can
@@ -174,10 +148,7 @@ jobs:
             echo "::error::OneDrive has less than 500MB free ($REMAINING bytes remaining) -- the backup itself succeeded, but space is running low."
             exit 1
           fi
-      - name: Upload to Google Drive (not wired up yet)
-        if: steps.dest.outputs.target == 'gdrive'
-        run: 'echo "TODO: Google Drive upload + 60-file rotation goes here once Google Drive setup is done."'
-      - name: Keep this run's backup as a temporary GitHub artifact (placeholder until uploads are wired up)
+      - name: Also keep this run's backup as a short-lived GitHub artifact (bonus extra copy, not depended on)
         uses: actions/upload-artifact@v4
         with:
           name: wim-backup-${{ env.STAMP }}
