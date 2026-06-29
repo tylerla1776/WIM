@@ -391,7 +391,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.26", BUILD_DATE="2026-07-12", SCHEMA_VERSION=12, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.28", BUILD_DATE="2026-07-14", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -450,6 +450,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.28","Phase 1, part 2: the actual enforcement sweep. Every tree menu item now checks the new permissions system and genuinely disappears (not greyed out) for accounts that lack it -- wired through one central mapping rather than scattered checks. Modify Users rewritten to use real supervisory levels: same-level-or-lower editing, admin accounts fully hidden from non-admins (still visible in history/records elsewhere, just not in this list). New Change Password screen (Security, everyone) -- separate from Modify Users, requires the actual current password. Warehouse Only Mode now really redirects to Warehouse instead of just being a label, both at login and if someone tries switching mid-session. Force Log Out exists as a menu item with correct admin-only gating, but is an honest placeholder -- the real feature needs live session tracking that does not exist yet. Also fixed: cloud-authenticated logins (Tyler_admin) now map their role to an equivalent level, so cloud testing does not accidentally get demoted to Basic by this update."],
+  ["2.9.27","Phase 1, part 1 of the new permissions system: the actual data model (5 supervisory levels migrated automatically from the old admin/leadership/user roles, a master feature registry, per-user individual overrides that survive a level change) and the full Supervisory Maintenance screen (Configuration, admin only) -- create/rename/delete levels, the two-table feature picker with arrow buttons, and a separate Individual Users tab for per-person overrides on top of their level. Important: nothing elsewhere in WIM actually checks these permissions yet -- that enforcement sweep (making screens and tree items actually hide based on access) is real, separate work coming as the very next update, so this one is testable on its own without anything else changing behavior yet."],
   ["2.9.26","7-day backup fail-safe: if the automated GitHub Actions backup hasn't actually succeeded in 7+ days, WIM downloads an emergency JSON copy of your current cloud items itself and shows a clear warning -- a sign the automation broke (expired token, etc.), not something to wait out quietly. Deliberately does not mark the real automation as healthy when this fires, so the alarm stays accurate. Also fixed a real gap in the GitHub Action itself: it was not actually checking whether the OneDrive upload succeeded before marking the backup successful -- a failed upload (expired token, network blip) would have silently been recorded as a success. Added a Test Fail-Safe Backup Now button to Cloud Sync (Test) to verify this without waiting a real week."],
   ["2.9.25","New Manage Devices screen (Configuration, admin only): lists every device that has ever connected to the team, with a Pause/Resume button per row and a Rename option -- letting an admin remotely control any specific device's sync state from one screen, without needing to walk up to that computer. The This Device Only pause in Cloud Sync Setup is now backed by the same shared device record (it can also be toggled remotely from Manage Devices), instead of being purely local-only as it was in 2.9.24. Connecting a new device now also asks for a Device Name, so it shows up identifiably in the list."],
   ["2.9.24","Two separate pause controls now, not one: Pause This Device (purely local, instant, doesn't touch the database, doesn't affect anyone else -- for routine dev/test work on one machine) and Pause Cloud Sync / All Devices (a real team-wide flag stored on the shared team record, so one admin's click genuinely affects every device, immediately -- for when something bigger is happening). Corrects a real gap from 2.9.23, where the pause toggle only ever lived on one device's local copy and could never have affected anyone else despite looking like a real switch. Everyone now sees a banner when the team-wide pause is on; the device-only pause stays a quiet, admin-only local reminder since nobody else is actually affected by it."],
@@ -585,6 +587,7 @@ const POPOUT_APPS={
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
   managedevices:{ title:"Manage Devices", open:()=>openManageDevices() },
+  supervisorymaint:{ title:"Supervisory Maintenance", open:()=>openSupervisoryMaintenance() },
   findbyphoto:{ title:"Find by Photo", open:()=>openFindByPhoto() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
@@ -593,6 +596,8 @@ const POPOUT_APPS={
   adjustcfg:{ title:"Adjustment Configuration", open:()=>openListMaintenance("adjustment") },
   about:{ title:"About", open:()=>openAbout() },
   users:{ title:"Modify Users", open:()=>openModifyUsers() },
+  changepw:{ title:"Change Password", open:()=>openChangePassword() },
+  forcelogout:{ title:"Force Log Out", open:()=>openForceLogout() },
   catalog:{ title:"Catalog Maintenance", open:()=>openCatalog() },
   aging:{ title:"Aging Inventory", open:()=>openAgingReport() },
   itemreport:{ title:"Item Report", open:()=>openItemReport() },
@@ -777,6 +782,109 @@ function migrate(d){
   if(!d.printTemplate.layout) d.printTemplate.layout="sl100";
   if(!d.ebay) d.ebay={ env:"sandbox", appId:"", certId:"", refreshToken:"", ruName:"", marketplace:"EBAY_US", connected:false };
   if(!d.cloud) d.cloud={};
+  // ---- Supervisory levels (replaces the old 3-role admin/leadership/user system) ----
+  // Each level has its own feature checklist; ranks are just for default-inheritance at
+  // creation time and for "same level or lower" rules in Modify Users — after a level's
+  // checklist is saved, it's independent, not re-derived from rank. Admin always has every
+  // feature, hardcoded, so it can never accidentally be locked out of its own permission tool.
+  if(!Array.isArray(d.supervisoryLevels)){
+    d.supervisoryLevels=[
+      { id:"basic", name:"Basic", rank:0, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue"] },
+      { id:"warehouse", name:"Warehouse", rank:1, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue",
+        "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","item_rank"] },
+      { id:"product_lister", name:"Product Lister", rank:2, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue",
+        "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","item_rank",
+        "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","listing_functions","communication"] },
+      { id:"supervisor", name:"Supervisor", rank:3, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue",
+        "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","item_rank",
+        "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","listing_functions","communication",
+        "modify_users","create_new_users","financials","productivity_widgets","listing_review"] },
+      { id:"admin", name:"Admin", rank:4, features:["*"] }
+    ];
+  }
+  // The master list of every controllable feature — every new app/widget built from here on
+  // should get added here too, defaulting to ["supervisor","admin"] unless told otherwise.
+  if(!Array.isArray(d.featureRegistry)){
+    d.featureRegistry=[
+      { key:"item_maintenance_view", label:"Item Maintenance (View Only)", category:"Basic" },
+      { key:"find_by_photo_view", label:"Find by Photo (View Only)", category:"Basic" },
+      { key:"change_password", label:"Change Password", category:"Security" },
+      { key:"warehouse_only_mode", label:"Warehouse Only Mode", category:"Basic" },
+      { key:"print_queue", label:"Print Queue", category:"Basic" },
+      { key:"dashboard_widgets", label:"Dashboard Widgets", category:"Warehouse" },
+      { key:"warehouse_maintenance_limited", label:"Warehouse Maintenance (Limited)", category:"Warehouse" },
+      { key:"vendor_maintenance", label:"Vendor Maintenance", category:"Warehouse" },
+      { key:"item_maintenance_full", label:"Item Maintenance (Full)", category:"Warehouse" },
+      { key:"category_maintenance", label:"Category Maintenance", category:"Warehouse" },
+      { key:"group_maintenance", label:"Group Maintenance", category:"Warehouse" },
+      { key:"add_inventory", label:"Add Inventory", category:"Warehouse" },
+      { key:"bulk_add_inventory", label:"Bulk Add Inventory", category:"Warehouse" },
+      { key:"adjust_inventory", label:"Adjust Inventory", category:"Warehouse" },
+      { key:"listed_no_sku", label:"Listed, no SKU", category:"Warehouse" },
+      { key:"print_configuration", label:"Print Configuration", category:"Warehouse" },
+      { key:"aging_inventory_report", label:"Aging Inventory Report", category:"Warehouse" },
+      { key:"item_report", label:"Item Report", category:"Warehouse" },
+      { key:"item_rank", label:"Item Rank", category:"Warehouse" },
+      { key:"live_mode", label:"Live Mode", category:"Product Lister" },
+      { key:"view_live_inventory", label:"View Live Inventory", category:"Product Lister" },
+      { key:"manage_listings", label:"Manage Listings", category:"Product Lister" },
+      { key:"switch_warehouse_live", label:"Switch Between Warehouse & Live Mode", category:"Product Lister" },
+      { key:"list_items", label:"List Items", category:"Product Lister" },
+      { key:"bulk_list_items", label:"Bulk List Items", category:"Product Lister" },
+      { key:"sku_not_listed", label:"SKU not Listed", category:"Product Lister" },
+      { key:"ready_to_list", label:"Ready to List", category:"Product Lister" },
+      { key:"listing_functions", label:"Listing Functions (push to eBay)", category:"Product Lister" },
+      { key:"communication", label:"Communication", category:"Product Lister" },
+      { key:"modify_users", label:"Modify Users", category:"Supervisor" },
+      { key:"create_new_users", label:"Create New Users", category:"Supervisor" },
+      { key:"financials", label:"Financials", category:"Supervisor" },
+      { key:"productivity_widgets", label:"Productivity Widgets/Reporting", category:"Supervisor" },
+      { key:"listing_review", label:"Listing Review", category:"Supervisor" },
+      { key:"force_logout", label:"Force Log Out", category:"Admin" },
+      { key:"supervisory_maintenance", label:"Supervisory Maintenance", category:"Admin" },
+      { key:"cloud_backup_settings", label:"Cloud Backup Settings", category:"Admin" },
+      { key:"device_management", label:"Device Management", category:"Admin" }
+    ];
+  }
+  // One-time migration from the old 3-role system — nothing breaks, old accounts just land
+  // on a sensible equivalent level. Individual overrides start empty for everyone.
+  if(!d.permissionsMigrated){
+    (d.users||[]).forEach(u=>{
+      if(!u.levelId) u.levelId = u.role==="admin" ? "admin" : u.role==="leadership" ? "supervisor" : "basic";
+      if(!u.permissionOverrides) u.permissionOverrides={};
+    });
+    d.permissionsMigrated=true;
+  }
+  (d.users||[]).forEach(u=>{ if(!u.permissionOverrides) u.permissionOverrides={}; if(!u.levelId) u.levelId="basic"; });
+  // A few feature keys were missed when the registry was first built — added in
+  // afterward without disturbing anything already saved/customized.
+  (function ensureFeatureKeys(){
+    const need=[
+      { key:"catalog_maintenance", label:"Catalog Maintenance", category:"Warehouse" },
+      { key:"sell_inventory", label:"Sell Inventory", category:"Warehouse" },
+      { key:"add_item", label:"Add Item", category:"Warehouse" },
+      { key:"bulk_add_items", label:"Bulk Add Items", category:"Warehouse" },
+      { key:"records", label:"Records (Invoices)", category:"Warehouse" },
+      { key:"active_summary", label:"Active Summary", category:"Warehouse" },
+      { key:"listing_efficiency", label:"Listing Efficiency", category:"Product Lister" },
+      { key:"listing_report", label:"Listing Report", category:"Product Lister" }
+    ];
+    need.forEach(n=>{ if(!d.featureRegistry.find(f=>f.key===n.key)) d.featureRegistry.push(n); });
+    // Give the warehouse-and-up levels these new keys by default, matching the original
+    // intent — a level that already had warehouse-tier access shouldn't suddenly lose
+    // visibility into something that was always meant to be there.
+    const warehouseDefaults=["catalog_maintenance","sell_inventory","add_item","bulk_add_items","records","active_summary"];
+    const listerDefaults=["listing_efficiency","listing_report"];
+    (d.supervisoryLevels||[]).forEach(lvl=>{
+      if(lvl.features.includes("*")) return;
+      if(lvl.rank>=1) warehouseDefaults.forEach(k=>{ if(!lvl.features.includes(k)) lvl.features.push(k); });
+      if(lvl.rank>=2) listerDefaults.forEach(k=>{ if(!lvl.features.includes(k)) lvl.features.push(k); });
+    });
+  })();
+
   if(!d.ebay.creds){ d.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:"",ruName:""}, production:{appId:"",certId:"",refreshToken:"",ruName:""} };
     const ev=d.ebay.env||"sandbox"; d.ebay.creds[ev]={ appId:d.ebay.appId||"", certId:d.ebay.certId||"", refreshToken:d.ebay.refreshToken||"", ruName:d.ebay.ruName||"" }; }
   // ---- V2.2.2: eBay-aware categories, sub-categories, listing + description model ----
@@ -1383,7 +1491,9 @@ function showLogin(msg){
     // Local login is checked first, always — connecting the cloud must never break this.
     const f=DB.users.find(x=>x.id===uid);
     if(f && f.password===pw){
-      SESSION.user=f; SESSION.mode=win.querySelector("#lg-mode").value||"warehouse"; if(f.mustChange) showChangePassword(f,true); else showLauncher(); return;
+      SESSION.user=f; SESSION.mode=win.querySelector("#lg-mode").value||"warehouse";
+    if(SESSION.mode==="live" && !hasAccess("live_mode")) SESSION.mode="warehouse"; // Warehouse Only Mode — quietly redirected, not blocked with an error
+    if(f.mustChange) showChangePassword(f,true); else showLauncher(); return;
     }
     // Not a local match — if this device is connected, try the cloud as an additional
     // way to log in (for staff who exist there but aren't in this device's local list).
@@ -1396,8 +1506,13 @@ function showLogin(msg){
         const row=rows&&rows[0];
         if(!r.ok || !row){ err.style.color="#c0392b"; err.textContent="Invalid user name or password."; p.value="";p.focus(); return; }
         cloudSession=row;
-        SESSION.user={ id:row.staff_name, role:row.role, password:pw, mustChange:false };
+        // Cloud staff still have their own separate "role" field (admin/leadership/etc.)
+        // from the cloud schema — mapped here to an equivalent supervisory level so cloud
+        // logins aren't treated as Basic by the new permission system. Properly unifying
+        // these into one real system is part of the bigger cloud migration work, not this.
+        SESSION.user={ id:row.staff_name, role:row.role, levelId: row.role==="admin"?"admin":row.role==="leadership"?"supervisor":"basic", permissionOverrides:{}, password:pw, mustChange:false };
         SESSION.mode=win.querySelector("#lg-mode").value||"warehouse";
+        if(SESSION.mode==="live" && !hasAccess("live_mode")) SESSION.mode="warehouse";
         showLauncher();
       }catch(e){ okBtn.disabled=false; err.style.color="#c0392b"; err.textContent="Invalid user name or password."; }
       return;
@@ -1455,13 +1570,67 @@ const TREE_LIVE=[
 function TREE(){ return SESSION.mode==="live"?TREE_LIVE:TREE_WAREHOUSE; }
 let treeState={ expanded:{}, sel:null };
 function role(){ return (SESSION.user&&SESSION.user.role)||"user"; }
+// ---- Supervisory levels / permissions ----
+// Resolution order for any one feature: the user's individual override (if one was ever
+// set for them specifically) wins; otherwise it falls back to whatever their assigned
+// level's checklist says. Admin is hardcoded to everything, regardless of its own
+// checklist contents — it should never be possible to accidentally lock the admin level
+// out of its own permission tool.
+function levelById(id){ return (DB.supervisoryLevels||[]).find(l=>l.id===id)||null; }
+function currentLevelId(){ return (SESSION.user&&SESSION.user.levelId)||"basic"; }
+function hasAccess(featureKey,user){
+  const u=user||SESSION.user; if(!u) return false;
+  if(u.levelId==="admin") return true;
+  if(u.permissionOverrides && Object.prototype.hasOwnProperty.call(u.permissionOverrides,featureKey)) return !!u.permissionOverrides[featureKey];
+  const lvl=levelById(u.levelId||"basic");
+  if(!lvl) return false;
+  if(lvl.features.includes("*")) return true;
+  return lvl.features.includes(featureKey);
+}
+// "Same level or lower" rule for Modify Users — a Supervisor can manage Supervisors,
+// Product Listers, Warehouse, and Basic, but never Admin; Admin can manage everyone.
+function canManageLevel(targetLevelId, managerLevelId){
+  managerLevelId = managerLevelId || currentLevelId();
+  if(managerLevelId==="admin") return true;
+  const mgr=levelById(managerLevelId), tgt=levelById(targetLevelId);
+  if(!mgr||!tgt) return false;
+  if(tgt.id==="admin") return false; // nobody but another admin manages admins
+  return tgt.rank<=mgr.rank;
+}
 function isLive(){ return SESSION.mode==="live"; }
-function nodeVisible(node){ if(node.key==="security") return role()==="admin"||role()==="leadership"; return true; }
-function nodeActions(node){
+// Maps every tree action label to the feature key that controls it. "Item Maintenance"
+// and "Find by Photo" intentionally check the view-only key — Basic level should still
+// see those menu items, just with read-only behavior once opened (that deeper
+// within-screen enforcement is a separate, further layer beyond this sweep).
+const TREE_LABEL_FEATURE={
+  "Dashboard Widgets":"dashboard_widgets","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
+  "eBay Connection":"item_maintenance_full","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
+  "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Manage Devices":"device_management","Cloud Sync (Test)":"cloud_backup_settings",
+  "Warehouse Maintenance":"warehouse_maintenance_limited","Vendor Management":"vendor_maintenance","Condition Maintenance":"warehouse_maintenance_limited","Adjustment Configuration":"adjust_inventory",
+  "Modify Users":"modify_users","Print Queue":"print_queue","Print Configuration":"print_configuration","Catalog Maintenance":"catalog_maintenance",
+  "Item Maintenance":"item_maintenance_view","Group Maintenance":"group_maintenance","Find by Photo":"find_by_photo_view",
+  "Add Inventory":"add_inventory","Sell Inventory":"sell_inventory","Adjust Inventory":"adjust_inventory","Listed, no SKU":"listed_no_sku",
+  "Change Password":"change_password","Force Log Out":"force_logout",
+  "Aging Inventory":"aging_inventory_report","Item Report":"item_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
+  "Records":"records","Manage Listings":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
+  "Discrepancies":"listed_no_sku","Ready to List":"ready_to_list","Communication":"communication","Listing Report":"listing_report","About / Version":null
+};
+// An action with no mapping (null/undefined) is always shown — only labels explicitly
+// tied to a feature get filtered, so nothing accidentally vanishes just because it was
+// missed from the map.
+function filterActionsByAccess(actions){ return actions.filter(a=>{ const k=TREE_LABEL_FEATURE[a]; return k==null || hasAccess(k); }); }
+function nodeVisible(node){
+  if(node.key==="security") return role()==="admin"||role()==="leadership"||hasAccess("modify_users")||hasAccess("change_password");
+  const actions=nodeActionsRaw(node);
+  if(!actions.length) return true; // nodes with no action list of their own (parents/containers) stay visible
+  return filterActionsByAccess(actions).length>0;
+}
+function nodeActions(node){ return filterActionsByAccess(nodeActionsRaw(node)); }
+function nodeActionsRaw(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-  if(node.key==="security") return ["Modify Users"];
+    if(isLive()){ const a=["Dashboard Widgets","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+  if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Find by Photo"];
@@ -1490,7 +1659,10 @@ function showLauncher(){
       <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
   win.querySelector(".close").onclick=()=>{ SESSION.user=null; showLogin("Logged out."); };
-  win.querySelector("#lc-switch").onclick=()=>{ SESSION.mode=isLive()?"warehouse":"live"; treeState={expanded:{},sel:null}; showLauncher(); };
+  win.querySelector("#lc-switch").onclick=()=>{
+    const goingLive=!isLive();
+    if(goingLive && !hasAccess("live_mode")){ uiAlert("This account is set to Warehouse Only — Live Mode isn't available."); return; }
+    SESSION.mode=goingLive?"live":"warehouse"; treeState={expanded:{},sel:null}; showLauncher(); };
   win.querySelector("#foot-about").onclick=openAbout;
   const mbadge=win.querySelector("#mode-badge"); if(mbadge) mbadge.onclick=()=>{ if(EBAY_ONLINE) disconnectEbay(); else connectEbay(); };
   paintLiveBadge();
@@ -2074,6 +2246,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
   if(k==="config"&&a==="Cloud Sync Setup") return launchApp("cloudsetup");
   if(k==="config"&&a==="Manage Devices") return launchApp("managedevices");
+  if(k==="config"&&a==="Supervisory Maintenance") return launchApp("supervisorymaint");
   if(k==="config"&&a==="Cloud Sync (Test)") return launchApp("cloudsync");
   if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
   if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
@@ -2082,6 +2255,8 @@ function handleAction(k,a){
   if((k==="reports"||k==="livereports")&&a==="Listing Efficiency") return launchApp("listingeff");
   if(k==="config"&&a==="About / Version") return launchApp("about");
   if(k==="security"&&a==="Modify Users") return launchApp("users");
+  if(k==="security"&&a==="Change Password") return launchApp("changepw");
+  if(k==="security"&&a==="Force Log Out") return launchApp("forcelogout");
   if(k==="catalog"&&a==="Catalog Maintenance") return launchApp("catalog");
   if(k==="item"&&a==="Item Maintenance") return launchApp("itemsearch");
   if(k==="item"&&a==="Category Maintenance") return launchApp("categories");
@@ -2234,73 +2409,114 @@ function openCreateCategory(name, onDone){
 
 /* ============================================================ MODIFY USERS ============================================================ */
 const ROLE_LABEL={admin:"System Administrator",leadership:"Leadership",user:"User"};
-function rolesAssignableBy(actor){ return actor==="admin"?["user","leadership","admin"]:actor==="leadership"?["user","leadership"]:[]; }
+function levelsAssignableBy(managerLevelId){ return (DB.supervisoryLevels||[]).filter(l=>canManageLevel(l.id,managerLevelId)); }
+// Self-service password change, available to everyone (Basic and up) — different from
+// showChangePassword() above, which is only the forced-at-first-login flow and doesn't
+// need to verify the old password since logging in just did that. This one genuinely
+// checks the old password, since anyone can open this any time, not just right after
+// proving who they are at login.
+function openChangePassword(){
+  const id="change-password"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Change Password",width:420,height:300});
+  body.innerHTML=`<div style="padding:16px;">
+    <div class="note" style="margin-bottom:10px;">Password must be numerical (digits only). No length or complexity rules.</div>
+    <div class="row"><label class="fld">Current Password</label><input class="txt" id="cp2-old" type="password" inputmode="numeric"></div>
+    <div class="row"><label class="fld">New Password</label><input class="txt" id="cp2-new" type="password" inputmode="numeric"></div>
+    <div class="row"><label class="fld">Confirm New</label><input class="txt" id="cp2-conf" type="password" inputmode="numeric"></div>
+    <div class="err" id="cp2-err"></div>
+    <div class="actions" style="margin-top:10px;"><button class="btn primary" id="cp2-ok">Save</button></div></div>`;
+  const o=body.querySelector("#cp2-old"),n=body.querySelector("#cp2-new"),c=body.querySelector("#cp2-conf"),err=body.querySelector("#cp2-err");
+  o.focus();
+  body.querySelector("#cp2-ok").onclick=()=>{
+    const u=SESSION.user; err.style.color="#c0392b";
+    if(o.value!==u.password){ err.textContent="Current password is incorrect."; return; }
+    if(!n.value){ err.textContent="Enter a new password."; return; }
+    if(!/^\d+$/.test(n.value)){ err.textContent="Password must be numerical (digits only)."; return; }
+    if(n.value!==c.value){ err.textContent="New passwords do not match."; return; }
+    u.password=n.value; u.mustChange=false; save();
+    err.style.color="#1f7244"; err.textContent="Password changed.";
+    o.value=""; n.value=""; c.value="";
+  };
+  [o,n,c].forEach(el=>el.addEventListener("keydown",e=>{ if(e.key==="Enter") body.querySelector("#cp2-ok").click(); }));
+}
+// Placeholder — Force Log Out needs real "who's currently logged in, on which device"
+// tracking, which doesn't exist yet (this is different from the device registry, which
+// tracks devices, not active login sessions on them). Real, separate infrastructure,
+// not yet built — this is here so the permission system and menu are already correct
+// once it is.
+function openForceLogout(){
+  const id="force-logout"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Force Log Out",width:480,height:260});
+  body.innerHTML=`<div style="padding:16px;" class="note">This needs real "who's currently logged in, right now" tracking across devices, which hasn't been built yet — that's separate infrastructure from the device registry (Manage Devices tracks devices, not active login sessions on them). The menu item and admin-only permission are in place; the actual feature is a follow-up.</div>`;
+}
 function openModifyUsers(){
   if(openWindows["sec-users"]){ focusWin(openWindows["sec-users"].el); return; }
-  const {body}=buildWindow({id:"sec-users",title:"Modify Users",width:760,height:580,
-    toolbar:`${tbtn(I.plus,'',' plus static')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Add, remove, and set privileges for users</span>`});
-  const myRole=role();
-  const addRoles=rolesAssignableBy(myRole);
+  const {body}=buildWindow({id:"sec-users",title:"Modify Users",width:780,height:600,
+    toolbar:`${tbtn(I.plus,'',' plus static')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Add, remove, and set supervisory levels for users</span>`});
+  const myLevelId=currentLevelId();
+  const addLevels=levelsAssignableBy(myLevelId);
+  // Same level or lower, and never admins unless you're an admin yourself — admin accounts
+  // don't even appear in this list at all for anyone else, not just disabled.
+  const visibleUsers=()=>DB.users.filter(u=> myLevelId==="admin" || canManageLevel(u.levelId||"basic",myLevelId) || (u.levelId||"basic")===myLevelId);
   body.innerHTML=`<fieldset class="gb" style="margin:14px;"><legend>Add User</legend>
       <div class="inline-add"><div class="ff" style="grid-template-columns:auto 90px;"><label class="fld">User ID (#)</label><input class="txt" id="mu-id" inputmode="numeric"></div>
         <div class="ff" style="grid-template-columns:auto 90px;"><label class="fld">Short Name</label><input class="txt" id="mu-short" maxlength="2" placeholder="2 ltrs"></div>
         <div class="ff" style="grid-template-columns:auto 1fr;flex:1;"><label class="fld">Long Name</label><input class="txt" id="mu-long"></div>
-        <div class="ff" style="grid-template-columns:auto 150px;"><label class="fld">Privilege</label><select class="cmb" id="mu-role">${addRoles.map(r=>`<option value="${r}">${ROLE_LABEL[r]}</option>`).join("")}</select></div>
+        <div class="ff" style="grid-template-columns:auto 150px;"><label class="fld">Level</label><select class="cmb" id="mu-level">${addLevels.map(l=>`<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("")}</select></div>
         <button class="btn sm" id="mu-add">Add</button></div>
-      <div class="note">New users start with default password <b>1234</b> and must change it at first login.</div><div class="err" id="mu-err"></div></fieldset>
+      <div class="note">New users start with default password <b>1234</b> and must change it at first login. ${myLevelId!=="admin"?"You can add or modify users at your level or below — never Admin.":""}</div><div class="err" id="mu-err"></div></fieldset>
     <div style="padding:0 14px;flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">Users</div><div class="listbox" id="mu-list"></div></div>`;
   const err=body.querySelector("#mu-err");
   const shortI=body.querySelector("#mu-short"); shortI.oninput=()=>{ shortI.value=shortI.value.replace(/[^A-Za-z]/g,"").slice(0,2).toUpperCase(); };
-  const badge=r=>`<span class="badge ${r==='admin'?'ok':(r==='leadership'?'rev':'')}">${ROLE_LABEL[r]}</span>`;
+  const badge=lid=>{ const l=levelById(lid); return `<span class="badge ${lid==='admin'?'ok':(lid==='supervisor'?'rev':'')}">${esc(l?l.name:lid)}</span>`; };
   const render=()=>{ const l=body.querySelector("#mu-list"); l.innerHTML="";
-    DB.users.forEach(u=>{ const li=document.createElement("div"); li.className="li"; li.style.display="flex"; li.style.justifyContent="space-between"; li.style.alignItems="center";
-      li.innerHTML=`<span><b>${u.id}</b> &mdash; ${esc(u.longName||u.shortName||"(no name)")} ${badge(u.role||"user")} ${u.mustChange?'<span class="badge">must change pw</span>':''}</span>`;
+    visibleUsers().forEach(u=>{ const li=document.createElement("div"); li.className="li"; li.style.display="flex"; li.style.justifyContent="space-between"; li.style.alignItems="center";
+      li.innerHTML=`<span><b>${u.id}</b> &mdash; ${esc(u.longName||u.shortName||"(no name)")} ${badge(u.levelId||"basic")} ${u.mustChange?'<span class="badge">must change pw</span>':''}</span>`;
       const wrap=document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
       const mod=document.createElement("button"); mod.className="btn sm"; mod.textContent="Modify";
       const isSelf=u.id===SESSION.user.id;
-      // who can change this user's privileges
-      const canModify = !isSelf && ( myRole==="admin" || (myRole==="leadership" && (u.role!=="admin")) );
-      if(!canModify){ mod.disabled=true; mod.title=isSelf?"You cannot change your own privileges.":"You don't have permission to change this user's privileges."; }
+      const canModify = !isSelf && canManageLevel(u.levelId||"basic",myLevelId);
+      if(!canModify){ mod.disabled=true; mod.title=isSelf?"You cannot change your own privileges.":"You don't have permission to change this user's level."; }
       mod.onclick=()=>openUserPrivileges(u, render);
       const reset=document.createElement("button"); reset.className="btn sm"; reset.textContent="Reset PW";
-      if(u.role==="admin" && myRole!=="admin"){ reset.disabled=true; reset.title="Only a System Administrator can reset the administrator password."; }
-      reset.onclick=()=>{ if(u.role==="admin" && myRole!=="admin"){ uiAlert("Only a System Administrator can reset the administrator password."); return; }
+      if(!canManageLevel(u.levelId||"basic",myLevelId)){ reset.disabled=true; reset.title="You don't have permission to reset this user's password."; }
+      reset.onclick=()=>{ if(!canManageLevel(u.levelId||"basic",myLevelId)){ uiAlert("You don't have permission to reset this user's password."); return; }
         u.password="1234"; u.mustChange=true; save(); render(); uiAlert("Password for "+u.id+" reset to 1234."); };
       const del=document.createElement("button"); del.className="btn sm"; del.textContent="Delete";
       if(u.id===ADMIN_ID){ del.disabled=true; del.title="The administrator cannot be deleted."; }
-      else if(u.role==="admin" && myRole!=="admin"){ del.disabled=true; del.title="Only a System Administrator can remove an administrator."; }
+      else if(!canManageLevel(u.levelId||"basic",myLevelId)){ del.disabled=true; del.title="You don't have permission to remove this user."; }
       del.onclick=()=>{ if(u.id===ADMIN_ID){uiAlert("The administrator (user 64) cannot be deleted.");return;}
         if(u.id===SESSION.user.id){uiAlert("You cannot delete the account you are logged in with.");return;}
         uiConfirm("Delete user "+u.id+"?",()=>{ DB.users=DB.users.filter(x=>x.id!==u.id); save(); render(); }); };
       wrap.appendChild(mod); wrap.appendChild(reset); wrap.appendChild(del); li.appendChild(wrap); l.appendChild(li); }); };
   const add=()=>{ const id=body.querySelector("#mu-id").value.trim(); err.style.color="#c0392b";
     if(!/^\d+$/.test(id)){err.textContent="User ID must be numerical.";return;} if(DB.users.some(u=>u.id===id)){err.textContent="User ID "+id+" already exists.";return;}
-    let r=body.querySelector("#mu-role").value; if(!addRoles.includes(r)) r="user";
-    DB.users.push({id,password:"1234",mustChange:true,role:r,isAdmin:r==="admin",shortName:shortI.value.trim(),longName:body.querySelector("#mu-long").value.trim()}); save();
+    let lid=body.querySelector("#mu-level").value; if(!addLevels.find(l=>l.id===lid)) lid="basic";
+    DB.users.push({id,password:"1234",mustChange:true,levelId:lid,role:lid==="admin"?"admin":lid==="supervisor"?"leadership":"user",permissionOverrides:{},shortName:shortI.value.trim(),longName:body.querySelector("#mu-long").value.trim()}); save();
     body.querySelector("#mu-id").value="";shortI.value="";body.querySelector("#mu-long").value="";
-    err.style.color="#1f7244"; err.textContent="User "+id+" added as "+ROLE_LABEL[r]+" (default password 1234)."; render(); };
+    err.style.color="#1f7244"; err.textContent="User "+id+" added at "+(levelById(lid)||{}).name+" (default password 1234)."; render(); };
   body.querySelector("#mu-add").onclick=add;
   render();
 }
 function openUserPrivileges(u, after){
   const id="priv-"+u.id; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const myRole=role();
-  const choices=rolesAssignableBy(myRole).filter(r=> r!=="admin" || myRole==="admin"); // only admin can grant admin
+  const myLevelId=currentLevelId();
+  const choices=levelsAssignableBy(myLevelId);
   const {body,close}=buildWindow({id,title:"Privileges — "+(u.longName||u.id),width:460,height:300,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Set this user's privilege level</span>`});
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Set this user's supervisory level</span>`});
   body.innerHTML=`<div style="padding:16px;">
-      <div style="font-size:12.5px;margin-bottom:10px;">User <b>${u.id}</b> &mdash; ${esc(u.longName||u.shortName||"")}<br><span class="smallhint">Current: ${ROLE_LABEL[u.role||"user"]}</span></div>
-      <div class="ff" style="grid-template-columns:auto 1fr;"><label class="fld">Privilege</label>
-        <select class="cmb" id="pv-role">${choices.map(r=>`<option value="${r}" ${ (u.role||"user")===r?'selected':''}>${ROLE_LABEL[r]}</option>`).join("")}</select></div>
-      <div class="note" style="margin-top:10px;">System Administrator: full access. Leadership: everything except Backup &amp; Updates. User: no Security tab and no Backup &amp; Updates.</div>
+      <div style="font-size:12.5px;margin-bottom:10px;">User <b>${u.id}</b> &mdash; ${esc(u.longName||u.shortName||"")}<br><span class="smallhint">Current: ${esc((levelById(u.levelId)||{}).name||u.levelId)}</span></div>
+      <div class="ff" style="grid-template-columns:auto 1fr;"><label class="fld">Level</label>
+        <select class="cmb" id="pv-level">${choices.map(l=>`<option value="${esc(l.id)}" ${(u.levelId||"basic")===l.id?'selected':''}>${esc(l.name)}</option>`).join("")}</select></div>
+      <div class="note" style="margin-top:10px;">Exact access for each level is configured in Configuration → Supervisory Maintenance. Individual overrides for this person specifically can be set there too.</div>
       <div class="err" id="pv-err"></div>
       <div style="display:flex;gap:8px;margin-top:14px;"><button class="btn primary" id="pv-save">Save</button><button class="btn" id="pv-cancel">Cancel</button></div></div>`;
   body.querySelector("#pv-cancel").onclick=close;
   body.querySelector("#pv-save").onclick=()=>{ const e=body.querySelector("#pv-err"); e.style.color="#c0392b";
-    const r=body.querySelector("#pv-role").value;
-    if(r==="admin" && myRole!=="admin"){ e.textContent="Only a System Administrator can grant System Administrator."; return; }
-    if(u.id===SESSION.user.id){ e.textContent="You cannot change your own privileges."; return; }
-    u.role=r; u.isAdmin=(r==="admin"); save(); if(after) after(); close(); };
+    const lid=body.querySelector("#pv-level").value;
+    if(!choices.find(l=>l.id===lid)){ e.textContent="You don't have permission to assign that level."; return; }
+    if(u.id===SESSION.user.id){ e.textContent="You cannot change your own level."; return; }
+    u.levelId=lid; u.role=lid==="admin"?"admin":lid==="supervisor"?"leadership":"user"; u.isAdmin=(lid==="admin"); save(); if(after) after(); close(); };
 }
 
 /* ============================================================ SECTION / GROUP MAINTENANCE ============================================================ */
@@ -4247,6 +4463,131 @@ function openManageDevices(){
     });
   }
   load();
+}
+// Admin-only. Two modes sharing the same two-table picker pattern: editing a whole
+// supervisory level's defaults, or editing one specific person's individual overrides
+// on top of their level. Levels can't be deleted while anyone's still assigned to them —
+// that's enforced here, redirecting to Modify Users to reassign people first.
+function openSupervisoryMaintenance(){
+  const id="supervisory-maintenance"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Supervisory Maintenance",width:820,height:620,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Admin only — changes take effect immediately for everyone affected</span>`});
+  let mode="level"; // "level" or "user"
+  let selectedLevelId=(DB.supervisoryLevels[0]||{}).id;
+  let selectedUserId=null;
+  function allFeatureKeys(){ return (DB.featureRegistry||[]).map(f=>f.key); }
+  function featureLabel(key){ const f=(DB.featureRegistry||[]).find(x=>x.key===key); return f?f.label:key; }
+  function grantedKeysForLevel(lvl){ return lvl.features.includes("*") ? allFeatureKeys() : lvl.features.slice(); }
+  function grantedKeysForUser(u){ return allFeatureKeys().filter(k=>hasAccess(k,u)); }
+
+  function render(){
+    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button class="btn sm ${mode==='level'?'primary':''}" id="sm-tab-level">Supervisory Levels</button>
+        <button class="btn sm ${mode==='user'?'primary':''}" id="sm-tab-user">Individual Users</button>
+      </div>
+      <div id="sm-controls" style="margin-bottom:10px;"></div>
+      <div style="flex:1;display:flex;gap:10px;min-height:0;">
+        <div style="flex:1;display:flex;flex-direction:column;"><div class="smallhint" style="margin-bottom:4px;">Does not have access</div>
+          <select multiple id="sm-left" style="flex:1;border:1px solid #b9b9b9;border-radius:6px;font-size:12.5px;"></select></div>
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:8px;">
+          <button class="btn sm" id="sm-right">&rarr;</button>
+          <button class="btn sm" id="sm-leftbtn">&larr;</button>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;"><div class="smallhint" style="margin-bottom:4px;">Has access</div>
+          <select multiple id="sm-right-list" style="flex:1;border:1px solid #b9b9b9;border-radius:6px;font-size:12.5px;"></select></div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;"><button class="btn primary" id="sm-save">Save</button><span class="smallhint" id="sm-msg"></span></div>
+    </div>`;
+    body.querySelector("#sm-tab-level").onclick=()=>{ mode="level"; render(); };
+    body.querySelector("#sm-tab-user").onclick=()=>{ mode="user"; render(); };
+    const ctrl=body.querySelector("#sm-controls");
+    if(mode==="level"){
+      ctrl.innerHTML=`<div style="display:flex;gap:8px;align-items:center;">
+        <select class="cmb" id="sm-levelpick" style="flex:1;">${(DB.supervisoryLevels||[]).map(l=>`<option value="${esc(l.id)}" ${l.id===selectedLevelId?'selected':''}>${esc(l.name)}</option>`).join("")}</select>
+        <button class="btn sm" id="sm-rename">Rename</button>
+        <button class="btn sm" id="sm-delete">Delete</button>
+        <button class="btn sm" id="sm-addlevel">+ New Level</button></div>`;
+      ctrl.querySelector("#sm-levelpick").onchange=e=>{ selectedLevelId=e.target.value; renderLists(); };
+      ctrl.querySelector("#sm-rename").onclick=()=>{
+        const lvl=levelById(selectedLevelId); if(!lvl) return;
+        const name=prompt("Rename this supervisory level:",lvl.name); if(!name||!name.trim()) return;
+        lvl.name=name.trim(); save(); render();
+      };
+      ctrl.querySelector("#sm-delete").onclick=()=>{
+        const lvl=levelById(selectedLevelId); if(!lvl) return;
+        if(lvl.id==="admin"){ alert("The Admin level can't be deleted."); return; }
+        const occupants=(DB.users||[]).filter(u=>u.levelId===lvl.id);
+        if(occupants.length){ alert("Can't delete \""+lvl.name+"\" — "+occupants.length+" user(s) are still assigned to it. Move them to a different level in Modify Users first, then come back and delete it."); return; }
+        if(!confirm("Delete the supervisory level \""+lvl.name+"\"? This can't be undone.")) return;
+        DB.supervisoryLevels=DB.supervisoryLevels.filter(l=>l.id!==lvl.id); save();
+        selectedLevelId=(DB.supervisoryLevels[0]||{}).id; render();
+      };
+      ctrl.querySelector("#sm-addlevel").onclick=()=>{
+        const name=prompt("Name for the new supervisory level:"); if(!name||!name.trim()) return;
+        const newId=name.trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||("level_"+Date.now());
+        if(levelById(newId)){ alert("A level with a similar name/id already exists."); return; }
+        const maxRank=Math.max(0,...DB.supervisoryLevels.map(l=>l.rank));
+        DB.supervisoryLevels.push({ id:newId, name:name.trim(), rank:maxRank+1, features:[] });
+        save(); selectedLevelId=newId; render();
+      };
+    } else {
+      const users=(DB.users||[]).slice().sort((a,b)=>(a.id||"").localeCompare(b.id||""));
+      if(!selectedUserId && users.length) selectedUserId=users[0].id;
+      ctrl.innerHTML=`<div style="display:flex;gap:8px;align-items:center;">
+        <select class="cmb" id="sm-userpick" style="flex:1;">${users.map(u=>`<option value="${esc(u.id)}" ${u.id===selectedUserId?'selected':''}>${esc(u.id)} — ${esc((levelById(u.levelId)||{}).name||"?")}</option>`).join("")}</select>
+        <button class="btn sm" id="sm-clearoverrides">Clear Overrides</button></div>
+        <div class="smallhint" style="margin-top:4px;">Showing this person's actual access right now — their level's defaults, plus anything overridden just for them. Moving something here always sets an explicit override for this person specifically, which stays with them even if their level changes later.</div>`;
+      ctrl.querySelector("#sm-userpick").onchange=e=>{ selectedUserId=e.target.value; renderLists(); };
+      ctrl.querySelector("#sm-clearoverrides").onclick=()=>{
+        const u=(DB.users||[]).find(x=>x.id===selectedUserId); if(!u) return;
+        if(!confirm("Clear all individual overrides for "+u.id+"? They'll fall back to exactly their level's defaults.")) return;
+        u.permissionOverrides={}; save(); renderLists();
+      };
+    }
+    renderLists();
+    body.querySelector("#sm-right").onclick=()=>moveSelected(true);
+    body.querySelector("#sm-leftbtn").onclick=()=>moveSelected(false);
+    body.querySelector("#sm-save").onclick=doSave;
+  }
+  let workingGranted=new Set();
+  function renderLists(){
+    const reg=(DB.featureRegistry||[]).slice().sort((a,b)=>(a.category||"").localeCompare(b.category||"")||a.label.localeCompare(b.label));
+    let granted;
+    if(mode==="level"){ const lvl=levelById(selectedLevelId); granted=lvl?new Set(grantedKeysForLevel(lvl)):new Set(); }
+    else { const u=(DB.users||[]).find(x=>x.id===selectedUserId); granted=u?new Set(grantedKeysForUser(u)):new Set(); }
+    workingGranted=granted;
+    const leftSel=body.querySelector("#sm-left"), rightSel=body.querySelector("#sm-right-list");
+    if(!leftSel||!rightSel) return;
+    leftSel.innerHTML=""; rightSel.innerHTML="";
+    reg.forEach(f=>{
+      const opt=document.createElement("option"); opt.value=f.key; opt.textContent="["+f.category+"] "+f.label;
+      (granted.has(f.key)?rightSel:leftSel).appendChild(opt);
+    });
+  }
+  function moveSelected(toRight){
+    const fromSel=toRight?body.querySelector("#sm-left"):body.querySelector("#sm-right-list");
+    const toSel=toRight?body.querySelector("#sm-right-list"):body.querySelector("#sm-left");
+    Array.from(fromSel.selectedOptions).forEach(opt=>{ toSel.appendChild(opt); opt.selected=false;
+      if(toRight) workingGranted.add(opt.value); else workingGranted.delete(opt.value); });
+  }
+  function doSave(){
+    const msg=body.querySelector("#sm-msg");
+    if(mode==="level"){
+      const lvl=levelById(selectedLevelId); if(!lvl) return;
+      if(lvl.id==="admin"){ msg.style.color="#c0392b"; msg.textContent="Admin always has full access — nothing to save here."; return; }
+      lvl.features=Array.from(workingGranted); save();
+      msg.style.color="#1f7244"; msg.textContent="Saved — takes effect immediately for everyone on this level.";
+    } else {
+      const u=(DB.users||[]).find(x=>x.id===selectedUserId); if(!u) return;
+      const lvl=levelById(u.levelId); const levelGranted=lvl?new Set(grantedKeysForLevel(lvl)):new Set();
+      const overrides={};
+      allFeatureKeys().forEach(k=>{ const want=workingGranted.has(k), levelHas=levelGranted.has(k); if(want!==levelHas) overrides[k]=want; });
+      u.permissionOverrides=overrides; save();
+      msg.style.color="#1f7244"; msg.textContent="Saved — takes effect immediately for "+u.id+".";
+    }
+  }
+  render();
 }
 function openCloudSyncTest(){
   const id="cloud-sync-test"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
