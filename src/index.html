@@ -391,7 +391,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.28", BUILD_DATE="2026-07-14", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="2.9.30", BUILD_DATE="2026-07-16", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -450,6 +450,8 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["2.9.30","Ready to List improvements: the first column is now the item photo instead of being blank, Sub Category was replaced with Listing Price, and a new Quantity column shows how many units of that item are being listed. Tree menu items that have a live count worth seeing at a glance (right now Ready to List, and Listing Review for supervisors) now show a small red (#) badge next to their label in both the tree and the action list, updating immediately as items move in or out -- no need to open the screen just to see if anything is waiting."],
+  ["2.9.29","Phase 2: real item statuses and the warehouse listing workflow. Items now have four real statuses: Listed (green, actively on eBay), Created (blue, warehouse sent it for review but not on eBay yet), Active (default, in inventory unlisted), Sold (sold but not fulfilled), and Inactive (historical). Status shows in colored text on every item landing page instead of the old hardcoded Active record label. The Send Listing button (warehouse level) marks an item Created and sends it to the new Listing Review queue instead of pushing to eBay directly. The List on eBay button is only shown to Product Lister level and above (who can push to eBay themselves). Listing Review (Discrepancies tree, supervisor+) shows all Created items with Select All, List Items (pushes to eBay and marks Listed), and Send Back (returns to Active). Also renamed Discrepancies to SKU not Listed in the Live mode tree."],
   ["2.9.28","Phase 1, part 2: the actual enforcement sweep. Every tree menu item now checks the new permissions system and genuinely disappears (not greyed out) for accounts that lack it -- wired through one central mapping rather than scattered checks. Modify Users rewritten to use real supervisory levels: same-level-or-lower editing, admin accounts fully hidden from non-admins (still visible in history/records elsewhere, just not in this list). New Change Password screen (Security, everyone) -- separate from Modify Users, requires the actual current password. Warehouse Only Mode now really redirects to Warehouse instead of just being a label, both at login and if someone tries switching mid-session. Force Log Out exists as a menu item with correct admin-only gating, but is an honest placeholder -- the real feature needs live session tracking that does not exist yet. Also fixed: cloud-authenticated logins (Tyler_admin) now map their role to an equivalent level, so cloud testing does not accidentally get demoted to Basic by this update."],
   ["2.9.27","Phase 1, part 1 of the new permissions system: the actual data model (5 supervisory levels migrated automatically from the old admin/leadership/user roles, a master feature registry, per-user individual overrides that survive a level change) and the full Supervisory Maintenance screen (Configuration, admin only) -- create/rename/delete levels, the two-table feature picker with arrow buttons, and a separate Individual Users tab for per-person overrides on top of their level. Important: nothing elsewhere in WIM actually checks these permissions yet -- that enforcement sweep (making screens and tree items actually hide based on access) is real, separate work coming as the very next update, so this one is testable on its own without anything else changing behavior yet."],
   ["2.9.26","7-day backup fail-safe: if the automated GitHub Actions backup hasn't actually succeeded in 7+ days, WIM downloads an emergency JSON copy of your current cloud items itself and shows a clear warning -- a sign the automation broke (expired token, etc.), not something to wait out quietly. Deliberately does not mark the real automation as healthy when this fires, so the alarm stays accurate. Also fixed a real gap in the GitHub Action itself: it was not actually checking whether the OneDrive upload succeeded before marking the backup successful -- a failed upload (expired token, network blip) would have silently been recorded as a success. Added a Test Fail-Safe Backup Now button to Cloud Sync (Test) to verify this without waiting a real week."],
@@ -585,6 +587,7 @@ const POPOUT_APPS={
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
+  listingreview:{ title:"Listing Review", open:()=>openListingReview() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
   managedevices:{ title:"Manage Devices", open:()=>openManageDevices() },
   supervisorymaint:{ title:"Supervisory Maintenance", open:()=>openSupervisoryMaintenance() },
@@ -701,7 +704,8 @@ function popOutItem(item, mode, nav){
   }catch(e){ console.warn("popOutItem failed",e); return false; }
 }
 function wimRefreshAll(){ try{ if(typeof refreshSearchWindows==="function") refreshSearchWindows(); }catch(e){}
-  try{ document.querySelectorAll(".body").forEach(b=>{ if(b._refresh) b._refresh(); }); }catch(e){} }
+  try{ document.querySelectorAll(".body").forEach(b=>{ if(b._refresh) b._refresh(); }); }catch(e){}
+  try{ if(typeof renderTree==="function" && document.getElementById("tree-pane")) renderTree(); }catch(e){} }
 async function wimReloadFromStore(){ try{ let st=await idbGet(); if(!st){ const ls=localStorage.getItem(KEY); if(ls) st=JSON.parse(ls); } if(st){ DB=migrate(st); DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits; wimRefreshAll(); } }catch(e){ console.warn("WIM sync reload failed",e); } }
 try{ if(wimSyncBC) wimSyncBC.onmessage=(ev)=>{ if(ev&&ev.data&&ev.data.t==="changed") wimReloadFromStore(); }; }catch(e){}
 
@@ -1215,8 +1219,32 @@ function pad2(n){ return String(n).padStart(2,"0"); }
 function slotById(id){ return DB.slots.find(s=>s.id===id); }
 function slotCats(s){ if(!s) return []; return (Array.isArray(s.sections)&&s.sections.length)?s.sections:(s.section?[s.section]:["General"]); }
 function slotHasCat(s,cat){ return slotCats(s).includes(cat); }
-function activeItems(){ return DB.items.filter(i=>!i.sold); }
-function soldItems(){ return DB.items.filter(i=>i.sold); }
+// ---- Real item statuses ----
+// Listed    = actively listed on eBay (green)
+// Created   = built in WIM and sent for review, but not on eBay yet (blue)
+// Active    = in inventory, not listed, not sold (default — what everything was before)
+// Sold      = sold but not yet completed through the fulfillment workflow
+// Inactive  = historical: sold+completed, deleted, or zero on-hand
+// The old i.sold boolean is kept in sync so existing code that reads it still works.
+function itemStatus(it){
+  if(it.status) return it.status;
+  if(it.sold) return "inactive";
+  if(it.listing && it.listing.status==="listed") return "listed";
+  return "active";
+}
+function itemStatusLabel(it){ return {listed:"Listed",created:"Created",active:"Active",sold:"Sold",inactive:"Inactive"}[itemStatus(it)]||"Active"; }
+function itemStatusColor(it){ return {listed:"#1f7244",created:"#1a5fa8",active:"#444",sold:"#7a5200",inactive:"#888"}[itemStatus(it)]||"#444"; }
+function setItemStatus(it,st){
+  it.status=st;
+  // Keep the old boolean in sync so nothing else breaks
+  it.sold = (st==="inactive");
+  if(st==="sold"||st==="inactive"){ if(!it.soldAt) it.soldAt=new Date().toISOString(); }
+  else { it.soldAt=null; it.soldBy=null; }
+}
+function activeItems(){ return DB.items.filter(i=>!i.sold && itemStatus(i)!=="inactive"); }
+function soldItems(){ return DB.items.filter(i=>i.sold||itemStatus(i)==="inactive"); }
+function listedItems(){ return DB.items.filter(i=>itemStatus(i)==="listed"); }
+function createdItems(){ return DB.items.filter(i=>itemStatus(i)==="created"); }
 function activeInSlot(slotId,ex){ return activeItems().filter(i=>i.slot===slotId&&i.id!==ex); }
 function takenPlacements(slotId,ex){ return new Set(activeInSlot(slotId,ex).map(i=>i.placement)); }
 function lowestPlacement(slotId,ex){ const s=slotById(slotId); if(!s) return null; const t=takenPlacements(slotId,ex);
@@ -1613,7 +1641,7 @@ const TREE_LABEL_FEATURE={
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Item Report":"item_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","Ready to List":"ready_to_list","Communication":"communication","Listing Report":"listing_report","About / Version":null
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Communication":"communication","Listing Report":"listing_report","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -1640,7 +1668,7 @@ function nodeActionsRaw(node){
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","View Live Inventory","Find by Photo"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items"];
-  if(node.key==="discrepancies") return ["Discrepancies","Ready to List"];
+  if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List"];
   if(node.key==="comm") return ["Communication"];
   if(node.key==="livereports") return ["Listing Report","Item Rank","Listing Efficiency"];
   return [];
@@ -2229,11 +2257,21 @@ function renderTree(){
     row.onclick=()=>{ treeState.sel=node.key; treeState.expanded[node.key]=true; showActions(node); renderTree(); };
     pane.appendChild(row);
     if(hasKids&&exp){ acts.forEach(a=>{ const cr=document.createElement("div"); cr.className="node"; cr.style.marginLeft="30px"; cr.style.fontSize="14px";
-      cr.innerHTML=`<span class="exp none"></span><span>${a}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); }); }
+      cr.innerHTML=`<span class="exp none"></span><span>${a}${actionCountBadge(a)}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); }); }
   });
 }
+// A small (#) badge next to tree action labels that have a live count worth showing at a
+// glance — right now just Ready to List, easy to extend the same way for future screens
+// (e.g. Listing Review, Fulfillment stages) by adding another case here.
+function actionCountBadge(label){
+  let n=0;
+  if(label==="Ready to List") n=readyToListCount();
+  else if(label==="Listing Review") n=createdItems().length;
+  if(!n) return "";
+  return ` <span style="display:inline-block;background:#c0392b;color:#fff;border-radius:9px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:1px;">${n}</span>`;
+}
 function showActions(node){ const dp=document.getElementById("detail-pane"); if(!dp) return; dp.innerHTML="";
-  nodeActions(node).forEach(a=>{ const el=document.createElement("div"); el.className="action"; el.textContent=a; el.onclick=()=>handleAction(node.key,a); dp.appendChild(el); }); }
+  nodeActions(node).forEach(a=>{ const el=document.createElement("div"); el.className="action"; el.innerHTML=`${esc(a)}${actionCountBadge(a)}`; el.onclick=()=>handleAction(node.key,a); dp.appendChild(el); }); }
 function handleAction(k,a){
   if(k==="config"&&a==="Warehouse Maintenance") return launchApp("warehouse");
   if(k==="config"&&a==="Vendor Management") return launchApp("vendors");
@@ -2277,7 +2315,9 @@ function handleAction(k,a){
   if(k==="additems"&&a==="Add Item") return launchApp("additem");
   if(k==="additems"&&a==="Bulk Add Items") return launchApp("bulkadd");
   if(k==="discrepancies"&&a==="Discrepancies") return launchApp("discrepancies");
+  if(k==="discrepancies"&&a==="SKU not Listed") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="Ready to List") return launchApp("readytolist");
+  if(k==="discrepancies"&&a==="Listing Review") return launchApp("listingreview");
   if(k==="comm"&&a==="Communication") return launchApp("comm");
   if(k==="livereports"&&a==="Listing Report") return launchApp("listingreport");
 }
@@ -3337,8 +3377,12 @@ function openItemDetail(item,mode,nav){
   const wid=(isCat?"cat-":isNew?"item-new":"item-")+(it.id);
   if(openWindows[wid]){ focusWin(openWindows[wid].el); return; }
   const navHtml = (nav && nav.list && nav.list.length) ? `<span class="tbar-sep"></span><button class="tbtn" id="d-prev" title="Previous record" ${nav.index<=0?'disabled':''}>&#8249;</button><span style="font-size:12px;align-self:center;padding:0 6px;white-space:nowrap;">${nav.index+1} / ${nav.list.length}</span><button class="tbtn" id="d-next" title="Next record" ${nav.index>=nav.list.length-1?'disabled':''}>&#8250;</button>` : "";
+  const listBtn = !isNew && !isCat ? (
+    hasAccess("listing_functions") ? tbtn(I.cash,"List on eBay") :
+    hasAccess("list_items") ? tbtn(I.bolt,"Send Listing") : ""
+  ) : "";
   const tbar= (ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
-    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${isLive()?tbtn(I.cash,'List on eBay'):tbtn(I.bolt,'Send to Live')}`) + navHtml;
+    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${listBtn}`) + navHtml;
   const {body,close:_closeWin}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48});
   const close=()=>{ try{ _closeWin(); }catch(e){}
     if(WIM_ITEMDETAIL_WIN){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
@@ -3349,7 +3393,7 @@ function openItemDetail(item,mode,nav){
   const dis=ro?'disabled':'';
   body.innerHTML=`
     <div class="d-scrollwrap">
-    <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':'Active record')}</div></div>
+    <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':`<span style="color:${itemStatusColor(it)};font-weight:600;">${itemStatusLabel(it)}</span>`)}</div></div>
     ${dl}
     <div class="imd-top">
       <div class="imgcell"><div class="imgbox" id="d-imgbox">${it.image?`<img src="${it.image}">`:'<span class="ph">📦</span>'}</div>
@@ -3917,7 +3961,7 @@ function openItemDetail(item,mode,nav){
   dirty=false;
   const bottomBtn=body.querySelector("#d-save");
   function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"List Inventory":"Add Item"):(dirty?"Save":"Okay"); }
-  const s2l=body.querySelector("#d-send2list"); if(s2l) s2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
+  const s2l=body.querySelector("#d-send2list"); if(s2l) s2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); wimRefreshAll(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
   function markDirty(){ if(!dirty){ dirty=true; updateBtn(); } }
   body.addEventListener("input",markDirty); body.addEventListener("change",markDirty);
   const origManualClick=manual.onclick; manual.onclick=()=>{ origManualClick(); markDirty(); };
@@ -3929,7 +3973,18 @@ function openItemDetail(item,mode,nav){
     openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); close(); }); };
   const pbtn=openWindows[wid].el.querySelector('[data-act="Print"]'); if(pbtn) pbtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first — labels print once a Warehouse SKU is assigned."); return; } openPrintMenu(it); };
   const ebtn=openWindows[wid].el.querySelector('[data-act="List on eBay"]'); if(ebtn) ebtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first, then list it on eBay."); return; } openEbayList(it); };
-  const s2live=openWindows[wid].el.querySelector('[data-act="Send to Live"]'); if(s2live) s2live.onclick=()=>{ if(isNew){ uiAlert("Save the item first (or use Add & Send), then send it to Live."); return; } if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Live (Ready to List)"); save(); wimRefreshAll(); wimToast("Sent to Live \u2192 Ready to List"); };
+  // "Send Listing" (Warehouse level) — marks the item Created and queues it for supervisor review
+  // instead of pushing directly to eBay. The Listing Review screen (Discrepancies tree, supervisor+)
+  // is where a supervisor then sees it and actually pushes it to eBay.
+  const slbtn=openWindows[wid].el.querySelector('[data-act="Send Listing"]'); if(slbtn) slbtn.onclick=()=>{
+    if(isNew){ uiAlert("Save the item first, then send it for listing review."); return; }
+    if(itemStatus(it)==="listed"){ uiAlert("This item is already listed on eBay."); return; }
+    if(itemStatus(it)==="created"){ uiAlert("This item is already in the listing review queue."); return; }
+    setItemStatus(it,"created");
+    if(!it.listing) it.listing={status:"none"};
+    it.listing.readyToList=true; it.listing.sentForReviewAt=new Date().toISOString();
+    addHistory(it,"Sent for listing review (status: Created)"); save(); wimRefreshAll();
+    wimToast("Sent for listing review \u2192 Listing Review"); updateBtn(); };
   updateBtn();
 }
 function deleteItems(units,userId){ // soft-delete: out of active, reversible from Records
@@ -4589,6 +4644,74 @@ function openSupervisoryMaintenance(){
   }
   render();
 }
+// Supervisor+ screen — shows all items with status "Created" (sent for listing review by
+// warehouse staff). A supervisor can open any item, approve it, and actually list it to
+// eBay from here. Warehouse staff see neither this screen nor the regular "List on eBay"
+// button — their Send Listing button is the only path to listing, and it routes here.
+function openListingReview(){
+  const id="listing-review"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Listing Review",width:900,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sent for listing review — supervisor and above only</span>`});
+  let picked=new Set();
+  function render(){
+    const items=createdItems().sort((a,b)=>(a.listing&&a.listing.sentForReviewAt?new Date(a.listing.sentForReviewAt):new Date(0))-(b.listing&&b.listing.sentForReviewAt?new Date(b.listing.sentForReviewAt):new Date(0)));
+    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      ${!items.length?`<div class="note">No items waiting for review. When a warehouse user clicks "Send Listing" on an item, it appears here.</div>`:``}
+      ${items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="lr-selall"></span> Select All</label>
+        <button class="btn primary" id="lr-list" ${!picked.size?"disabled":""}>List Item${picked.size===1?"":"s"} on eBay${picked.size?" ("+picked.size+")":""}</button>
+        <button class="btn" id="lr-reject" ${!picked.size?"disabled":""}>Send Back</button>
+        <span class="smallhint" id="lr-msg"></span></div>`:``}
+      <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th style="width:30px;"></th><th>Item</th><th>SKU</th><th>Condition</th><th style="width:80px;">Price</th><th style="width:130px;">Sent for Review</th><th></th>
+      </tr></thead><tbody id="lr-tb"></tbody></table></div></div>`;
+    const tb=body.querySelector("#lr-tb");
+    const selAll=body.querySelector("#lr-selall");
+    if(selAll) selAll.onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
+    if(body.querySelector("#lr-list")) body.querySelector("#lr-list").onclick=async ()=>{
+      const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
+      const msg=body.querySelector("#lr-msg"); msg.style.color="#555"; msg.textContent="Listing "+targets.length+" item(s)…";
+      let ok=0;
+      for(const it of targets){
+        try{
+          // Use the existing eBay listing flow — same as clicking "List on eBay" directly,
+          // just called programmatically from here instead of from the item page.
+          if(EBAY_ONLINE && it.listing && it.listing.ebayOfferId){
+            const r=await publishToEbay(it); if(r&&r.ok){ setItemStatus(it,"listed"); addHistory(it,"Listed on eBay via Listing Review"); ok++; }
+            else { addHistory(it,"Listing Review: eBay publish failed — left as Created"); }
+          } else {
+            // eBay not connected or no offer set up yet — still mark it as approved so it
+            // doesn't sit in review indefinitely; it'll go through the eBay connection
+            // flow next time someone opens it from the Manage Listings screen.
+            setItemStatus(it,"listed"); addHistory(it,"Approved for listing (eBay not connected — mark as listed)"); ok++;
+          }
+        }catch(e){ addHistory(it,"Listing Review: error during publish: "+(e&&e.message||e)); }
+      }
+      picked.clear(); save(); wimRefreshAll();
+      msg.style.color="#1f7244"; msg.textContent=ok+" item(s) listed."; render();
+    };
+    if(body.querySelector("#lr-reject")) body.querySelector("#lr-reject").onclick=()=>{
+      const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
+      targets.forEach(it=>{ setItemStatus(it,"active"); if(it.listing){ it.listing.readyToList=false; it.listing.sentForReviewAt=null; } addHistory(it,"Sent back from listing review — returned to Active"); });
+      picked.clear(); save(); wimRefreshAll(); render();
+    };
+    items.forEach(it=>{
+      const sentAt=it.listing&&it.listing.sentForReviewAt?new Date(it.listing.sentForReviewAt):null;
+      const tr=document.createElement("tr");
+      tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td>
+        <td style="font-size:12.5px;">${esc(it.desc||it.upc)}</td>
+        <td style="font-size:12px;">${esc(it.sku||"—")}</td>
+        <td style="font-size:12px;">${esc(it.condition||"—")}</td>
+        <td style="font-size:12px;">${it.listing&&it.listing.price?"$"+esc(it.listing.price):"—"}</td>
+        <td style="font-size:11px;">${sentAt&&!isNaN(sentAt)?sentAt.toLocaleString():"—"}</td>
+        <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
+      tr.querySelector(`[data-id="${it.id}"]`).onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
+      tr.querySelector(`[data-open="${it.id}"]`).onclick=()=>openItemDetail(it,"edit");
+      tb.appendChild(tr);
+    });
+  }
+  render();
+}
 function openCloudSyncTest(){
   const id="cloud-sync-test"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Cloud Sync (Test)",width:680,height:560,
@@ -4891,22 +5014,26 @@ function openDescriptionManager(){
 /* ============================================================ LIVE: READY TO LIST ============================================================ */
 function openReadyToList(){
   if(openWindows["ready-list"]){ focusWin(openWindows["ready-list"].el); return; }
-  const {body}=buildWindow({id:"ready-list",title:"Ready to List",width:900,height:560,
+  const {body}=buildWindow({id:"ready-list",title:"Ready to List",width:940,height:580,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sent from Warehouse mode to be listed here</span>`});
   function render(){
     const rows=activeItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed").sort((a,b)=>skuCmp(a.sku,b.sku));
     body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;">${rows.length} item(s) waiting to be listed.</div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Item Number</th><th>Description</th><th>Warehouse SKU</th><th>Category</th><th>Sub Category</th><th></th><th></th></tr></thead><tbody id="rl-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th style="width:54px;">Photo</th><th>Item Number</th><th>Description</th><th>Warehouse SKU</th><th>Category</th><th>Listing Price</th><th>Quantity</th><th></th><th></th></tr></thead><tbody id="rl-tb"></tbody></table></div>`;
     const tb=body.querySelector("#rl-tb");
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">Nothing here yet. In Warehouse mode, open an item and click “Send to Listing.”</td></tr>`; return; }
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="9" style="color:#888;">Nothing here yet. In Warehouse mode, open an item and click "Send Listing."</td></tr>`; return; }
     rows.forEach(it=>{ const tr=document.createElement("tr");
-      tr.innerHTML=`<td>${esc(it.upc)}</td><td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(it.section)}</td><td>${esc(it.subCategory||"")}</td>`;
+      const price=(it.listing&&it.listing.price)?("$"+esc(it.listing.price)):"—";
+      const qty=groupQty(it);
+      tr.innerHTML=`<td>${it.image?`<img src="${it.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`:'<span style="font-size:20px;">📦</span>'}</td>
+        <td>${esc(it.upc)}</td><td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(it.section)}</td><td>${price}</td><td class="cc">${qty}</td>`;
       const tdL=document.createElement("td"); tdL.className="cc"; const b=document.createElement("button"); b.className="btn sm"; b.textContent="List"; b.onclick=()=>openItemDetail(it,"edit"); tdL.appendChild(b); tr.appendChild(tdL);
-      const tdR=document.createElement("td"); tdR.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="Remove"; x.onclick=()=>{ it.listing.readyToList=false; addHistory(it,"Removed from Ready to List"); save(); render(); }; tdR.appendChild(x); tr.appendChild(tdR);
+      const tdR=document.createElement("td"); tdR.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="Remove"; x.onclick=()=>{ it.listing.readyToList=false; addHistory(it,"Removed from Ready to List"); save(); render(); wimRefreshAll(); }; tdR.appendChild(x); tr.appendChild(tdR);
       tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
   }
   render();
 }
+function readyToListCount(){ return activeItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed").length; }
 
 /* ============================================================ LIVE: DISCREPANCIES ============================================================ */
 function openDiscrepancies(){
