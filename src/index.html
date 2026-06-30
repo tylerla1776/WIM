@@ -391,7 +391,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="2.9.30", BUILD_DATE="2026-07-16", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.0.1", BUILD_DATE="2026-07-17", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -450,6 +450,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.0.1","Phase 3a: the first piece of the Fulfillment workflow. New Fulfillment tree (Warehouse mode, between Manage Inventory and Discrepancies, package-with-checkmark icon) with a Recently Sold screen. Pull Recently Sold checks eBay's real order data (the Fulfillment API, not a listing report), matches each sold line item back to a local item by SKU, and -- the moment a match is found -- pulls that item out of active inventory and tags it Sold automatically, exactly like a real sale should behave. Condition is read from WIM's own item record since eBay order data does not carry it. Select items and Move to Shipping to advance them (the Shipping screen itself is next). Also fixed a real bug introduced in 2.9.29: items with the new sold status were not actually being excluded from active inventory counts and lists -- they are now."],
   ["2.9.30","Ready to List improvements: the first column is now the item photo instead of being blank, Sub Category was replaced with Listing Price, and a new Quantity column shows how many units of that item are being listed. Tree menu items that have a live count worth seeing at a glance (right now Ready to List, and Listing Review for supervisors) now show a small red (#) badge next to their label in both the tree and the action list, updating immediately as items move in or out -- no need to open the screen just to see if anything is waiting."],
   ["2.9.29","Phase 2: real item statuses and the warehouse listing workflow. Items now have four real statuses: Listed (green, actively on eBay), Created (blue, warehouse sent it for review but not on eBay yet), Active (default, in inventory unlisted), Sold (sold but not fulfilled), and Inactive (historical). Status shows in colored text on every item landing page instead of the old hardcoded Active record label. The Send Listing button (warehouse level) marks an item Created and sends it to the new Listing Review queue instead of pushing to eBay directly. The List on eBay button is only shown to Product Lister level and above (who can push to eBay themselves). Listing Review (Discrepancies tree, supervisor+) shows all Created items with Select All, List Items (pushes to eBay and marks Listed), and Send Back (returns to Active). Also renamed Discrepancies to SKU not Listed in the Live mode tree."],
   ["2.9.28","Phase 1, part 2: the actual enforcement sweep. Every tree menu item now checks the new permissions system and genuinely disappears (not greyed out) for accounts that lack it -- wired through one central mapping rather than scattered checks. Modify Users rewritten to use real supervisory levels: same-level-or-lower editing, admin accounts fully hidden from non-admins (still visible in history/records elsewhere, just not in this list). New Change Password screen (Security, everyone) -- separate from Modify Users, requires the actual current password. Warehouse Only Mode now really redirects to Warehouse instead of just being a label, both at login and if someone tries switching mid-session. Force Log Out exists as a menu item with correct admin-only gating, but is an honest placeholder -- the real feature needs live session tracking that does not exist yet. Also fixed: cloud-authenticated logins (Tyler_admin) now map their role to an equivalent level, so cloud testing does not accidentally get demoted to Basic by this update."],
@@ -588,6 +589,7 @@ const POPOUT_APPS={
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
   listingreview:{ title:"Listing Review", open:()=>openListingReview() },
+  recentlysold:{ title:"Recently Sold", open:()=>openRecentlySold() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
   managedevices:{ title:"Manage Devices", open:()=>openManageDevices() },
   supervisorymaint:{ title:"Supervisory Maintenance", open:()=>openSupervisoryMaintenance() },
@@ -828,6 +830,7 @@ function migrate(d){
       { key:"bulk_add_inventory", label:"Bulk Add Inventory", category:"Warehouse" },
       { key:"adjust_inventory", label:"Adjust Inventory", category:"Warehouse" },
       { key:"listed_no_sku", label:"Listed, no SKU", category:"Warehouse" },
+      { key:"recently_sold", label:"Recently Sold", category:"Warehouse" },
       { key:"print_configuration", label:"Print Configuration", category:"Warehouse" },
       { key:"aging_inventory_report", label:"Aging Inventory Report", category:"Warehouse" },
       { key:"item_report", label:"Item Report", category:"Warehouse" },
@@ -863,6 +866,9 @@ function migrate(d){
     d.permissionsMigrated=true;
   }
   (d.users||[]).forEach(u=>{ if(!u.permissionOverrides) u.permissionOverrides={}; if(!u.levelId) u.levelId="basic"; });
+  // Tracks which eBay orders have already been pulled into Recently Sold, so re-running
+  // the pull doesn't create duplicate fulfillment records for the same sale.
+  if(!Array.isArray(d.pulledOrderIds)) d.pulledOrderIds=[];
   // A few feature keys were missed when the registry was first built — added in
   // afterward without disturbing anything already saved/customized.
   (function ensureFeatureKeys(){
@@ -880,7 +886,7 @@ function migrate(d){
     // Give the warehouse-and-up levels these new keys by default, matching the original
     // intent — a level that already had warehouse-tier access shouldn't suddenly lose
     // visibility into something that was always meant to be there.
-    const warehouseDefaults=["catalog_maintenance","sell_inventory","add_item","bulk_add_items","records","active_summary"];
+    const warehouseDefaults=["catalog_maintenance","sell_inventory","add_item","bulk_add_items","records","active_summary","recently_sold"];
     const listerDefaults=["listing_efficiency","listing_report"];
     (d.supervisoryLevels||[]).forEach(lvl=>{
       if(lvl.features.includes("*")) return;
@@ -1241,9 +1247,16 @@ function setItemStatus(it,st){
   if(st==="sold"||st==="inactive"){ if(!it.soldAt) it.soldAt=new Date().toISOString(); }
   else { it.soldAt=null; it.soldBy=null; }
 }
-function activeItems(){ return DB.items.filter(i=>!i.sold && itemStatus(i)!=="inactive"); }
-function soldItems(){ return DB.items.filter(i=>i.sold||itemStatus(i)==="inactive"); }
+function activeItems(){ return DB.items.filter(i=>!i.sold && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold"); }
+function soldItems(){ return DB.items.filter(i=>i.sold||itemStatus(i)==="inactive"||itemStatus(i)==="sold"); }
 function listedItems(){ return DB.items.filter(i=>itemStatus(i)==="listed"); }
+// ---- Fulfillment workflow data ----
+// it.fulfillment holds everything specific to a sold-and-being-shipped item: which eBay
+// order it came from, the buyer's shipping info, and which stage it's at within
+// Fulfillment (recentlySold -> readyToShip/shipped -> completed). Kept separate from the
+// item's normal fields so a reactivated/returned item doesn't carry stale shipping data.
+function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"recentlySold", orderId:null, lineItemId:null, buyer:null, shipTo:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
+function fulfillmentItems(stage){ return DB.items.filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage===stage); }
 function createdItems(){ return DB.items.filter(i=>itemStatus(i)==="created"); }
 function activeInSlot(slotId,ex){ return activeItems().filter(i=>i.slot===slotId&&i.id!==ex); }
 function takenPlacements(slotId,ex){ return new Set(activeInSlot(slotId,ex).map(i=>i.placement)); }
@@ -1418,6 +1431,7 @@ const I={
   stop:`<svg viewBox="0 0 16 16"><polygon points="5,1 11,1 15,5 15,11 11,15 5,15 1,11 1,5" fill="#c0392b" stroke="#8f261d" stroke-width="0.6"/><text x="8" y="10.6" font-size="4.6" font-family="Arial,sans-serif" font-weight="bold" fill="#fff" text-anchor="middle">STOP</text></svg>`,
   cash:`<svg viewBox="0 0 16 16" fill="none" stroke="#3a7d4f" stroke-width="1.1"><rect x="2" y="3" width="12" height="10" rx="1" fill="#e7f6ec"/><circle cx="8" cy="8" r="2.2" fill="#bfe6cc" stroke="#3a7d4f"/></svg>`,
   warn:`<svg viewBox="0 0 16 16"><path d="M8 1.5l6.5 12H1.5z" fill="#f4c542" stroke="#c89a1e" stroke-width=".7" stroke-linejoin="round"/><path d="M8 6v3.5" stroke="#7a5b00" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".9" fill="#7a5b00"/></svg>`,
+  fulfill:`<svg viewBox="0 0 16 16" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="#d9a86a" stroke="#9a6c34" stroke-width="1"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#9a6c34" stroke-width="1"/><circle cx="12.5" cy="11.5" r="3.3" fill="#3a7d4f" stroke="#2a5c38" stroke-width=".6"/><path d="M11 11.5l1.1 1.1 2-2.1" stroke="#fff" stroke-width="1.1"/></svg>`,
   clipboard:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><rect x="3" y="2.5" width="10" height="12" rx="1" fill="#eef1f6"/><rect x="5.5" y="1.4" width="5" height="2.4" rx=".6" fill="#cdd6e2" stroke="#5b6470"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3" stroke-linecap="round"/></svg>`,
   cabinet:`<svg viewBox="0 0 16 16" fill="none" stroke="#5b6470" stroke-width="1.1"><rect x="2.5" y="2" width="11" height="12" rx="1" fill="#eef1f6"/><path d="M2.5 8h11" /><path d="M6.5 5h3M6.5 11h3" stroke-linecap="round"/></svg>`,
   gear:`<img src="data:image/png;base64,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" alt="" draggable="false">`,
@@ -1580,6 +1594,7 @@ const TREE_WAREHOUSE=[
   {key:"catalog",icon:I.book,label:"Catalog"},
   {key:"item",icon:I.find,label:"Item Maintenance"},
   {key:"addsell",icon:I.plus,label:"Manage Inventory"},
+  {key:"fulfillment",icon:I.fulfill,label:"Fulfillment"},
   {key:"whdiscrep",icon:I.warn,label:"Discrepancies"},
   {key:"print",icon:I.printer,label:"Print"},
   {key:"reports",icon:I.clipboard,label:"Reports"},
@@ -1641,7 +1656,7 @@ const TREE_LABEL_FEATURE={
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Item Report":"item_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Communication":"communication","Listing Report":"listing_report","About / Version":null
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Recently Sold":"recently_sold","Communication":"communication","Listing Report":"listing_report","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -1663,6 +1678,7 @@ function nodeActionsRaw(node){
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Find by Photo"];
   if(node.key==="addsell") return ["Add Inventory","Sell Inventory","Adjust Inventory"];
+  if(node.key==="fulfillment") return ["Recently Sold"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
   if(node.key==="reports") return ["Aging Inventory","Item Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
@@ -2267,6 +2283,7 @@ function actionCountBadge(label){
   let n=0;
   if(label==="Ready to List") n=readyToListCount();
   else if(label==="Listing Review") n=createdItems().length;
+  else if(label==="Recently Sold") n=fulfillmentItems("recentlySold").length;
   if(!n) return "";
   return ` <span style="display:inline-block;background:#c0392b;color:#fff;border-radius:9px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:1px;">${n}</span>`;
 }
@@ -2318,6 +2335,7 @@ function handleAction(k,a){
   if(k==="discrepancies"&&a==="SKU not Listed") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="Ready to List") return launchApp("readytolist");
   if(k==="discrepancies"&&a==="Listing Review") return launchApp("listingreview");
+  if(k==="fulfillment"&&a==="Recently Sold") return launchApp("recentlysold");
   if(k==="comm"&&a==="Communication") return launchApp("comm");
   if(k==="livereports"&&a==="Listing Report") return launchApp("listingreport");
 }
@@ -4648,6 +4666,95 @@ function openSupervisoryMaintenance(){
 // warehouse staff). A supervisor can open any item, approve it, and actually list it to
 // eBay from here. Warehouse staff see neither this screen nor the regular "List on eBay"
 // button — their Send Listing button is the only path to listing, and it routes here.
+// Pulls eBay orders (Fulfillment API), matches each line item back to a local WIM item
+// by SKU, and surfaces anything not already pulled in as a new "Recently Sold" row. An
+// item that matches gets moved out of active inventory and tagged Sold the moment it's
+// pulled in here — that's the actual "sale removes it from inventory" behavior. Condition
+// is read from WIM's own local item record, not from the order — eBay's order data
+// doesn't carry condition at all, since that's a property of the listing, not the sale.
+async function pullRecentlySold(daysBack){
+  if(!EBAY.ready()) throw new Error("Not connected to eBay.");
+  const data=await EBAY.getOrders(daysBack||30);
+  const orders=data.orders||[];
+  let added=0, skipped=0;
+  for(const order of orders){
+    for(const li of (order.lineItems||[])){
+      const orderLineKey=order.orderId+"::"+li.lineItemId;
+      if(DB.pulledOrderIds.includes(orderLineKey)){ skipped++; continue; }
+      const sku=li.sku;
+      const localItem = sku ? DB.items.find(i=>i.sku===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : null;
+      if(!localItem){ continue; } // no local match (no SKU, or SKU not found) — nothing to move; left for manual handling
+      const f=ensureFulfillment(localItem);
+      f.stage="recentlySold";
+      f.orderId=order.orderId; f.lineItemId=li.lineItemId;
+      f.buyer=order.buyer&&order.buyer.username||null;
+      f.shipTo=order.fulfillmentStartInstructions&&order.fulfillmentStartInstructions[0]&&order.fulfillmentStartInstructions[0].shippingStep&&order.fulfillmentStartInstructions[0].shippingStep.shipTo||null;
+      f.soldPrice=li.total&&li.total.value||null;
+      f.soldAt=order.creationDate||new Date().toISOString();
+      setItemStatus(localItem,"sold");
+      DB.pulledOrderIds.push(orderLineKey);
+      addHistory(localItem,"Sold on eBay (order "+order.orderId+") — moved to Recently Sold");
+      added++;
+    }
+  }
+  save(); wimRefreshAll();
+  return { added, skipped, totalOrders:orders.length };
+}
+function openRecentlySold(){
+  if(openWindows["recently-sold"]){ focusWin(openWindows["recently-sold"].el); return; }
+  const {body}=buildWindow({id:"recently-sold",title:"Recently Sold",width:980,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sold on eBay — pull updates this list, then move items to Shipping</span>`});
+  let picked=new Set();
+  function render(){
+    const items=fulfillmentItems("recentlySold").sort((a,b)=>(b.fulfillment.soldAt||"").localeCompare(a.fulfillment.soldAt||""));
+    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <button class="btn" id="rs-pull">Pull Recently Sold</button>
+        <span class="smallhint" id="rs-pullmsg"></span>
+        ${items.length?`<span style="flex:1;"></span><label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="rs-selall"></span> Select All</label>
+        <button class="btn primary" id="rs-move" ${!picked.size?"disabled":""}>Move to Shipping${picked.size?" ("+picked.size+")":""}</button>`:``}
+      </div>
+      ${!items.length?`<div class="note">Nothing here yet. Click "Pull Recently Sold" to check eBay for new sales.</div>`:``}
+      <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th style="width:30px;"></th><th style="width:54px;">Photo</th><th>Description</th><th>Condition</th><th>Warehouse SKU</th><th style="width:80px;">Sold Price</th><th style="width:130px;">Sold Date</th><th></th>
+      </tr></thead><tbody id="rs-tb"></tbody></table></div></div>`;
+    const tb=body.querySelector("#rs-tb");
+    body.querySelector("#rs-pull").onclick=async ()=>{
+      const msg=body.querySelector("#rs-pullmsg");
+      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Not connected to eBay — connect via the Live Mode badge first."; return; }
+      msg.style.color="#555"; msg.textContent="Pulling recent orders…";
+      try{
+        const r=await pullRecentlySold(30);
+        msg.style.color="#1f7244"; msg.textContent=r.added+" new sold item(s) found ("+r.totalOrders+" order(s) checked, "+r.skipped+" already pulled).";
+        render();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent="Couldn't pull orders: "+(e&&e.message?e.message:e); }
+    };
+    if(items.length){
+      body.querySelector("#rs-selall").onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
+      body.querySelector("#rs-move").onclick=()=>{
+        const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
+        targets.forEach(it=>{ it.fulfillment.stage="readyToShip"; it.fulfillment.movedToShippingAt=new Date().toISOString(); addHistory(it,"Moved to Shipping (Ready to Ship)"); });
+        picked.clear(); save(); wimRefreshAll(); render();
+      };
+    }
+    items.forEach(it=>{
+      const sold=it.fulfillment.soldAt?new Date(it.fulfillment.soldAt):null;
+      const tr=document.createElement("tr");
+      tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td>
+        <td>${it.image?`<img src="${it.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`:'<span style="font-size:20px;">📦</span>'}</td>
+        <td style="font-size:12.5px;">${esc(it.desc||it.upc)}</td>
+        <td style="font-size:12px;">${esc(it.condition||"—")}</td>
+        <td style="font-size:12px;">${esc(it.sku||"—")}</td>
+        <td style="font-size:12px;">${it.fulfillment.soldPrice?"$"+esc(it.fulfillment.soldPrice):"—"}</td>
+        <td style="font-size:11px;">${sold&&!isNaN(sold)?sold.toLocaleString():"—"}</td>
+        <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
+      tr.querySelector(`[data-id="${it.id}"]`).onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
+      tr.querySelector(`[data-open="${it.id}"]`).onclick=()=>openItemDetail(it,"edit");
+      tb.appendChild(tr);
+    });
+  }
+  render();
+}
 function openListingReview(){
   const id="listing-review"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Listing Review",width:900,height:600,
@@ -5058,12 +5165,24 @@ function openDiscrepancies(){
 const EBAY_SCOPE_APP="https://api.ebay.com/oauth/api_scope";
 const EBAY_SCOPE_INV="https://api.ebay.com/oauth/api_scope/sell.inventory";
 const EBAY_SCOPE_MSG="https://api.ebay.com/oauth/api_scope/commerce.message";
+const EBAY_SCOPE_FULFILL="https://api.ebay.com/oauth/api_scope/sell.fulfillment";
 const EBAY={
   ready(){ return WIM_IS_DESKTOP && EBAY_ONLINE && DB.ebay && DB.ebay.appId && DB.ebay.certId && DB.ebay.refreshToken; },
   mkt(){ return (DB.ebay&&DB.ebay.marketplace)||"EBAY_US"; },
   app(path,scope){ return wimDesktop.invoke("ebay_get_app",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,scope:scope||EBAY_SCOPE_APP,marketplace:this.mkt(),path}); },
   user(path,scope){ return wimDesktop.invoke("ebay_get_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path}); },
   postUser(path,payloadJson,scope){ return wimDesktop.invoke("ebay_post_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path,payloadJson}); },
+  // Pulls orders that have completed checkout (Fulfillment API — this is the real
+  // "what's sold and needs handled" call, not a listing report). Filters to orders
+  // created in the last N days by default. Each line item carries its SKU, which is
+  // how we match back to the local WIM item record.
+  async getOrders(daysBack){
+    const since=new Date(Date.now()-(daysBack||30)*86400000).toISOString();
+    const filter=encodeURIComponent("creationdate:[" + since + "..]");
+    const r=await this.user("/sell/fulfillment/v1/order?filter="+filter+"&limit=200", EBAY_SCOPE_FULFILL);
+    if(!r.ok) throw new Error("getOrders (HTTP "+r.status+"): "+(r.body||"").slice(0,300));
+    return JSON.parse(r.body);
+  },
   async treeId(){ if(DB.ebay.categoryTreeId) return DB.ebay.categoryTreeId;
     const r=await this.app("/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id="+this.mkt());
     if(!r.ok) throw new Error("category tree (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
