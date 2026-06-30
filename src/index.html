@@ -391,7 +391,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.0.1", BUILD_DATE="2026-07-17", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.0.2", BUILD_DATE="2026-07-18", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -450,6 +450,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.0.2","Recently Sold now checks for new sales automatically every 5 minutes while WIM is in Live mode -- no need to click Pull Recently Sold to catch a sale. Stops checking the moment Live mode closes, and fails silently in the background (the manual button still surfaces real errors when someone is actually looking). Also redesigned the (#) count indicators on Ready to List, Listing Review, and Recently Sold: instead of a red circle badge, the count now reads as plain text matching the label itself, e.g. \"Ready to List (3)\" -- same idea, lighter visual treatment."],
   ["3.0.1","Phase 3a: the first piece of the Fulfillment workflow. New Fulfillment tree (Warehouse mode, between Manage Inventory and Discrepancies, package-with-checkmark icon) with a Recently Sold screen. Pull Recently Sold checks eBay's real order data (the Fulfillment API, not a listing report), matches each sold line item back to a local item by SKU, and -- the moment a match is found -- pulls that item out of active inventory and tags it Sold automatically, exactly like a real sale should behave. Condition is read from WIM's own item record since eBay order data does not carry it. Select items and Move to Shipping to advance them (the Shipping screen itself is next). Also fixed a real bug introduced in 2.9.29: items with the new sold status were not actually being excluded from active inventory counts and lists -- they are now."],
   ["2.9.30","Ready to List improvements: the first column is now the item photo instead of being blank, Sub Category was replaced with Listing Price, and a new Quantity column shows how many units of that item are being listed. Tree menu items that have a live count worth seeing at a glance (right now Ready to List, and Listing Review for supervisors) now show a small red (#) badge next to their label in both the tree and the action list, updating immediately as items move in or out -- no need to open the screen just to see if anything is waiting."],
   ["2.9.29","Phase 2: real item statuses and the warehouse listing workflow. Items now have four real statuses: Listed (green, actively on eBay), Created (blue, warehouse sent it for review but not on eBay yet), Active (default, in inventory unlisted), Sold (sold but not fulfilled), and Inactive (historical). Status shows in colored text on every item landing page instead of the old hardcoded Active record label. The Send Listing button (warehouse level) marks an item Created and sends it to the new Listing Review queue instead of pushing to eBay directly. The List on eBay button is only shown to Product Lister level and above (who can push to eBay themselves). Listing Review (Discrepancies tree, supervisor+) shows all Created items with Select All, List Items (pushes to eBay and marks Listed), and Send Back (returns to Active). Also renamed Discrepancies to SKU not Listed in the Live mode tree."],
@@ -1716,6 +1717,7 @@ function showLauncher(){
   // This deliberately does NOT show green until the real connection is verified — it just
   // means you don't have to click anything for that verification to happen.
   if(isLive() && !EBAY_ONLINE && !ebayAutoConnectTried && ebayProdCredsReady()){ ebayAutoConnectTried=true; connectEbay(true); }
+  if(isLive()) startRecentlySoldWatcher();
   const ftFloat=win.querySelector("#lc-float"); if(ftFloat) ftFloat.onclick=()=>{ if(!DB.meta) DB.meta={}; DB.meta.floatWindows = (DB.meta.floatWindows===false); save(); showLauncher(); };
   try{ renderBackupReminder(); }catch(e){ console.error("renderBackupReminder failed:",e); }
   try{ checkCloudBackupSpace(); }catch(e){ console.error("checkCloudBackupSpace failed:",e); }
@@ -2285,7 +2287,7 @@ function actionCountBadge(label){
   else if(label==="Listing Review") n=createdItems().length;
   else if(label==="Recently Sold") n=fulfillmentItems("recentlySold").length;
   if(!n) return "";
-  return ` <span style="display:inline-block;background:#c0392b;color:#fff;border-radius:9px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:1px;">${n}</span>`;
+  return ` (${n})`;
 }
 function showActions(node){ const dp=document.getElementById("detail-pane"); if(!dp) return; dp.innerHTML="";
   nodeActions(node).forEach(a=>{ const el=document.createElement("div"); el.className="action"; el.innerHTML=`${esc(a)}${actionCountBadge(a)}`; el.onclick=()=>handleAction(node.key,a); dp.appendChild(el); }); }
@@ -4672,6 +4674,21 @@ function openSupervisoryMaintenance(){
 // pulled in here — that's the actual "sale removes it from inventory" behavior. Condition
 // is read from WIM's own local item record, not from the order — eBay's order data
 // doesn't carry condition at all, since that's a property of the listing, not the sale.
+// Automatically checks for new sales every 5 minutes while WIM is in Live mode — only
+// while Live mode is actually open, since checking from a device that isn't monitoring
+// eBay at all wouldn't serve any purpose. One real API call every 5 minutes is genuinely
+// negligible against eBay's normal allowance for this kind of call, even running all day.
+// Silent failures here (network hiccup, not yet connected) don't interrupt anyone — the
+// manual Pull Recently Sold button in the screen itself still works as a fallback either way.
+let recentlySoldWatcherStarted=false;
+function startRecentlySoldWatcher(){
+  if(recentlySoldWatcherStarted) return; recentlySoldWatcherStarted=true;
+  const tick=async ()=>{
+    if(!isLive() || !EBAY.ready()) return; // stop quietly if no longer in Live mode or not connected
+    try{ await pullRecentlySold(7); }catch(e){ /* silent — the manual button surfaces real errors when someone's looking */ }
+  };
+  setInterval(tick, 300000); // every 5 minutes
+}
 async function pullRecentlySold(daysBack){
   if(!EBAY.ready()) throw new Error("Not connected to eBay.");
   const data=await EBAY.getOrders(daysBack||30);
