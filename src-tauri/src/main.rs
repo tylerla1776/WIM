@@ -297,6 +297,45 @@ async fn supabase_rpc(url: String, anon_key: String, function_name: String, payl
     }
 }
 
+// Calls eBay's older Trading API (XML-based) — used for things the modern REST APIs don't
+// cover, like GetFeedback. Structurally different from every other eBay call here: XML
+// request/response body instead of JSON, and a set of X-EBAY-API-* headers instead of just
+// an Authorization header (the OAuth user token still gets passed via the IAF-token header,
+// so this reuses the exact same token exchange as the REST calls — no separate legacy
+// auth flow needed).
+#[tauri::command]
+async fn ebay_trading_call(env: String, app_id: String, cert_id: String, refresh_token: String, call_name: String, site_id: String, xml_body: String) -> ApiResult {
+    let token = match get_user_token(&env, &app_id, &cert_id, &refresh_token,
+        "https://api.ebay.com/oauth/api_scope").await {
+        Ok(t) => t,
+        Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("token error: {}", b) },
+    };
+    let host = if env == "production" { "https://api.ebay.com/ws/api.dll" } else { "https://api.sandbox.ebay.com/ws/api.dll" };
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(host)
+        .header("X-EBAY-API-SITEID", site_id)
+        .header("X-EBAY-API-COMPATIBILITY-LEVEL", "1193")
+        .header("X-EBAY-API-CALL-NAME", call_name)
+        .header("X-EBAY-API-IAF-TOKEN", token)
+        .header("Content-Type", "text/xml")
+        .body(xml_body)
+        .send()
+        .await;
+    match resp {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let body = r.text().await.unwrap_or_default();
+            // The Trading API often returns HTTP 200 even for application-level errors
+            // (it embeds Ack=Failure in the XML body itself) — flag those as not-ok too,
+            // rather than reporting a misleading success.
+            let ok = (200..300).contains(&status) && !body.contains("<Ack>Failure</Ack>");
+            ApiResult { ok, status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
@@ -820,6 +859,7 @@ fn main() {
             ebay_search_by_image,
             ebay_token_probe,
             ebay_oauth_login,
+            ebay_trading_call,
             open_url,
             supabase_rpc
         ])
