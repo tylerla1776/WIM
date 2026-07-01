@@ -89,7 +89,9 @@
   .tab.sel{background:var(--tab-active);border-color:#c4c4c4;color:#111;font-weight:600;position:relative;top:1px;}
   .tab:not(.sel):hover{background:#e9eef4;}
   .searchform{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 26px;padding:14px;}
+  .searchform>.ff{min-width:0;}
   .ff{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:8px;}
+  .ff input,.ff select{width:100%;min-width:0;box-sizing:border-box;}
   .ff label{text-align:right;font-size:12.5px;color:#222;}
   .resultwrap{margin:0 14px 12px;border:1px solid #b5b5b5;overflow:auto;flex:1;min-height:120px;}
   table.res{border-collapse:collapse;width:100%;font-size:12.5px;}
@@ -393,7 +395,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.0.9", BUILD_DATE="2026-07-25", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.0.10", BUILD_DATE="2026-07-26", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -452,6 +454,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.0.10","Real bug-fix batch from testing v3.0.3-3.0.9. Reviews screen was completely broken -- the Pull Feedback button lived outside the area the code could actually reach, which crashed the screen silently before it ever rendered (fixed by moving it into the same render pattern every other screen already uses). Simulation Mode: Load Inventory by Seller ID now looks up the real eBay category instead of defaulting to a fake placeholder category that showed as General; turning Simulation Mode off now actually hides simulated items everywhere (Item Maintenance, Catalog, Fulfillment, Ready to List, Listing Review) instead of leaving them visible -- this was a real gap where the toggle never touched any of the item-listing logic at all. Find on eBay button no longer shows on items that already have real listing data (loaded from a seller, or bulk-imported). Fixed a genuine CSS bug where form fields (Slot, Group, etc.) could overflow their panel when their content was wide -- form controls do not automatically stretch to fill a grid cell without being told to. The tree and the dashboard widgets were fully redundant with each other -- clicking a tree item replaced the widgets with the exact same action list already clickable inline in the tree itself; tree clicks no longer overwrite the dashboard, which now stays visible. One related item not yet resolved: Add Inventory and Sell Inventory still open a two-level submenu that has no tree equivalent yet and will still temporarily cover the dashboard when used -- calling this out rather than claiming it is fully solved. Real separate OS windows for every screen, multi-photo management, and a fully lived-in Simulation Mode with generated history are real, larger asks -- intentionally not built in this pass, to be scoped separately."],
   ["3.0.9","Phase 7, step 2: the real data migration tool. New Cloud Data Migration screen (Configuration, admin only) -- Preview (Dry Run) shows exactly what would be uploaded and what already exists in the cloud (matched by Warehouse SKU) without sending anything; Run Migration then actually uploads, with live progress and a clear pass/fail summary. Safe to re-run if interrupted partway -- already-migrated items are detected and skipped on a second pass rather than duplicated. Simulated items and deleted items are automatically excluded. Also fixed a real gap found while building this: upsert_item() (the cloud function every item save goes through) was never updated after the v10 schema catch-up added item_number, status, fulfillment, and simulated columns -- meaning any save, not just this migration tool, would have silently lost that data. This is the tool itself; actually running it on real data still needs to happen at the computer holding that data, not from here."],
   ["3.0.8","Phase 7, step 1: cloud schema catch-up. SQL-only -- no app behavior changes in this update, nothing reads or writes these new columns yet, on purpose, the same low-risk-first approach used for every other piece of this project. The cloud database's items table now has columns for everything Phases 1-6 actually added locally that it had nowhere to put: the real Item Number (was missing entirely), the real status field, the whole Fulfillment workflow's data, and a simulated flag. Staff records gained columns for supervisory level and individual permission overrides. Teams gained columns to hold the supervisory level definitions and feature registry as a whole, matching the exact shape already used locally. login() now also returns level/permission data. The actual per-screen migration -- making real screens read and write through these columns instead of local storage -- is the next, separate piece of work."],
   ["3.0.7","Phase 8: eBay Listing Import redesign. Listed, no SKU now has real bulk import alongside the existing one-at-a-time File flow: checkboxes per row, a blue Import Listing(s) button, and inline Category/Sub-Category pickers that auto-fill whenever eBay's real category ID on that listing has already been mapped to a WIM subcategory before (a genuine ID-based lookup, not a guess from the title text) -- fixed a real gap where that category ID was already being fetched from eBay but never actually saved anywhere. A Manually Slot checkbox per row works the same as it does on the regular item screen. Quantity-aware: a listing with quantity 3 creates three real, individually-numbered, individually-slotted item records (reusing the exact same slot-allocation and item-numbering functions every other part of WIM uses), not one record with a number in a field. The one-at-a-time File button stays available specifically because it is the one with duplicate-item detection, which does not translate cleanly into a bulk flow -- bulk import always creates fresh items."],
@@ -1287,17 +1290,22 @@ function setItemStatus(it,st){
   if(st==="sold"||st==="inactive"){ if(!it.soldAt) it.soldAt=new Date().toISOString(); }
   else { it.soldAt=null; it.soldBy=null; }
 }
-function activeItems(){ return DB.items.filter(i=>!i.sold && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold"); }
-function soldItems(){ return DB.items.filter(i=>i.sold||itemStatus(i)==="inactive"); }
-function listedItems(){ return DB.items.filter(i=>itemStatus(i)==="listed"); }
+// Simulated items (Simulation Mode) are hidden from every real list the instant the mode
+// is turned off — this is what "turning it off reverts to the real application" actually
+// means. Data isn't deleted, just hidden, so turning it back on instantly restores the
+// demo state without needing to reload anything.
+function visibleItems(){ return DB.simulationMode ? DB.items : DB.items.filter(i=>!i.simulated); }
+function activeItems(){ return visibleItems().filter(i=>!i.sold && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold"); }
+function soldItems(){ return visibleItems().filter(i=>i.sold||itemStatus(i)==="inactive"); }
+function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"); }
 // ---- Fulfillment workflow data ----
 // it.fulfillment holds everything specific to a sold-and-being-shipped item: which eBay
 // order it came from, the buyer's shipping info, and which stage it's at within
 // Fulfillment (recentlySold -> readyToShip/shipped -> completed). Kept separate from the
 // item's normal fields so a reactivated/returned item doesn't carry stale shipping data.
 function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"recentlySold", orderId:null, lineItemId:null, buyer:null, shipTo:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
-function fulfillmentItems(stage){ return DB.items.filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage===stage); }
-function createdItems(){ return DB.items.filter(i=>itemStatus(i)==="created"); }
+function fulfillmentItems(stage){ return visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage===stage); }
+function createdItems(){ return visibleItems().filter(i=>itemStatus(i)==="created"); }
 function activeInSlot(slotId,ex){ return activeItems().filter(i=>i.slot===slotId&&i.id!==ex); }
 function takenPlacements(slotId,ex){ return new Set(activeInSlot(slotId,ex).map(i=>i.placement)); }
 function lowestPlacement(slotId,ex){ const s=slotById(slotId); if(!s) return null; const t=takenPlacements(slotId,ex);
@@ -1764,7 +1772,7 @@ function showLauncher(){
   try{ checkAutoComplete(); }catch(e){ console.error("checkAutoComplete failed:",e); }
   try{ renderSyncPausedBanner(); }catch(e){ console.error("renderSyncPausedBanner failed:",e); }
   try{ renderTree(); }catch(e){ console.error("renderTree failed:",e); }
-  try{ if(!treeState.sel) renderDashboard(); }catch(e){ console.error("renderDashboard failed:",e); }
+  try{ renderDashboard(); }catch(e){ console.error("renderDashboard failed:",e); }
   const homeGo=()=>{ treeState.sel=null; renderTree(); renderDashboard(); };
   const ttlEl=win.querySelector(".ttl"); if(ttlEl){ ttlEl.style.cursor="pointer"; ttlEl.title="Back to Dashboard"; ttlEl.onclick=homeGo; }
 }
@@ -2130,7 +2138,7 @@ function openDashWidgets(){
   body.querySelector("#dw-reset").onclick=()=>{ layout=normalizeLayout(DASH_DEFAULT[mode]); render(); };
   body.querySelector("#dw-save").onclick=()=>{ if(!DB.meta) DB.meta={}; if(!DB.meta.dashboards) DB.meta.dashboards={}; DB.meta.dashboards[mode]=layout.slice(); save();
     body.querySelector("#dw-msg").style.color="#1f7244"; body.querySelector("#dw-msg").textContent="Saved — the "+mode+" dashboard is updated.";
-    try{ if(!treeState.sel) renderDashboard(); }catch(e){} };
+    try{ renderDashboard(); }catch(e){} };
   render();
 }
 function saleVal(i){ return parseFloat(i.retail)||parseFloat(i.listing&&i.listing.price)||0; }
@@ -2333,7 +2341,7 @@ function renderTree(){
     const row=document.createElement("div"); row.className="node"+(treeState.sel===node.key?" sel":"");
     row.innerHTML=`<span class="exp ${hasKids?'':'none'}">${hasKids?(exp?'&minus;':'+'):''}</span><span class="ico">${node.icon}</span><span>${node.label}</span>`;
     row.querySelector(".exp").onclick=(e)=>{ e.stopPropagation(); if(hasKids){ treeState.expanded[node.key]=!exp; renderTree(); } };
-    row.onclick=()=>{ treeState.sel=node.key; treeState.expanded[node.key]=true; showActions(node); renderTree(); };
+    row.onclick=()=>{ treeState.sel=node.key; if(hasKids) treeState.expanded[node.key]=!exp; renderTree(); };
     pane.appendChild(row);
     if(hasKids&&exp){ acts.forEach(a=>{ const cr=document.createElement("div"); cr.className="node"; cr.style.marginLeft="30px"; cr.style.fontSize="14px";
       cr.innerHTML=`<span class="exp none"></span><span>${a}${actionCountBadge(a)}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); }); }
@@ -3531,7 +3539,7 @@ function openItemDetail(item,mode,nav){
   function renderListing(){ if(!lwrap) return; const cat=(secSel&&secSel.value)||it.section; const asp=aspectsFor({section:cat,subCategory:it.subCategory});
     const scObj=subcatObj(cat,it.subCategory);
     let html=`<fieldset class="gb" style="margin:8px 0;"><legend>Listing fields${it.subCategory?` &mdash; ${esc(it.subCategory)}`:''}${scObj&&scObj._new?' <span class="badge warn">*NEW</span>':''}</legend>`;
-    if(!ro && WIM_IS_DESKTOP){ html+=`<div style="margin-bottom:8px;"><button class="btn sm" id="d-ebayfind">🔍 Find on eBay (auto-fill fields)</button></div>`; }
+    if(!ro && WIM_IS_DESKTOP && (!it.listing || it.listing.status!=="listed")){ html+=`<div style="margin-bottom:8px;"><button class="btn sm" id="d-ebayfind">🔍 Find on eBay (auto-fill fields)</button></div>`; }
     if(asp.length){ html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">`+asp.map(a=>`<div class="ff" style="grid-template-columns:120px 1fr;"><label class="fld">${esc(a.name)}${a.required?' <span class="req">*</span>':''}</label><input class="txt af-asp" data-asp="${esc(a.name)}" value="${esc(it.aspects[a.name]||"")}" ${ro?'disabled':''}></div>`).join("")+`</div>`; }
     else { html+=`<div class="smallhint">No eBay fields defined for this sub category yet. Set them in Category Maintenance &rarr; Sub Categories, or (in a later update) the magnifying-glass search will fill them automatically.</div>`; }
     html+=`</fieldset>`;
@@ -4739,8 +4747,14 @@ function openSimulationMode(){
         if(!found.length){ msg.style.color="#c0392b"; msg.textContent="No active listings found for that seller."; return; }
         let added=0;
         found.forEach(li=>{
+          // The Browse API's item_summary carries the item's own real category (not the
+          // 0/"all" filter used in the search itself) as a categories array, leaf category
+          // first — same lookup already used for the bulk eBay listing import, so a
+          // category mapped once anywhere in WIM is recognized here too.
+          const catId=li.categories&&li.categories[0]&&li.categories[0].categoryId;
+          const match=findSubcatByEbayId(catId);
           DB.items.push({ id:crypto.randomUUID(), simulated:true, upc:"SIM-"+Math.floor(Math.random()*100000), sku:"", desc:li.title||"(untitled)",
-            condition:li.condition||"", section:"Simulated", onHand:1, retail:li.price&&li.price.value||"",
+            condition:li.condition||"", section: match?match.section:"General", subCategory: match?match.subCategory:"", onHand:1, retail:li.price&&li.price.value||"",
             image:li.image&&li.image.imageUrl||"", listing:{ status:"listed", ebayListingId:"SIM-"+li.itemId, price:li.price&&li.price.value||"", title:li.title },
             history:[{at:new Date().toISOString(),desc:"Loaded from seller "+seller+" (simulated)",by:userLabel(SESSION.user.id)}] });
           added++;
@@ -4752,7 +4766,7 @@ function openSimulationMode(){
     };
     body.querySelector("#sim-additem").onclick=()=>{
       DB.items.push({ id:crypto.randomUUID(), simulated:true, upc:"SIM-"+Math.floor(Math.random()*100000), sku:"A.1.0"+(simulatedItems().length+1), desc:"Test item "+(simulatedItems().length+1),
-        condition:"Used", section:"Simulated", onHand:1, retail:"9.99", listing:{status:"none"},
+        condition:"Used", section:"General", onHand:1, retail:"9.99", listing:{status:"none"},
         history:[{at:new Date().toISOString(),desc:"Created (simulated)",by:userLabel(SESSION.user.id)}] });
       save(); wimRefreshAll(); render();
     };
@@ -6446,8 +6460,7 @@ function openManageListings(){
 // everything ever sold, per the original requirement.
 function openReviews(){
   if(openWindows["reviews"]){ focusWin(openWindows["reviews"].el); return; }
-  const {body}=buildWindow({id:"reviews",title:"Reviews",width:920,height:600,
-    toolbar:`<button class="btn sm" id="rv-load">Pull Feedback</button><span style="flex:1;"></span><span class="smallhint" id="rv-summary"></span>`});
+  const {body}=buildWindow({id:"reviews",title:"Reviews",width:920,height:600});
   let range="all";
   // Start from whatever's already cached locally (from a previous pull), so the screen
   // isn't empty just because nobody's clicked Pull yet this session — and so opening this
@@ -6468,12 +6481,14 @@ function openReviews(){
       if(range==="90"){ const t=new Date(e.commentTime).getTime(); return t<=Date.now()-90*86400000; }
       return true;
     }).sort((a,b)=>new Date(b.commentTime)-new Date(a.commentTime));
-    body.innerHTML=`<div style="padding:10px 14px;display:flex;gap:8px;align-items:center;">
+    body.innerHTML=`<div style="padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn sm" id="rv-load">Pull Feedback</button>
       <select class="cmb" id="rv-range" style="width:200px;"><option value="all">All time</option><option value="0-30">Last 0-30 days</option><option value="30-60">30-60 days ago</option><option value="90">90+ days ago</option><option value="custom">Custom range…</option></select>
-      <span class="smallhint">${rows.length} review(s) shown</span></div>
+      <span class="smallhint">${rows.length} review(s) shown</span><span style="flex:1;"></span><span class="smallhint" id="rv-summary"></span></div>
       <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr>
         <th>Item</th><th style="width:130px;">Date</th><th style="width:34px;">&#9993;</th><th>Buyer</th><th>Comment</th><th style="width:90px;">Rating</th>
       </tr></thead><tbody id="rv-tb"></tbody></table></div>`;
+    body.querySelector("#rv-load").onclick=loadFeedback;
     body.querySelector("#rv-range").value=range;
     body.querySelector("#rv-range").onchange=(e)=>{ if(e.target.value==="custom"){ uiAlert("Custom date range picker coming soon — use one of the preset ranges for now."); e.target.value=range; return; } range=e.target.value; render(); };
     const tb=body.querySelector("#rv-tb");
@@ -6494,20 +6509,20 @@ function openReviews(){
       tb.appendChild(tr);
     });
   }
-  body.querySelector("#rv-load").onclick=async ()=>{
+  async function loadFeedback(){
     const summary=body.querySelector("#rv-summary");
     if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to Live Mode."); return; }
-    summary.textContent="Loading…";
+    if(summary) summary.textContent="Loading…";
     try{
       const f=await EBAY.getFeedback();
       allEntries=f.entries||[];
-      summary.textContent = f.positivePercent!=null ? f.positivePercent+"% positive overall" : "";
-      allEntries.forEach(e=>{ if(e.itemId){ DB.cachedFeedback[e.itemId]={ commentType:e.commentType, commentText:e.commentText, commentingUser:e.commentingUser, commentTime:e.commentTime }; if(!DB.feedbackSeenIds.includes(e.itemId)) DB.feedbackSeenIds.push(e.itemId); } });
       DB.cachedFeedbackSummary={ positivePercent:f.positivePercent, fetchedAt:new Date().toISOString() };
+      allEntries.forEach(e=>{ if(e.itemId){ DB.cachedFeedback[e.itemId]={ commentType:e.commentType, commentText:e.commentText, commentingUser:e.commentingUser, commentTime:e.commentTime }; if(!DB.feedbackSeenIds.includes(e.itemId)) DB.feedbackSeenIds.push(e.itemId); } });
       save(); wimRefreshAll();
       render();
+      const s2=body.querySelector("#rv-summary"); if(s2) s2.textContent = f.positivePercent!=null ? f.positivePercent+"% positive overall" : "";
     }catch(e){ uiAlert("Couldn't load feedback: "+(e&&e.message?e.message:e)); }
-  };
+  }
   render();
 }
 let convosCache=[], counterpartyCache=()=>"", openThreadCache=()=>{};
