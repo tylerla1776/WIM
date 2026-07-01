@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WIM",
-  "version": "3.1.7",
+  "version": "2.3.8",
   "identifier": "com.wim.inventory",
   "build": {
     "frontendDist": "../src"
@@ -39,7 +39,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://raw.githubusercontent.com/tylerla1776/WIM/refs/heads/updater/latest.json"
+        "https://github.com/GITHUB_USER/GITHUB_REPO/releases/latest/download/latest.json"
       ],
       "pubkey": "PASTE_YOUR_TAURI_PUBLIC_KEY_HERE"
     }
