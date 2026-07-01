@@ -395,7 +395,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.1.2", BUILD_DATE="2026-07-28", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.1.3", BUILD_DATE="2026-07-29", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -454,6 +454,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.1.3","Real bug-fix batch from testing v3.1.1-3.1.2, plus two new chart features. Photo management: removed the dots/expand feature entirely -- the thumbnail strip now always shows every photo, no truncation. The same photo (identical image data) can no longer be added twice. The file picker now accepts multiple photos at once instead of needing Add Photo clicked once per file. Confirmed and fixed the actual reason Load Inventory by Seller ID was still only pulling one photo per item: the lightweight eBay search results do not reliably include a photo additional-images field at all (confirmed against the eBay API docs directly) -- getting every photo genuinely requires a follow-up call to the full item detail endpoint per item, the same pattern already used elsewhere in WIM for accurate per-item data. Dashboard: found and fixed the real cause of Simulation Mode not reverting the widgets when turned off -- renderDashboard() and soldAggregate() (which together power nearly every dashboard widget: Active Items, Units on Hand, Items Sold/Added, Discrepancies, Inventory Value, both charts, Top Categories, Hot Items, Fastest Turning, Most Profitable, Listing Efficiency, and more) had their own separate, independent data-filtering logic that read directly from DB.items, completely bypassing the visibility fix built for the item-listing screens back in v3.0.10 -- an inconsistency introduced by not realizing the dashboard maintained its own parallel computation instead of reusing the shared, already-fixed functions. Both now correctly respect Simulation Mode. Charts now show a real Y-axis (gridlines with actual values, not just relative shape) and a hover tooltip showing the exact number and date at the cursor position."],
   ["3.1.2","Lived-in Simulation Mode. New Generate Demo History button seeds a full \"several months of real use\" demo in one click: around 35 items spread across every real status and fulfillment stage (active, listed, awaiting review, and sold items sitting at every point from Recently Sold through Completed), properly sequential dates so sold always comes before shipped which always comes before completed rather than independently randomized timestamps, feedback on most completed sales, 18 messages mixing pre-sale interest and post-sale support spread over the same window, and a small items-needing-SKU backlog. Fixed a real gap found while building this: simulated feedback and message counts were going into the exact same fields real eBay data uses, meaning turning Simulation Mode off would not have actually reverted the Feedback, Customer Reviews, New Messages, or Items Needing SKU widgets the way the v3.0.10 fix intended -- simulated feedback/backlog entries are now clearly tagged and kept separate, with a dedicated simulated feedback summary, so those widgets now also genuinely revert to real data (or the honest empty state) the instant it is off. Also fixed a related bug where a real eBay background pull would have silently wiped out the demo items-needing-SKU backlog rather than coexisting with it. Clear All Simulated Data now also clears simulated feedback and backlog entries, not just items and messages. Demo items do not have real photos (no image assets were available to attach) -- they show the same package icon placeholder as any item with no photo."],
   ["3.1.1","Real multi-photo management, consolidated into one system at the top of the item page (previously there were two disconnected photo systems -- a single-photo box at the top, and a separate multi-photo gallery buried in the Live-mode-only eBay listing section that never synced with it). The main photo frame now shows a Featured or Secondary tag; clicking Secondary asks to confirm before making that photo the featured one. A thumbnail strip under Add Photo/Remove shows up to 5 photos with a dots cell to reveal the rest (no visual reference was provided for this exact interaction, so this is a reasonable judgment call, not a mockup match). Clicking a thumbnail previews it in the main frame without changing what is featured. Saving an actively-listed item with a changed featured photo pushes the updated photo order to the real eBay listing in the background, reusing the existing publish mechanism. Listing pulls now capture every available photo, not just the first: bulk import and the one-at-a-time File flow already did this correctly since v3.0.7; Load Inventory by Seller ID (Simulation Mode) was only pulling a single photo and has been fixed to match eBay Browse API's actual image + additionalImages fields."],
   ["3.0.10","Real bug-fix batch from testing v3.0.3-3.0.9. Reviews screen was completely broken -- the Pull Feedback button lived outside the area the code could actually reach, which crashed the screen silently before it ever rendered (fixed by moving it into the same render pattern every other screen already uses). Simulation Mode: Load Inventory by Seller ID now looks up the real eBay category instead of defaulting to a fake placeholder category that showed as General; turning Simulation Mode off now actually hides simulated items everywhere (Item Maintenance, Catalog, Fulfillment, Ready to List, Listing Review) instead of leaving them visible -- this was a real gap where the toggle never touched any of the item-listing logic at all. Find on eBay button no longer shows on items that already have real listing data (loaded from a seller, or bulk-imported). Fixed a genuine CSS bug where form fields (Slot, Group, etc.) could overflow their panel when their content was wide -- form controls do not automatically stretch to fill a grid cell without being told to. The tree and the dashboard widgets were fully redundant with each other -- clicking a tree item replaced the widgets with the exact same action list already clickable inline in the tree itself; tree clicks no longer overwrite the dashboard, which now stays visible. One related item not yet resolved: Add Inventory and Sell Inventory still open a two-level submenu that has no tree equivalent yet and will still temporarily cover the dashboard when used -- calling this out rather than claiming it is fully solved. Real separate OS windows for every screen, multi-photo management, and a fully lived-in Simulation Mode with generated history are real, larger asks -- intentionally not built in this pass, to be scoped separately."],
@@ -1968,9 +1969,19 @@ async function refreshLiveSkuStats(){
   }catch(e){ /* leave last-known stats in place on a transient failure */ }
   finally{ liveSkuFetchInFlight=false; }
 }
+// Shared floating tooltip for chart hover — one element reused across every chart widget
+// rather than each building its own, same principle as the widget config popover.
+function showChartTooltip(clientX,clientY,text){
+  let tip=document.getElementById("chart-tooltip");
+  if(!tip){ tip=document.createElement("div"); tip.id="chart-tooltip";
+    tip.style.cssText="position:fixed;pointer-events:none;background:#28313f;color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;z-index:99999;white-space:nowrap;";
+    document.body.appendChild(tip); }
+  tip.textContent=text; tip.style.left=(clientX+12)+"px"; tip.style.top=(clientY-10)+"px"; tip.style.display="block";
+}
+function hideChartTooltip(){ const tip=document.getElementById("chart-tooltip"); if(tip) tip.style.display="none"; }
 function renderDashboard(){
   const dp=document.getElementById("detail-pane"); if(!dp) return;
-  const mode=isLive()?"live":"warehouse"; const items=DB.items||[]; const active=items.filter(i=>!i.sold);
+  const mode=isLive()?"live":"warehouse"; const items=visibleItems(); const active=items.filter(i=>!i.sold && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold");
   const now=new Date();
   const startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate());
   const startWeek=new Date(startToday); startWeek.setDate(startToday.getDate()-startToday.getDay());
@@ -2012,15 +2023,23 @@ function renderDashboard(){
       ${sub?`<div style="font-size:11px;color:${accent};margin-top:4px;font-weight:600;padding-left:${padLeft};">${esc(sub)}</div>`:""}</div>`; };
   const gearFor=(key)=> (anchorEl)=>{ const entry=layout.find(e=>e.k===key); const cfg=(entry&&entry.cfg)||{};
     openWidgetConfigPopover(DASH_WIDGETS[key],cfg,anchorEl,(newCfg)=>{ updateWidgetCfg(mode,key,newCfg); renderDashboard(); }); };
-  const chart=(title,subtitle,series,color)=>{ const W=560,H=150,pad=24,n=series.length,iw=W-pad*2,ih=H-pad*2,maxV=Math.max(1,...series);
-    const xs=i=>pad+(n===1?iw/2:(iw*i/(n-1))), ys=v=>pad+ih-(v/maxV)*ih;
+  const chartWires=[];
+  const chart=(title,subtitle,series,color)=>{ const W=560,H=150,padL=34,padR=10,padT=14,padB=24,n=series.length,iw=W-padL-padR,ih=H-padT-padB,maxV=Math.max(1,...series);
+    const xs=i=>padL+(n===1?iw/2:(iw*i/(n-1))), ys=v=>padT+ih-(v/maxV)*ih;
     const pts=series.map((v,i)=>[xs(i),ys(v)]); const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
-    const area=line+" L"+xs(n-1).toFixed(1)+" "+(pad+ih)+" L"+xs(0).toFixed(1)+" "+(pad+ih)+" Z";
-    const gid="g"+Math.random().toString(36).slice(2,7);
+    const area=line+" L"+xs(n-1).toFixed(1)+" "+(padT+ih)+" L"+xs(0).toFixed(1)+" "+(padT+ih)+" Z";
+    const gid="g"+Math.random().toString(36).slice(2,7); const cid="ch"+Math.random().toString(36).slice(2,7);
     const lbl=days.map((d,i)=> (i%6===0||i===n-1)?`<text x="${xs(i).toFixed(1)}" y="${H-6}" font-size="9" fill="#9aa3ad" text-anchor="middle">${d.getMonth()+1}/${d.getDate()}</text>`:"").join("");
+    // Y-axis: 4 evenly-spaced gridlines with value labels, so a peak's actual height means
+    // something at a glance instead of just relative shape.
+    const yTickCount=Math.min(4,maxV)||1; let yTicks="";
+    for(let t=0;t<=yTickCount;t++){ const val=Math.round((maxV/yTickCount)*t); const y=ys(val);
+      yTicks+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#eef1f6" stroke-width="1"/><text x="${(padL-6).toFixed(1)}" y="${(y+3).toFixed(1)}" font-size="9" fill="#9aa3ad" text-anchor="end">${val}</text>`; }
+    chartWires.push({cid,series,days,padL,padR,W});
     return `<div class="dash-card" style="flex:2;min-width:320px;"><div style="font-size:13px;font-weight:600;color:#28313f;">${esc(title)}</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:6px;">${esc(subtitle)} · ${series.reduce((a,b)=>a+b,0)} total</div>
-      <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
-        <path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${lbl}</svg></div>`; };
+      <div style="position:relative;"><svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+        ${yTicks}<path d="${area}" fill="url(#${gid})"/><path d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${lbl}</svg>
+        <div id="${cid}" style="position:absolute;inset:0;cursor:crosshair;"></div></div></div>`; };
   const topcats=()=>`<div class="dash-card" style="flex:1;min-width:220px;"><div style="font-size:13px;font-weight:600;color:#28313f;margin-bottom:2px;">Top Categories</div><div style="font-size:11px;color:#9aa3ad;margin-bottom:10px;">Active items by category</div>
       ${topCats.length?topCats.map(([cc,v])=>`<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:12px;color:#3b434f;margin-bottom:3px;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;">${esc(cc)}</span><span style="font-weight:600;">${v}</span></div><div style="height:7px;background:#eef1f6;border-radius:99px;overflow:hidden;"><div style="height:100%;width:${Math.round(v/maxCat*100)}%;background:linear-gradient(90deg,#5b85f8,#4f7cf7);border-radius:99px;"></div></div></div>`).join(""):'<div style="font-size:12px;color:#9aa3ad;">No active items yet.</div>'}</div>`;
   const agg=soldAggregate({});
@@ -2036,6 +2055,15 @@ function renderDashboard(){
     ${layout.length?"":'<div style="font-size:13px;color:#9aa3ad;padding:20px;">No widgets on your dashboard. Click "Configure widgets" to add some.</div>'}`;
   clickWires.forEach(w=>{ const el=document.getElementById(w.cid); if(el) el.onclick=w.onClick; });
   gearWires.forEach(w=>{ const el=document.getElementById(w.gid); if(el) el.onclick=(e)=>{ e.stopPropagation(); w.onGear(el); }; });
+  chartWires.forEach(w=>{ const el=document.getElementById(w.cid); if(!el) return;
+    const iw=w.W-w.padL-w.padR;
+    el.addEventListener("mousemove",(e)=>{
+      const rect=el.getBoundingClientRect(); const relX=(e.clientX-rect.left)/rect.width*w.W;
+      let idx=Math.round(((relX-w.padL)/iw)*(w.series.length-1)); idx=Math.max(0,Math.min(w.series.length-1,idx));
+      const d=w.days[idx]; showChartTooltip(e.clientX,e.clientY,(d.getMonth()+1)+"/"+d.getDate()+": "+w.series[idx]);
+    });
+    el.addEventListener("mouseleave",hideChartTooltip);
+  });
   const cfgBtn=document.getElementById("dash-config"); if(cfgBtn) cfgBtn.onclick=()=>launchApp("dashwidgets");
   if(isLive() && layout.some(e=>e.k==="newMessages")) refreshLiveMsgStats();
   if(layout.some(e=>e.k==="itemsNeedingSku")) refreshLiveSkuStats();
@@ -2155,7 +2183,7 @@ function openDashWidgets(){
 }
 function saleVal(i){ return parseFloat(i.retail)||parseFloat(i.listing&&i.listing.price)||0; }
 function soldAggregate(opt){ opt=opt||{}; const {from,to,cats,byUser}=opt; const map={};
-  DB.items.filter(i=>i.sold&&i.soldAt).forEach(i=>{ const d=new Date(i.soldAt);
+  visibleItems().filter(i=>i.sold&&i.soldAt).forEach(i=>{ const d=new Date(i.soldAt);
     if(from&&d<from) return; if(to&&d>to) return; if(cats&&cats.length&&!cats.includes(i.section)) return; if(byUser&&i.soldBy!==byUser) return;
     const key=(i.upc||i.desc||i.id);
     const m=map[key]||(map[key]={key,desc:i.desc||i.upc||"—",cat:i.section||"—",units:0,revenue:0,cost:0,profit:0,daysSum:0,daysN:0,last:null});
@@ -3504,7 +3532,7 @@ function openItemDetail(item,mode,nav){
     ${dl}
     <div class="imd-top">
       <div class="imgcell"><div class="imgbox" id="d-imgbox" style="position:relative;">${it.image?`<img src="${it.image}">`:'<span class="ph">📦</span>'}</div>
-        ${ro?'':`<input type="file" id="d-imgfile" accept="image/*" style="display:none;"><div style="display:flex;gap:6px;"><button class="btn sm" id="d-imgbtn">Add Photo</button><button class="btn sm" id="d-imgclr">Remove</button></div><div id="d-thumbstrip" style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;"></div>`}</div>
+        ${ro?'':`<input type="file" id="d-imgfile" accept="image/*" multiple style="display:none;"><div style="display:flex;gap:6px;"><button class="btn sm" id="d-imgbtn">Add Photo</button><button class="btn sm" id="d-imgclr">Remove</button></div><div id="d-thumbstrip" style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;"></div>`}</div>
       <div style="display:grid;gap:10px;">
         <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" readonly title="Item Number is auto-generated from the category and locked" ${isNew?'placeholder="(auto-generated on save)"':''} style="background:#f1f3f7;color:#5b6470;cursor:default;"></div>
         <div class="ff"><label class="blue" style="text-align:left;">Item Description</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
@@ -3562,22 +3590,14 @@ function openItemDetail(item,mode,nav){
     }
     box.appendChild(tag);
   }
-  let thumbExpanded=false;
   function paintThumbStrip(){
     const host=body.querySelector("#d-thumbstrip"); if(!host) return; host.innerHTML="";
-    const VISIBLE=5;
-    const showCount = thumbExpanded ? it.images.length : Math.min(VISIBLE, it.images.length);
-    it.images.slice(0,showCount).forEach((src,i)=>{
+    it.images.forEach((src,i)=>{
       const cell=document.createElement("div"); cell.style.cssText=`width:34px;height:34px;border:2px solid ${i===photoPreviewIdx?'#3a78c2':'#ccc'};background:#fff center/cover no-repeat;cursor:pointer;flex-shrink:0;`; cell.style.backgroundImage=`url(${src})`;
       cell.title = i===it.imageFeatured ? "Featured — click to preview" : "Click to preview";
       cell.onclick=()=>{ photoPreviewIdx=i; paintMainPhoto(); paintThumbStrip(); };
       host.appendChild(cell);
     });
-    if(!thumbExpanded && it.images.length>VISIBLE){
-      const more=document.createElement("div"); more.style.cssText="width:34px;height:34px;border:1px solid #ccc;display:flex;align-items:center;justify-content:center;cursor:pointer;background:#f4f5f7;font-weight:700;color:#555;flex-shrink:0;";
-      more.textContent="…"; more.title=(it.images.length-VISIBLE)+" more photo(s)"; more.onclick=()=>{ thumbExpanded=true; paintThumbStrip(); };
-      host.appendChild(more);
-    }
   }
   if(!ro){ const file=body.querySelector("#d-imgfile");
     body.querySelector("#d-imgbtn").onclick=()=>file.click();
@@ -3590,11 +3610,23 @@ function openItemDetail(item,mode,nav){
       it.image=it.images[it.imageFeatured]||""; it._photoRemoved=true; markDirty&&markDirty();
       paintMainPhoto(); paintThumbStrip();
     };
-    file.onchange=async ()=>{ if(file.files[0]){ try{ const d=await compressImage(file.files[0]);
-      it.images.push(d); if(it.images.length===1){ it.imageFeatured=0; it.image=d; }
-      photoPreviewIdx=it.images.length-1; it._photoAdded=true; markDirty&&markDirty();
-      paintMainPhoto(); paintThumbStrip(); file.value="";
-    }catch(e){ uiAlert("Could not read image."); } } };
+    file.onchange=async ()=>{
+      const files=Array.from(file.files||[]); if(!files.length) return;
+      let addedAny=false, skippedDupes=0;
+      for(const f of files){
+        try{
+          const d=await compressImage(f);
+          // Exact-match dedup: the same photo (identical compressed image data)
+          // shouldn't be able to be added twice.
+          if(it.images.includes(d)){ skippedDupes++; continue; }
+          it.images.push(d); if(it.images.length===1){ it.imageFeatured=0; it.image=d; }
+          photoPreviewIdx=it.images.length-1; addedAny=true;
+        }catch(e){ uiAlert("Could not read one of the selected photos."); }
+      }
+      if(addedAny){ it._photoAdded=true; markDirty&&markDirty(); paintMainPhoto(); paintThumbStrip(); }
+      if(skippedDupes) uiAlert(skippedDupes+" photo"+(skippedDupes>1?"s were":" was")+" already added and skipped.");
+      file.value="";
+    };
   }
   paintMainPhoto(); paintThumbStrip();
 
@@ -4902,23 +4934,33 @@ function openSimulationMode(){
         const data=JSON.parse(r.body); const found=data.itemSummaries||[];
         if(!found.length){ msg.style.color="#c0392b"; msg.textContent="No active listings found for that seller."; return; }
         let added=0;
-        found.forEach(li=>{
+        for(let n=0;n<found.length;n++){ const li=found[n];
+          msg.style.color="#555"; msg.textContent="Loading photos "+(n+1)+" of "+found.length+"…";
           // The Browse API's item_summary carries the item's own real category (not the
           // 0/"all" filter used in the search itself) as a categories array, leaf category
           // first — same lookup already used for the bulk eBay listing import, so a
           // category mapped once anywhere in WIM is recognized here too.
           const catId=li.categories&&li.categories[0]&&li.categories[0].categoryId;
           const match=findSubcatByEbayId(catId);
-          // The Browse API's item_summary splits photos across two fields — "image" (the
-          // primary/thumbnail) and "additionalImages" (an array of the rest) — a different
-          // shape than the Inventory API's single imageUrls array used elsewhere in WIM.
-          const allImgs=[li.image&&li.image.imageUrl, ...((li.additionalImages||[]).map(a=>a&&a.imageUrl))].filter(Boolean);
+          // The lightweight search result reliably only carries ONE photo (the primary
+          // image) — confirmed against eBay's own docs, "additionalImages" is not
+          // dependably returned by item_summary/search regardless of parameters. Getting
+          // every photo genuinely requires a follow-up call to the full item detail
+          // endpoint per item, same pattern already used elsewhere in WIM for accurate
+          // per-item data (pullNewListings does the same thing for price/quantity).
+          let allImgs=[li.image&&li.image.imageUrl].filter(Boolean);
+          try{
+            const full=await EBAY.app("/buy/browse/v1/item/"+encodeURIComponent(li.itemId));
+            if(full.ok){ const fd=JSON.parse(full.body);
+              allImgs=[fd.image&&fd.image.imageUrl, ...((fd.additionalImages||[]).map(a=>a&&a.imageUrl))].filter(Boolean);
+            }
+          }catch(e){ /* fall back to the single search-result photo already captured above */ }
           DB.items.push({ id:crypto.randomUUID(), simulated:true, upc:"SIM-"+Math.floor(Math.random()*100000), sku:"", desc:li.title||"(untitled)",
             condition:li.condition||"", section: match?match.section:"General", subCategory: match?match.subCategory:"", onHand:1, retail:li.price&&li.price.value||"",
             image:allImgs[0]||"", images:allImgs, imageFeatured:0, listing:{ status:"listed", ebayListingId:"SIM-"+li.itemId, price:li.price&&li.price.value||"", title:li.title },
             history:[{at:new Date().toISOString(),desc:"Loaded from seller "+seller+" (simulated)",by:userLabel(SESSION.user.id)}] });
           added++;
-        });
+        }
         save(); wimRefreshAll();
         msg.style.color="#1f7244"; msg.textContent="Loaded "+added+" item(s) from "+seller+".";
         render();
