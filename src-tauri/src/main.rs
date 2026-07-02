@@ -395,6 +395,38 @@ fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
 }
 
+// Real native folder/file pickers — a browser file input genuinely cannot be told which
+// folder to open in, that's a real, permanent web-security limitation, not something any
+// amount of JS can work around. This is the actual OS-level picker instead.
+use tauri_plugin_dialog::DialogExt;
+#[tauri::command]
+async fn pick_photo_folder(app: tauri::AppHandle) -> Result<String, String> {
+    let folder = app.dialog().file().blocking_pick_folder();
+    match folder {
+        Some(p) => Ok(p.to_string()),
+        None => Ok(String::new()), // user cancelled — not an error, just nothing picked
+    }
+}
+#[tauri::command]
+async fn pick_photos_in_folder(app: tauri::AppHandle, default_dir: String) -> Result<Vec<String>, String> {
+    let mut builder = app.dialog().file()
+        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+    if !default_dir.is_empty() {
+        builder = builder.set_directory(std::path::PathBuf::from(&default_dir));
+    }
+    let files = builder.blocking_pick_files();
+    let paths = match files { Some(p) => p, None => return Ok(Vec::new()) };
+    let mut out = Vec::new();
+    for fp in paths {
+        let path = fp.into_path().map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("jpeg").to_lowercase();
+        let mime = match ext.as_str() { "png" => "image/png", "gif" => "image/gif", "webp" => "image/webp", "bmp" => "image/bmp", _ => "image/jpeg" };
+        out.push(format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes)));
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 async fn ebay_oauth_login(
     env: String,
@@ -897,6 +929,8 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<(), Box<dyn std::erro
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -920,6 +954,8 @@ fn main() {
             store_secret,
             get_secret,
             delete_secret,
+            pick_photo_folder,
+            pick_photos_in_folder,
             open_url,
             supabase_rpc
         ])
