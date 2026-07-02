@@ -856,14 +856,15 @@ fn extract_tag(xml: &str, tag: &str) -> Option<String> {
 
 // POST a base64 image to Browse search_by_image using an APPLICATION token.
 #[tauri::command]
-async fn ebay_search_by_image(env: String, app_id: String, cert_id: String, scope: String, marketplace: String, image_base64: String, limit: String) -> ApiResult {
+async fn ebay_search_by_image(env: String, app_id: String, cert_id: String, scope: String, marketplace: String, image_base64: String, limit: String, offset: String) -> ApiResult {
     let sc = if scope.is_empty() { "https://api.ebay.com/oauth/api_scope".to_string() } else { scope };
     let tok = match get_app_token(&env, &app_id, &cert_id, &sc).await {
         Ok(t) => t,
         Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("app token error: {}", b) },
     };
     let lim = if limit.is_empty() { "15".to_string() } else { limit };
-    let url = format!("{}/buy/browse/v1/item_summary/search_by_image?limit={}", base_url(&env), lim);
+    let off = if offset.is_empty() { "0".to_string() } else { offset };
+    let url = format!("{}/buy/browse/v1/item_summary/search_by_image?limit={}&offset={}", base_url(&env), lim, off);
     let body = format!("{{\"image\":\"{}\"}}", image_base64.replace('"', ""));
     let client = reqwest::Client::new();
     let mut req = client
