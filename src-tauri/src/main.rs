@@ -359,6 +359,37 @@ fn verify_password(password: String, hash: String) -> Result<bool, String> {
     bcrypt::verify(password, &hash).map_err(|e| e.to_string())
 }
 
+// Real OS-level secure storage (Windows Credential Manager on Windows) — used to keep
+// genuinely sensitive values like eBay's client secret and refresh token off of local
+// disk in plain text. "WIM" is used as a fixed service name for every entry; the key
+// passed in (e.g. "ebay-production-certId") is what actually distinguishes one secret
+// from another within that service. get_secret returns an empty string rather than an
+// error when nothing is stored yet — that's an entirely normal, expected state (a fresh
+// install, or an account that's never connected to eBay), not a real failure.
+#[tauri::command]
+fn store_secret(key: String, value: String) -> Result<(), String> {
+    let entry = keyring::Entry::new("WIM", &key).map_err(|e| e.to_string())?;
+    entry.set_password(&value).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn get_secret(key: String) -> Result<String, String> {
+    let entry = keyring::Entry::new("WIM", &key).map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(v) => Ok(v),
+        Err(keyring::Error::NoEntry) => Ok(String::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+#[tauri::command]
+fn delete_secret(key: String) -> Result<(), String> {
+    let entry = keyring::Entry::new("WIM", &key).map_err(|e| e.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()), // already gone — not an error
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| e.to_string())
@@ -885,6 +916,9 @@ fn main() {
             ebay_trading_call,
             hash_password,
             verify_password,
+            store_secret,
+            get_secret,
+            delete_secret,
             open_url,
             supabase_rpc
         ])

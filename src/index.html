@@ -424,7 +424,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.1.15", BUILD_DATE="2026-08-10", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.1.16", BUILD_DATE="2026-08-11", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -483,6 +483,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.1.16","eBay credential secure storage, the last item from the security review. eBay client secret and refresh token -- a long-lived credential with real access to the actual eBay seller account -- are no longer written to disk in plain text anywhere: not the regular local data file, not a manual backup export. Both now live in the real OS credential vault (Windows Credential Manager) instead, restored into memory once at app startup so every existing eBay call in the app keeps working completely unchanged for the rest of the session -- nothing else needed to be rewired. Existing installs migrate automatically and silently the first time this runs: whatever is already stored gets pushed into the vault, and the very next save correctly leaves it out of what touches disk from then on. Found and fixed two related gaps while building this: the app boot sequence itself was writing the full unredacted data to disk on every single launch, bypassing the regular save path entirely, and the manual Export Backup feature was including the same plain-text credentials in a downloadable file -- both fixed the same way. Deliberately designed so a vault failure can never cause data loss -- worst case, if the vault genuinely is not available for some reason, eBay just is not automatically reconnected at next launch and needs to be reconnected once, the same as setting up a new device -- this is the one piece of this update that could not be verified without a real Windows machine, so please test it directly and let me know what happens."],
   ["3.1.15","Phase 5: real label start-position selection. Print Preview now shows a real grid matching the SL-100 sheet exact physical layout (3 across, 10 down, 30 per sheet) alongside the print preview -- click any position to start printing from there instead of always the top-left, for finishing a partially-used sheet without wasting the labels already gone. Defaults to position 1 every time, matching the requested behavior. Fill order runs left to right across each row, then wraps to the first position of the next row, same as reading order. The preview and the actual printed output both use the exact same underlying logic, so what is shown on screen is genuinely what prints, not just a visual approximation. On the window-sizing half of Phase 5: this is largely already solved as a side effect of the real-OS-windows work from several updates back -- a floating window now always inherits the actual current size and position of whatever it was opened from, which was the real goal. What is left is purely cosmetic (some docked-mode-only screens still have slightly inconsistent fixed sizes) and is being left as optional future polish rather than a forced pass across dozens of screens right now."],
   ["3.1.14","Cloud sessions now use a real sliding-window refresh instead of a fixed 30-day cliff from creation. Previously expires_at was set once and never touched again, so a device left open continuously (never re-logged-in) would go silently stale after exactly 30 days. Now, as long as a device stays open and connected, its session quietly renews itself every couple of minutes piggybacking on the existing cloud connectivity check -- an actively-used device effectively never expires, no manual re-login or new-session step ever needed. A genuinely abandoned session still expires naturally 30 days after the last real activity, since this can only extend an already-valid session, never revive one that already expired -- deliberately not making sessions infinite, since that would remove the one real safety property a lost or leaked token still has, especially with real session revocation (Force Log Out) still not built."],
   ["3.1.13","Real security review and fixes, prioritized by what needed the least setup outside WIM. Local passwords were being stored and compared as plain text -- confirmed directly in the code, including the admin account -- now hashed with real bcrypt (a genuine random salt, not reversible) on every path that sets a password: login, self-service Change Password, admin Reset Password, and new user creation. Existing accounts migrate automatically and silently the next time they log in -- no one has to do anything, and there is no risk of getting locked out mid-migration. Also found and fixed: the auto-updater public key in tauri.conf.json was still the literal placeholder text, never actually filled in -- generated a real signing keypair and set the real public key; the matching private key needs to be added as a GitHub secret (see the accompanying instructions) for signed releases to actually work, which the release workflow was already correctly built to use, it just never had a real key to use. Hardened the Supabase RPC call to validate the URL is a real Supabase-hosted HTTPS domain before using it, closing a theoretical gap where an arbitrary URL was technically accepted even though only the correct one was ever actually sent in practice."],
@@ -621,7 +622,23 @@ function idbOpen(){ return new Promise((res,rej)=>{ if(!window.indexedDB){ rej(n
 function idbGet(){ return idbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(IDB_STORE,"readonly"); const rq=tx.objectStore(IDB_STORE).get(IDB_KEY); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); })); }
 function idbPut(val){ return idbOpen().then(db=>new Promise((res,rej)=>{ const tx=db.transaction(IDB_STORE,"readwrite"); tx.objectStore(IDB_STORE).put(val,IDB_KEY); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); })); }
 let wimSyncBC=null; try{ wimSyncBC=new BroadcastChannel("wim-sync"); }catch(e){}
-function save(){ MEM=DB; idbPut(DB).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){ console.warn("WIM: could not persist data",e); } });
+// eBay's client secret (certId) and refresh token are genuinely sensitive — a long-lived
+// credential with real access to the actual eBay seller account. Everything else about
+// eBay config (appId, ruName, environment, marketplace) isn't actually secret, so only
+// these two specific fields get redacted before anything touches disk. The live,
+// in-memory DB object is never touched here — only the copy that actually gets persisted
+// — so every existing eBay call in the app keeps working unchanged for the rest of the
+// current session; the real values live in the OS credential vault instead, reloaded
+// into memory once at startup.
+function sanitizedForPersist(d){
+  if(!d.ebay) return d;
+  const clone={...d, ebay:{...d.ebay, certId:"", refreshToken:"", creds:{...d.ebay.creds}}};
+  if(clone.ebay.creds){
+    ["sandbox","production"].forEach(env=>{ if(clone.ebay.creds[env]) clone.ebay.creds[env]={...clone.ebay.creds[env], certId:"", refreshToken:""}; });
+  }
+  return clone;
+}
+function save(){ MEM=DB; const persistCopy=sanitizedForPersist(DB); idbPut(persistCopy).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(persistCopy)); }catch(e){ console.warn("WIM: could not persist data",e); } });
   try{ if(wimSyncBC) wimSyncBC.postMessage({t:"changed",at:Date.now()}); }catch(e){} }
 /* ---- Pop-out: open a tool in its own desktop window (experimental, additive) ---- */
 const POPOUT_APPS={
@@ -1152,6 +1169,54 @@ function thisDeviceKey(){
   if(!DB.cloud.deviceKey){ DB.cloud.deviceKey=(crypto&&crypto.randomUUID)?crypto.randomUUID():(Date.now()+"-"+Math.random().toString(36).slice(2)); save(); }
   return DB.cloud.deviceKey;
 }
+// Real OS credential vault access for eBay's client secret and refresh token — see
+// sanitizedForPersist() for why these two specific fields are handled this way. Both
+// functions are best-effort: if the vault genuinely isn't available for some reason (a
+// platform without one, or a permission issue), eBay simply won't have its credentials
+// restored at next launch and the person will need to reconnect — never a silent data-loss
+// risk, since nothing here can delete or corrupt anything, only fail to read/write.
+async function vaultStoreEbaySecrets(env, certId, refreshToken){
+  if(!WIM_IS_DESKTOP) return;
+  try{ await wimDesktop.invoke("store_secret",{key:"ebay-"+env+"-certId", value:certId||""}); }catch(e){}
+  try{ await wimDesktop.invoke("store_secret",{key:"ebay-"+env+"-refreshToken", value:refreshToken||""}); }catch(e){}
+}
+async function vaultLoadEbaySecrets(env){
+  if(!WIM_IS_DESKTOP) return {certId:"",refreshToken:""};
+  let certId="", refreshToken="";
+  try{ certId=await wimDesktop.invoke("get_secret",{key:"ebay-"+env+"-certId"}); }catch(e){}
+  try{ refreshToken=await wimDesktop.invoke("get_secret",{key:"ebay-"+env+"-refreshToken"}); }catch(e){}
+  return {certId:certId||"", refreshToken:refreshToken||""};
+}
+// Runs once at app startup. Restores the real certId/refreshToken from the vault into the
+// live in-memory DB for both environments, so every existing eBay call in the app keeps
+// working exactly as it always has for the rest of this session — nothing else in the
+// codebase needs to know these values now live outside the regular DB on disk. Also
+// handles the one-time migration: if this is the first launch after this feature existed,
+// and the freshly-loaded DB still has real plain-text values sitting in it (from before),
+// those get pushed into the vault right now so they're not lost, and the very next save()
+// will correctly redact them going forward.
+async function restoreEbaySecretsFromVault(){
+  if(!DB.ebay) return;
+  for(const env of ["sandbox","production"]){
+    const existing = DB.ebay.creds && DB.ebay.creds[env];
+    const hasPlaintextAlready = existing && (existing.certId || existing.refreshToken);
+    const vaulted = await vaultLoadEbaySecrets(env);
+    if(hasPlaintextAlready && !vaulted.certId && !vaulted.refreshToken){
+      // First run after this feature shipped — migrate what's already there into the vault.
+      await vaultStoreEbaySecrets(env, existing.certId, existing.refreshToken);
+    } else if(vaulted.certId || vaulted.refreshToken){
+      if(!DB.ebay.creds) DB.ebay.creds={};
+      if(!DB.ebay.creds[env]) DB.ebay.creds[env]={appId:"",certId:"",refreshToken:"",ruName:""};
+      DB.ebay.creds[env].certId=vaulted.certId||DB.ebay.creds[env].certId||"";
+      DB.ebay.creds[env].refreshToken=vaulted.refreshToken||DB.ebay.creds[env].refreshToken||"";
+    }
+    if(env===DB.ebay.env){
+      const c=DB.ebay.creds[env]||{};
+      DB.ebay.certId=c.certId||DB.ebay.certId||"";
+      DB.ebay.refreshToken=c.refreshToken||DB.ebay.refreshToken||"";
+    }
+  }
+}
 // After a successful LOCAL login, silently tries to also establish a real cloud session —
 // zero extra steps outside WIM, no separate team code or PIN for the person logging in.
 // Trust comes from the device itself (already proven once, the normal way, when Cloud
@@ -1382,7 +1447,8 @@ async function boot(){
     }
     DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
     if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
-    try{ await idbPut(DB); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(_){} }
+    try{ await restoreEbaySecretsFromVault(); }catch(e){ console.warn("WIM: eBay vault restore failed:",e); }
+    try{ await idbPut(sanitizedForPersist(DB)); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(sanitizedForPersist(DB))); }catch(_){} }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
     try{ localStorage.setItem("WIM_EBAY_ONLINE","0"); }catch(e){} EBAY_ONLINE=false; // a genuine app launch always starts offline
     showLogin();
@@ -3367,12 +3433,13 @@ function openEbayConfig(){
   function stash(env){ DB.ebay.creds[env]={ appId:appI.value.trim(), certId:certI.value.trim(), refreshToken:deUrl(tokI.value.trim()), ruName:ruI.value.trim() }; }
   function loadEnv(env){ const c=DB.ebay.creds[env]||{appId:"",certId:"",refreshToken:"",ruName:""}; appI.value=c.appId||""; certI.value=c.certId||""; tokI.value=c.refreshToken||""; ruI.value=c.ruName||""; }
   envSel.onchange=()=>{ stash(shownEnv); shownEnv=envSel.value; loadEnv(shownEnv); msg.style.color="#555"; msg.textContent='Showing '+shownEnv+' keys. Press Save to keep them.'; };
-  body.querySelector("#eb-save").onclick=()=>{ const env=envSel.value; stash(env);
+  body.querySelector("#eb-save").onclick=async ()=>{ const env=envSel.value; stash(env);
     const c=DB.ebay.creds[env];
     DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName;
     DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US";
     DB.ebay.connected=!!(c.appId&&c.refreshToken);
-    save(); msg.style.color="#1f7244"; msg.textContent="Saved "+env+" keys."; };
+    save(); await vaultStoreEbaySecrets(env, c.certId, c.refreshToken);
+    msg.style.color="#1f7244"; msg.textContent="Saved "+env+" keys."; };
   body.querySelector("#eb-test").onclick=async ()=>{
     if(!(body.querySelector("#eb-app").value.trim()&&body.querySelector("#eb-tok").value.trim())){ msg.style.color="#c0392b"; msg.textContent="Enter App ID and User Token, then Save."; return; }
     if(!WIM_IS_DESKTOP){ msg.style.color=DB.ebay.connected?"#1f7244":"#c0392b"; msg.textContent=DB.ebay.connected?"Keys present. Live calls run in the desktop app build.":"Enter App ID and Refresh Token, then Save."; return; }
@@ -3396,6 +3463,7 @@ function openEbayConfig(){
         const c=DB.ebay.creds[env];
         DB.ebay.env=env; DB.ebay.appId=c.appId; DB.ebay.certId=c.certId; DB.ebay.refreshToken=c.refreshToken; DB.ebay.ruName=c.ruName;
         DB.ebay.marketplace=body.querySelector("#eb-mkt").value.trim()||"EBAY_US"; DB.ebay.connected=true; save();
+        await vaultStoreEbaySecrets(env, c.certId, c.refreshToken);
         ebayConnectGen++; setEbayOnline(true);
         msg.style.color="#1f7244"; msg.textContent="Connected — WIM got its own token directly from eBay and saved it.";
       } else {
@@ -6354,14 +6422,15 @@ function openBackup(){
     <fieldset class="gb" style="margin:0 14px;"><legend>Applying updates</legend>
       <p class="smallhint" style="margin:0;line-height:1.6;">1. Export a backup (above).<br>2. Replace the <b>WIM</b> app file with the new version, keeping the <b>same file name and folder</b>.<br>3. Re-open WIM — your data stays put and upgrades automatically if the format changed.<br>4. If anything looks wrong, use <b>Restore from Backup</b> to roll back.</p></fieldset>`;
   const msg=body.querySelector("#bk-msg");
-  body.querySelector("#bk-export").onclick=()=>{ const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob);
+  body.querySelector("#bk-export").onclick=()=>{ const blob=new Blob([JSON.stringify(sanitizedForPersist(DB),null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob);
     const a=document.createElement("a"); a.href=url; a.download="WIM-backup-"+new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")+".json"; a.click(); URL.revokeObjectURL(url);
-    DB.meta.lastBackupAt=new Date().toISOString(); save(); if(typeof renderBackupReminder==="function") renderBackupReminder(); msg.style.color="#1f7244"; msg.textContent="Backup downloaded."; };
+    DB.meta.lastBackupAt=new Date().toISOString(); save(); if(typeof renderBackupReminder==="function") renderBackupReminder(); msg.style.color="#1f7244"; msg.textContent="Backup downloaded. (eBay credentials are intentionally not included — reconnect eBay after restoring, same as setting up a new device.)"; };
   const file=body.querySelector("#bk-file"); body.querySelector("#bk-import").onclick=()=>file.click();
   file.onchange=()=>{ const f=file.files[0]; if(!f) return; const rd=new FileReader();
     rd.onload=()=>{ try{ const obj=JSON.parse(rd.result); if(!obj.items||!obj.users) throw new Error("Not a WIM backup file.");
-      uiConfirm("Restore this backup? It will REPLACE all current data.",()=>{ DB=migrate(obj); DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
-        msg.style.color="#1f7244"; msg.textContent="Restored. Reloading…"; idbPut(DB).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(_){} }).then(()=>setTimeout(()=>location.reload(),500)); });
+      uiConfirm("Restore this backup? It will REPLACE all current data.",async ()=>{ DB=migrate(obj); DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
+        try{ await restoreEbaySecretsFromVault(); }catch(e){} // this device's own vault may still have eBay credentials even though the backup file itself never does
+        msg.style.color="#1f7244"; msg.textContent="Restored. Reloading…"; idbPut(sanitizedForPersist(DB)).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(sanitizedForPersist(DB))); }catch(_){} }).then(()=>setTimeout(()=>location.reload(),500)); });
     }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not restore: "+(e.message||e); } }; rd.readAsText(f); file.value=""; };
 }
 function openAbout(){
