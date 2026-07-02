@@ -424,7 +424,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.1.14", BUILD_DATE="2026-08-09", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.1.15", BUILD_DATE="2026-08-10", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -483,6 +483,7 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.1.15","Phase 5: real label start-position selection. Print Preview now shows a real grid matching the SL-100 sheet exact physical layout (3 across, 10 down, 30 per sheet) alongside the print preview -- click any position to start printing from there instead of always the top-left, for finishing a partially-used sheet without wasting the labels already gone. Defaults to position 1 every time, matching the requested behavior. Fill order runs left to right across each row, then wraps to the first position of the next row, same as reading order. The preview and the actual printed output both use the exact same underlying logic, so what is shown on screen is genuinely what prints, not just a visual approximation. On the window-sizing half of Phase 5: this is largely already solved as a side effect of the real-OS-windows work from several updates back -- a floating window now always inherits the actual current size and position of whatever it was opened from, which was the real goal. What is left is purely cosmetic (some docked-mode-only screens still have slightly inconsistent fixed sizes) and is being left as optional future polish rather than a forced pass across dozens of screens right now."],
   ["3.1.14","Cloud sessions now use a real sliding-window refresh instead of a fixed 30-day cliff from creation. Previously expires_at was set once and never touched again, so a device left open continuously (never re-logged-in) would go silently stale after exactly 30 days. Now, as long as a device stays open and connected, its session quietly renews itself every couple of minutes piggybacking on the existing cloud connectivity check -- an actively-used device effectively never expires, no manual re-login or new-session step ever needed. A genuinely abandoned session still expires naturally 30 days after the last real activity, since this can only extend an already-valid session, never revive one that already expired -- deliberately not making sessions infinite, since that would remove the one real safety property a lost or leaked token still has, especially with real session revocation (Force Log Out) still not built."],
   ["3.1.13","Real security review and fixes, prioritized by what needed the least setup outside WIM. Local passwords were being stored and compared as plain text -- confirmed directly in the code, including the admin account -- now hashed with real bcrypt (a genuine random salt, not reversible) on every path that sets a password: login, self-service Change Password, admin Reset Password, and new user creation. Existing accounts migrate automatically and silently the next time they log in -- no one has to do anything, and there is no risk of getting locked out mid-migration. Also found and fixed: the auto-updater public key in tauri.conf.json was still the literal placeholder text, never actually filled in -- generated a real signing keypair and set the real public key; the matching private key needs to be added as a GitHub secret (see the accompanying instructions) for signed releases to actually work, which the release workflow was already correctly built to use, it just never had a real key to use. Hardened the Supabase RPC call to validate the URL is a real Supabase-hosted HTTPS domain before using it, closing a theoretical gap where an arbitrary URL was technically accepted even though only the correct one was ever actually sent in practice."],
   ["3.1.12","Automatic device-trust cloud login -- the start of real cloud migration for every staff member, not just accounts set up manually. The moment any local account logs in successfully on a cloud-connected device, WIM now silently also establishes a real cloud session for them -- no team code, no separate PIN, nothing outside WIM. The first time a given local account does this, a matching cloud staff record is created automatically; every login after that reuses the same one. The real trust model, stated plainly: this relies on the DEVICE already having proven itself once the normal way (Cloud Sync Setup needs a genuine admin name and PIN) -- from then on that device can vouch for whichever local account logs into it, rather than each person proving themselves independently. A paused device cannot vouch for anyone. On top of that, this is gated by a new Cloud Sync Access permission, on by default for every supervisory level but individually revocable per person or per level through Supervisory Maintenance, so there is still a real, independent way to exclude a specific account if that is ever needed. Entirely best-effort and silent -- a failure here never blocks or delays the actual local login, which already succeeded regardless."],
@@ -3199,32 +3200,61 @@ function labelSL100(it){
     <div style="font-size:10px;color:#222;margin-top:1px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${desc}</div>
   </div>`;
 }
-function renderLabelsSheet(units){
+function renderLabelsSheet(units, startPos){
   const layout=(DB.printTemplate&&DB.printTemplate.layout)||"sl100";
   if(layout==="custom"){ const t=DB.printTemplate;
     const cells=units.map(u=>`<div style="display:inline-block;margin:6px;vertical-align:top;">${labelHTML(u,t)}</div>`).join("");
     return `<div style="padding:10px;">${cells}</div>`; }
+  // Blank filler cells before the real labels, so a starting position other than 1 (top
+  // left) shifts the real labels over to align with whatever's actually left blank on a
+  // partially-used physical sheet — same cell size and layout, just empty.
+  const blanks=Math.max(0,(startPos||1)-1);
+  const blankHtml=`<div class="cell"></div>`.repeat(blanks);
   const labels=units.map(u=>`<div class="cell">${labelSL100(u)}</div>`).join("");
-  return `<style>@page{size:letter;margin:0;}*{-webkit-print-color-adjust:exact;}.sheet{padding:0.5in 0.19in 0 0.19in;font-size:0;}.cell{display:inline-block;width:2.75in;height:1in;vertical-align:top;font-size:initial;}</style><div class="sheet">${labels}</div>`;
+  return `<style>@page{size:letter;margin:0;}*{-webkit-print-color-adjust:exact;}.sheet{padding:0.5in 0.19in 0 0.19in;font-size:0;}.cell{display:inline-block;width:2.75in;height:1in;vertical-align:top;font-size:initial;}</style><div class="sheet">${blankHtml}${labels}</div>`;
 }
-function doPrintLabels(units){ if(!units||!units.length){ uiAlert("No labels selected."); return; }
+function doPrintLabels(units, startPos){ if(!units||!units.length){ uiAlert("No labels selected."); return; }
   let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
   ifr=document.createElement("iframe"); ifr.id="wim-print-frame"; ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
   document.body.appendChild(ifr);
   const doc=ifr.contentWindow.document; doc.open();
-  doc.write(`<html><head><title>WIM Labels</title></head><body>${renderLabelsSheet(units)}</body></html>`); doc.close();
+  doc.write(`<html><head><title>WIM Labels</title></head><body>${renderLabelsSheet(units, startPos)}</body></html>`); doc.close();
   setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },300);
 }
+// SL-100's real physical layout: 3 across, 10 down, 30 per sheet — matches the grid
+// selector 1:1, so clicking a position and what actually prints always agree.
+const SL100_COLS=3, SL100_ROWS=10;
 function openPrintPreview(units, onPrinted){ if(!units||!units.length){ uiAlert("Nothing to preview."); return; }
   const id="print-preview"; if(openWindows[id]){ focusWin(openWindows[id].el); }
-  const {body,close}=buildWindow({id,title:"Print Preview ("+units.length+" label"+(units.length>1?"s":"")+")",width:780,height:660,
+  const {body,close}=buildWindow({id,title:"Print Preview ("+units.length+" label"+(units.length>1?"s":"")+")",width:1080,height:680,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">SL-100 sheet &middot; 2.625&quot; &times; 1&quot; labels &middot; 30 per sheet</span>`});
+  let startPos=1; // defaults to position 1 (top-left) every time, per the requested behavior
   body.innerHTML=`<div style="padding:10px 14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line,#dfe3ea);">
       <button class="btn primary" id="pp-print">Print</button><button class="btn" id="pp-close">Close</button>
       <span class="smallhint">In the print dialog, set Margins = None and Scale = 100% for correct SL-100 alignment.</span></div>
-    <div style="flex:1;overflow:auto;background:#e7e9ee;padding:16px;display:flex;justify-content:center;">
-      <div style="background:#fff;width:8.5in;min-height:11in;box-shadow:0 2px 10px rgba(0,0,0,.15);">${renderLabelsSheet(units)}</div></div>`;
-  body.querySelector("#pp-print").onclick=()=>{ doPrintLabels(units); if(onPrinted){ try{ onPrinted(); }catch(e){} } };
+    <div style="flex:1;display:flex;min-height:0;">
+      <div style="flex:1;overflow:auto;background:#e7e9ee;padding:16px;display:flex;justify-content:center;">
+        <div id="pp-sheet" style="background:#fff;width:8.5in;min-height:11in;box-shadow:0 2px 10px rgba(0,0,0,.15);"></div></div>
+      <div style="flex:0 0 260px;border-left:1px solid var(--line,#dfe3ea);padding:14px;overflow:auto;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:2px;">${esc((DB.printTemplate&&DB.printTemplate.title)||"SL-100")}</div>
+        <div class="smallhint" style="margin-bottom:10px;">Click the position on the sheet where printing should start — everything before it stays blank.</div>
+        <div id="pp-grid" style="display:grid;grid-template-columns:repeat(${SL100_COLS},1fr);border:1px solid var(--line,#dfe3ea);"></div></div>
+    </div>`;
+  const sheetEl=body.querySelector("#pp-sheet"), gridEl=body.querySelector("#pp-grid");
+  function renderGrid(){
+    gridEl.innerHTML="";
+    for(let pos=1; pos<=SL100_COLS*SL100_ROWS; pos++){
+      const cell=document.createElement("div");
+      const selected=(pos===startPos);
+      cell.style.cssText=`aspect-ratio:2.625/1;border:1px solid var(--line,#dfe3ea);cursor:pointer;${selected?'background:#2d5a4a;':'background:#fff;'}`;
+      cell.title="Start at position "+pos;
+      cell.onclick=()=>{ startPos=pos; renderGrid(); renderSheet(); };
+      gridEl.appendChild(cell);
+    }
+  }
+  function renderSheet(){ sheetEl.innerHTML=renderLabelsSheet(units, startPos); }
+  renderGrid(); renderSheet();
+  body.querySelector("#pp-print").onclick=()=>{ doPrintLabels(units, startPos); if(onPrinted){ try{ onPrinted(); }catch(e){} } };
   body.querySelector("#pp-close").onclick=close;
 }
 function printLabelsFor(units){ if(!units||!units.length){ uiAlert("No labels selected."); return; } openPrintPreview(units); }
