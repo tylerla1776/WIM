@@ -345,6 +345,30 @@
 /* ---- desktop (Tauri) bridge: present only in the standalone build ---- */
 const wimDesktop = (window.__TAURI__ && window.__TAURI__.core) ? { invoke:(c,a)=>window.__TAURI__.core.invoke(c,a) } : null;
 const WIM_IS_DESKTOP = !!wimDesktop;
+// Real password hashing (bcrypt, via Rust) — replaces the old plain-text password storage.
+// A bcrypt hash always looks like $2a$/$2b$/$2y$ followed by a fixed-length string; a value
+// that doesn't match that shape is an account that hasn't been migrated yet (still holding
+// its original plain-text password from before this existed). Migration is lazy and
+// automatic: verifyLocalPassword() accepts either shape, and the moment an old plain-text
+// account successfully verifies, it's immediately re-hashed and overwritten — so every
+// account gets upgraded to a real hash on its own next login, with nothing anyone has to
+// do manually and no risk of getting locked out mid-migration.
+function looksLikeBcryptHash(s){ return typeof s==="string" && /^\$2[aby]\$\d{2}\$.{53}$/.test(s); }
+async function hashLocalPassword(plain){
+  if(!WIM_IS_DESKTOP) return plain; // browser preview mode has no Rust bcrypt available — falls back to the old behavior, desktop app is the real product
+  try{ return await wimDesktop.invoke("hash_password",{password:plain}); }catch(e){ return plain; }
+}
+async function verifyLocalPassword(plain, stored, onUpgraded){
+  if(looksLikeBcryptHash(stored)){
+    if(!WIM_IS_DESKTOP) return false; // can't verify a real hash without the Rust side
+    try{ return await wimDesktop.invoke("verify_password",{password:plain,hash:stored}); }catch(e){ return false; }
+  }
+  // Not yet migrated — plain-text comparison, same as WIM has always done, but only ever
+  // as a one-time bridge: a successful match here triggers an immediate re-hash.
+  const matches = (stored===plain);
+  if(matches && onUpgraded){ try{ const newHash=await hashLocalPassword(plain); onUpgraded(newHash); }catch(e){} }
+  return matches;
+}
 // window.open() does not reliably launch the user's real system browser from inside a Tauri
 // webview (it isn't a browser — there's nothing for "open a new tab" to mean). Every link that
 // should open in the user's actual browser must go through this instead.
@@ -378,7 +402,9 @@ const Cloud={
   markDeletionProcessed(token,requestId){ return Cloud.rpc("mark_deletion_processed",{p_session_token:token,p_request_id:requestId}); },
   getAgendaMessages(token,sinceIso){ return Cloud.rpc("get_agenda_messages",{p_session_token:token,p_since:sinceIso}); },
   postAgendaMessage(token,audience,message){ return Cloud.rpc("post_agenda_message",{p_session_token:token,p_audience:audience,p_message:message}); },
-  deleteAgendaMessage(token,messageId){ return Cloud.rpc("delete_agenda_message",{p_session_token:token,p_message_id:messageId}); }
+  deleteAgendaMessage(token,messageId){ return Cloud.rpc("delete_agenda_message",{p_session_token:token,p_message_id:messageId}); },
+  deviceLogin(teamCode,deviceKey,localUserId,localUserName){ return Cloud.rpc("device_login",{p_team_code:teamCode,p_device_key:deviceKey,p_local_user_id:localUserId,p_local_user_name:localUserName}); },
+  touchSession(token){ return Cloud.rpc("touch_session",{p_session_token:token}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -398,7 +424,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.1.11", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.1.14", BUILD_DATE="2026-08-09", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -457,6 +483,9 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
 const CHANGELOG=[
+  ["3.1.14","Cloud sessions now use a real sliding-window refresh instead of a fixed 30-day cliff from creation. Previously expires_at was set once and never touched again, so a device left open continuously (never re-logged-in) would go silently stale after exactly 30 days. Now, as long as a device stays open and connected, its session quietly renews itself every couple of minutes piggybacking on the existing cloud connectivity check -- an actively-used device effectively never expires, no manual re-login or new-session step ever needed. A genuinely abandoned session still expires naturally 30 days after the last real activity, since this can only extend an already-valid session, never revive one that already expired -- deliberately not making sessions infinite, since that would remove the one real safety property a lost or leaked token still has, especially with real session revocation (Force Log Out) still not built."],
+  ["3.1.13","Real security review and fixes, prioritized by what needed the least setup outside WIM. Local passwords were being stored and compared as plain text -- confirmed directly in the code, including the admin account -- now hashed with real bcrypt (a genuine random salt, not reversible) on every path that sets a password: login, self-service Change Password, admin Reset Password, and new user creation. Existing accounts migrate automatically and silently the next time they log in -- no one has to do anything, and there is no risk of getting locked out mid-migration. Also found and fixed: the auto-updater public key in tauri.conf.json was still the literal placeholder text, never actually filled in -- generated a real signing keypair and set the real public key; the matching private key needs to be added as a GitHub secret (see the accompanying instructions) for signed releases to actually work, which the release workflow was already correctly built to use, it just never had a real key to use. Hardened the Supabase RPC call to validate the URL is a real Supabase-hosted HTTPS domain before using it, closing a theoretical gap where an arbitrary URL was technically accepted even though only the correct one was ever actually sent in practice."],
+  ["3.1.12","Automatic device-trust cloud login -- the start of real cloud migration for every staff member, not just accounts set up manually. The moment any local account logs in successfully on a cloud-connected device, WIM now silently also establishes a real cloud session for them -- no team code, no separate PIN, nothing outside WIM. The first time a given local account does this, a matching cloud staff record is created automatically; every login after that reuses the same one. The real trust model, stated plainly: this relies on the DEVICE already having proven itself once the normal way (Cloud Sync Setup needs a genuine admin name and PIN) -- from then on that device can vouch for whichever local account logs into it, rather than each person proving themselves independently. A paused device cannot vouch for anyone. On top of that, this is gated by a new Cloud Sync Access permission, on by default for every supervisory level but individually revocable per person or per level through Supervisory Maintenance, so there is still a real, independent way to exclude a specific account if that is ever needed. Entirely best-effort and silent -- a failure here never blocks or delays the actual local login, which already succeeded regardless."],
   ["3.1.11","The Agenda Widget -- real, cross-device team messaging, pinned above every user dashboard unconditionally (not something picked via Configure Widgets). Since a message only means something if it actually reaches people on other devices, this genuinely had to go through the cloud rather than local storage -- a new Supabase table and RPC functions for posting, reading, and deleting messages, same pattern as the eBay compliance system. Collapsed by default showing just the header; double-click to expand. A red unread count shows on the header whenever there is something new, genuinely per-viewer -- each person has their own independent read state, and expanding the widget marks what is currently visible as read for you specifically. Each message shows its audience (Warehouse, Listing, or All), the full text in a box that grows vertically to fit instead of being cut off, the date, and who sent it. Loads the last 7 days. Admins can delete any message; everyone else can only delete their own, enforced on the server side, not just hidden in the interface. Compose box at the bottom with Send to Warehouse, Send to Listing, Send to All, and Cancel. Below Supervisor, visibility follows the viewer current mode (Warehouse messages show in Warehouse mode, Listing messages show in Live mode, All always shows); Supervisor and up see everything regardless of mode. Updates on the requested schedule -- every 10 minutes 7am-noon, every 30 minutes noon-6pm, every hour otherwise -- and only while WIM is actually open, confirmed well within reasonable bandwidth for this kind of check."],
   ["3.1.10","Fulfillment Accuracy report and widget, reading from the tracking data built in v3.1.9. New Fulfillment Accuracy screen (Live mode Reports tree, Supervisor and up) -- a date range selector (< 7/14/30/90 days, < 1 year, All Time) at the top, a per-user summary table showing every user with violations attributed to them, click a user count to drill into what changed (field, item, date, who made the correction), with repeated violations of the same field type flagged distinctly. Unread tracking is genuinely per-viewing-user -- each supervisor has their own independent read state, so opening a violation marks it read for you specifically, not for everyone. A live count badge next to Fulfillment Accuracy in the tree shows how many are still unread to you. New Fulfillment Accuracy dashboard widget (Supervisor and up) -- unread count, most common violation type, and the top offender over the last 30 days, click through to the full report. One honest scope note: every widget in WIM today is a static tile you click into the full screen -- none have live interactive controls built into the small tile itself. Building that would be a new capability for the whole widget system, not just this one, so the requested toggle-time-frame-in-the-widget was not built as an in-place control -- the real, fully working toggle lives in the full report screen, one click away."],
   ["3.1.9","Records moved to Supervisor and up -- this actually revokes access from any Warehouse/Product Lister level that already had it, not just stops granting it going forward. Records search extended with a real date range (from/through, not just on-or-after), item description, Warehouse SKU, and listing status -- these search against the actual line items in each record (using the description/SKU snapshot taken at transaction time) and, for listing status, the item real current status. Anywhere in the app, the Save button now reads Update Listing instead of Save whenever the item being edited is currently listed -- since there is only one shared item editing screen used everywhere in WIM, this one fix genuinely covers every screen. New Recently Listed screen (Fulfillment tree) -- real listings from the last 7 days, hyperlinked to the actual eBay listing for real (non-simulated) items, shows who listed it and at what price, with a modify icon that opens the item for editing. Underlying this: real fulfillment-accuracy tracking -- the first time an item becomes listed, its data is snapshotted and the lister is recorded; any later edit to a still-listed item is compared against that snapshot, and anything that changed (description, condition, price, category, group, photos added or removed) is logged as an accuracy correction attributed to whoever originally listed it, not whoever is fixing it now. This is the data foundation the Fulfillment Accuracy report and widget (next update) will actually read from."],
@@ -875,15 +904,15 @@ function migrate(d){
   // feature, hardcoded, so it can never accidentally be locked out of its own permission tool.
   if(!Array.isArray(d.supervisoryLevels)){
     d.supervisoryLevels=[
-      { id:"basic", name:"Basic", rank:0, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue"] },
-      { id:"warehouse", name:"Warehouse", rank:1, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue",
+      { id:"basic", name:"Basic", rank:0, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access"] },
+      { id:"warehouse", name:"Warehouse", rank:1, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
         "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","item_rank"] },
-      { id:"product_lister", name:"Product Lister", rank:2, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue",
+      { id:"product_lister", name:"Product Lister", rank:2, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
         "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","item_rank",
         "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","listing_functions","communication"] },
-      { id:"supervisor", name:"Supervisor", rank:3, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue",
+      { id:"supervisor", name:"Supervisor", rank:3, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
         "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","item_rank",
         "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","listing_functions","communication",
@@ -899,6 +928,7 @@ function migrate(d){
       { key:"find_by_photo_view", label:"Find by Photo (View Only)", category:"Basic" },
       { key:"change_password", label:"Change Password", category:"Security" },
       { key:"warehouse_only_mode", label:"Warehouse Only Mode", category:"Basic" },
+      { key:"cloud_sync_access", label:"Cloud Sync Access (auto-login to cloud on this device)", category:"Basic" },
       { key:"print_queue", label:"Print Queue", category:"Basic" },
       { key:"dashboard_widgets", label:"Dashboard Widgets", category:"Warehouse" },
       { key:"warehouse_maintenance_limited", label:"Warehouse Maintenance (Limited)", category:"Warehouse" },
@@ -1015,8 +1045,10 @@ function migrate(d){
     const warehouseDefaults=["catalog_maintenance","sell_inventory","add_item","bulk_add_items","active_summary","recently_sold","recently_listed","shipping"];
     const listerDefaults=["listing_efficiency","listing_report","reviews"];
     const supervisorDefaults=["records","fulfillment_accuracy"];
+    const basicDefaults=["cloud_sync_access"]; // on for everyone by default, at every level — individually revocable via Supervisory Maintenance if ever needed
     (d.supervisoryLevels||[]).forEach(lvl=>{
       if(lvl.features.includes("*")) return;
+      basicDefaults.forEach(k=>{ if(!lvl.features.includes(k)) lvl.features.push(k); });
       if(lvl.rank>=1) warehouseDefaults.forEach(k=>{ if(!lvl.features.includes(k)) lvl.features.push(k); });
       if(lvl.rank>=2) listerDefaults.forEach(k=>{ if(!lvl.features.includes(k)) lvl.features.push(k); });
       if(lvl.rank>=3) supervisorDefaults.forEach(k=>{ if(!lvl.features.includes(k)) lvl.features.push(k); });
@@ -1119,6 +1151,27 @@ function thisDeviceKey(){
   if(!DB.cloud.deviceKey){ DB.cloud.deviceKey=(crypto&&crypto.randomUUID)?crypto.randomUUID():(Date.now()+"-"+Math.random().toString(36).slice(2)); save(); }
   return DB.cloud.deviceKey;
 }
+// After a successful LOCAL login, silently tries to also establish a real cloud session —
+// zero extra steps outside WIM, no separate team code or PIN for the person logging in.
+// Trust comes from the device itself (already proven once, the normal way, when Cloud
+// Sync Setup originally ran), not from anything this specific user enters. Gated by the
+// cloud_sync_access permission (on by default for everyone, individually revocable) so an
+// admin still has a real, independent way to exclude a specific person if that's ever
+// needed. Entirely best-effort — any failure here is silent; local login already
+// succeeded and was never waiting on this.
+async function attemptDeviceCloudLogin(user){
+  try{
+    if(cloudSession) return; // already have a real cloud session (e.g. logged in via the cloud path directly)
+    if(!hasAccess("cloud_sync_access", user)) return;
+    if(!DB.cloud || !DB.cloud.teamCode) return; // this device was never connected to a team at all
+    const r=await Cloud.deviceLogin(DB.cloud.teamCode, thisDeviceKey(), user.id, user.longName||user.shortName||("User "+user.id));
+    if(!r.ok) return;
+    let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+    const row=rows&&rows[0]; if(!row) return;
+    cloudSession=row; save();
+    try{ paintCloudBadge(); }catch(e){}
+  }catch(e){ /* silent — local login already succeeded regardless */ }
+}
 async function refreshSyncPausedState(){
   if(!cloudSession) return;
   try{
@@ -1173,10 +1226,20 @@ async function checkCloudReachability(){
   paintCloudBadge();
   if(CLOUD_ONLINE) flushCloudQueue();
 }
+// Sliding-window session refresh — as long as this device stays open and connected, its
+// cloud session renews itself automatically and never actually expires. A genuinely
+// abandoned session (device closed, nobody using it) still dies out naturally 30 days
+// after the last real activity, since this can only extend an already-valid session, never
+// resurrect one that's already expired. Best-effort — a failure here just means the
+// session ages normally, nothing breaks.
+async function refreshCloudSession(){
+  if(!cloudSession) return;
+  try{ await Cloud.touchSession(cloudSession.session_token); }catch(e){}
+}
 function startCloudWatcher(){
   if(cloudCheckTimerStarted) return; cloudCheckTimerStarted=true;
-  checkCloudReachability(); refreshSyncPausedState(); registerThisDevice(); checkEbayDeletionRequests();
-  setInterval(()=>{ checkCloudReachability(); refreshSyncPausedState(); registerThisDevice(); checkEbayDeletionRequests(); }, 120000);
+  checkCloudReachability(); refreshSyncPausedState(); registerThisDevice(); checkEbayDeletionRequests(); refreshCloudSession();
+  setInterval(()=>{ checkCloudReachability(); refreshSyncPausedState(); registerThisDevice(); checkEbayDeletionRequests(); refreshCloudSession(); }, 120000);
 }
 // ---- Offline queue: keep working when the cloud can't be reached, send it once it can ----
 // Queued operations live in DB.cloudQueue so they survive an app restart — if you go offline,
@@ -1723,9 +1786,11 @@ function showLogin(msg){
   const attempt=async ()=>{ const uid=u.value.trim(),pw=p.value; if(!uid||!pw) return;
     // Local login is checked first, always — connecting the cloud must never break this.
     const f=DB.users.find(x=>x.id===uid);
-    if(f && f.password===pw){
+    const localMatch = f ? await verifyLocalPassword(pw, f.password, (newHash)=>{ f.password=newHash; save(); }) : false;
+    if(f && localMatch){
       SESSION.user=f; SESSION.mode=win.querySelector("#lg-mode").value||"warehouse";
     if(SESSION.mode==="live" && !hasAccess("live_mode")) SESSION.mode="warehouse"; // Warehouse Only Mode — quietly redirected, not blocked with an error
+    attemptDeviceCloudLogin(f); // fire-and-forget — never delays or blocks the local login itself
     if(f.mustChange) showChangePassword(f,true); else showLauncher(); return;
     }
     // Not a local match — if this device is connected, try the cloud as an additional
@@ -1769,10 +1834,10 @@ function showChangePassword(user,first){
       <div class="actions"><button class="btn primary" id="cp-ok">OK</button><button class="btn" id="cp-cancel">Cancel</button></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
   const n=win.querySelector("#cp-new"),c=win.querySelector("#cp-conf"),err=win.querySelector("#cp-err"); n.focus();
-  win.querySelector("#cp-ok").onclick=()=>{ const a=n.value,b=c.value; err.style.color="#c0392b";
+  win.querySelector("#cp-ok").onclick=async ()=>{ const a=n.value,b=c.value; err.style.color="#c0392b";
     if(!a){err.textContent="Enter a new password.";return;} if(!/^\d+$/.test(a)){err.textContent="Password must be numerical (digits only).";return;}
     if(a!==b){err.textContent="Passwords do not match.";return;} if(a==="1234"){err.textContent="Choose a password other than the default.";return;}
-    user.password=a; user.mustChange=false; save(); if(first) showLauncher(); else closeAllModals(); };
+    user.password=await hashLocalPassword(a); user.mustChange=false; save(); if(first) showLauncher(); else closeAllModals(); };
   const back=()=>{ if(first) showLogin(); else closeAllModals(); };
   win.querySelector("#cp-cancel").onclick=back; win.querySelector(".close").onclick=back;
   [n,c].forEach(el=>el.addEventListener("keydown",e=>{ if(e.key==="Enter") win.querySelector("#cp-ok").click(); }));
@@ -2873,13 +2938,14 @@ function openChangePassword(){
     <div class="actions" style="margin-top:10px;"><button class="btn primary" id="cp2-ok">Save</button></div></div>`;
   const o=body.querySelector("#cp2-old"),n=body.querySelector("#cp2-new"),c=body.querySelector("#cp2-conf"),err=body.querySelector("#cp2-err");
   o.focus();
-  body.querySelector("#cp2-ok").onclick=()=>{
+  body.querySelector("#cp2-ok").onclick=async ()=>{
     const u=SESSION.user; err.style.color="#c0392b";
-    if(o.value!==u.password){ err.textContent="Current password is incorrect."; return; }
+    const oldOk=await verifyLocalPassword(o.value, u.password, (newHash)=>{ u.password=newHash; });
+    if(!oldOk){ err.textContent="Current password is incorrect."; return; }
     if(!n.value){ err.textContent="Enter a new password."; return; }
     if(!/^\d+$/.test(n.value)){ err.textContent="Password must be numerical (digits only)."; return; }
     if(n.value!==c.value){ err.textContent="New passwords do not match."; return; }
-    u.password=n.value; u.mustChange=false; save();
+    u.password=await hashLocalPassword(n.value); u.mustChange=false; save();
     err.style.color="#1f7244"; err.textContent="Password changed.";
     o.value=""; n.value=""; c.value="";
   };
@@ -2926,8 +2992,8 @@ function openModifyUsers(){
       mod.onclick=()=>openUserPrivileges(u, render);
       const reset=document.createElement("button"); reset.className="btn sm"; reset.textContent="Reset PW";
       if(!canManageLevel(u.levelId||"basic",myLevelId)){ reset.disabled=true; reset.title="You don't have permission to reset this user's password."; }
-      reset.onclick=()=>{ if(!canManageLevel(u.levelId||"basic",myLevelId)){ uiAlert("You don't have permission to reset this user's password."); return; }
-        u.password="1234"; u.mustChange=true; save(); render(); uiAlert("Password for "+u.id+" reset to 1234."); };
+      reset.onclick=async ()=>{ if(!canManageLevel(u.levelId||"basic",myLevelId)){ uiAlert("You don't have permission to reset this user's password."); return; }
+        u.password=await hashLocalPassword("1234"); u.mustChange=true; save(); render(); uiAlert("Password for "+u.id+" reset to 1234."); };
       const del=document.createElement("button"); del.className="btn sm"; del.textContent="Delete";
       if(u.id===ADMIN_ID){ del.disabled=true; del.title="The administrator cannot be deleted."; }
       else if(!canManageLevel(u.levelId||"basic",myLevelId)){ del.disabled=true; del.title="You don't have permission to remove this user."; }
@@ -2935,10 +3001,11 @@ function openModifyUsers(){
         if(u.id===SESSION.user.id){uiAlert("You cannot delete the account you are logged in with.");return;}
         uiConfirm("Delete user "+u.id+"?",()=>{ DB.users=DB.users.filter(x=>x.id!==u.id); save(); render(); }); };
       wrap.appendChild(mod); wrap.appendChild(reset); wrap.appendChild(del); li.appendChild(wrap); l.appendChild(li); }); };
-  const add=()=>{ const id=body.querySelector("#mu-id").value.trim(); err.style.color="#c0392b";
+  const add=async ()=>{ const id=body.querySelector("#mu-id").value.trim(); err.style.color="#c0392b";
     if(!/^\d+$/.test(id)){err.textContent="User ID must be numerical.";return;} if(DB.users.some(u=>u.id===id)){err.textContent="User ID "+id+" already exists.";return;}
     let lid=body.querySelector("#mu-level").value; if(!addLevels.find(l=>l.id===lid)) lid="basic";
-    DB.users.push({id,password:"1234",mustChange:true,levelId:lid,role:lid==="admin"?"admin":lid==="supervisor"?"leadership":"user",permissionOverrides:{},shortName:shortI.value.trim(),longName:body.querySelector("#mu-long").value.trim()}); save();
+    const hashed=await hashLocalPassword("1234");
+    DB.users.push({id,password:hashed,mustChange:true,levelId:lid,role:lid==="admin"?"admin":lid==="supervisor"?"leadership":"user",permissionOverrides:{},shortName:shortI.value.trim(),longName:body.querySelector("#mu-long").value.trim()}); save();
     body.querySelector("#mu-id").value="";shortI.value="";body.querySelector("#mu-long").value="";
     err.style.color="#1f7244"; err.textContent="User "+id+" added at "+(levelById(lid)||{}).name+" (default password 1234)."; render(); };
   body.querySelector("#mu-add").onclick=add;

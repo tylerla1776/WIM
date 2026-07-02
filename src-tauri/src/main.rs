@@ -270,7 +270,16 @@ async fn exchange_auth_code(
 // older JWT-based anon keys some older examples show.
 #[tauri::command]
 async fn supabase_rpc(url: String, anon_key: String, function_name: String, payload_json: String) -> ApiResult {
-    let full_url = format!("{}/rest/v1/rpc/{}", url.trim_end_matches('/'), function_name);
+    // Defense in depth: the URL can't be hardcoded to one exact value the way eBay's hosts
+    // are, since different teams use different Supabase projects — but every legitimate
+    // Supabase project URL is HTTPS and ends in .supabase.co, so this still closes off an
+    // arbitrary attacker-controlled domain being supplied, even though in normal operation
+    // the frontend only ever sends the one configured project URL anyway.
+    let trimmed = url.trim_end_matches('/');
+    if !trimmed.starts_with("https://") || !trimmed.trim_start_matches("https://").split('/').next().unwrap_or("").ends_with(".supabase.co") {
+        return ApiResult { ok: false, status: 0, body: "Refused: URL is not a valid Supabase project host".to_string() };
+    }
+    let full_url = format!("{}/rest/v1/rpc/{}", trimmed, function_name);
     let client = reqwest::Client::new();
     let req = client
         .post(&full_url)
@@ -334,6 +343,20 @@ async fn ebay_trading_call(env: String, app_id: String, cert_id: String, refresh
         }
         Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
     }
+}
+
+// Real local password hashing. Previously local account passwords were stored and
+// compared as plain text — anyone with access to the device's local data file could read
+// every password directly. bcrypt with a proper random salt (its default work factor) is
+// what actually replaces that: the stored value becomes a real hash, never the password
+// itself, and verifying a login never needs the original password reconstructed.
+#[tauri::command]
+fn hash_password(password: String) -> Result<String, String> {
+    bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn verify_password(password: String, hash: String) -> Result<bool, String> {
+    bcrypt::verify(password, &hash).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -860,6 +883,8 @@ fn main() {
             ebay_token_probe,
             ebay_oauth_login,
             ebay_trading_call,
+            hash_password,
+            verify_password,
             open_url,
             supabase_rpc
         ])
