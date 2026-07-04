@@ -268,6 +268,81 @@ async fn exchange_auth_code(
 // over its REST API. Uses the "apikey" header rather than "Authorization: Bearer" —
 // that's how Supabase's newer publishable/secret key system authenticates, unlike the
 // older JWT-based anon keys some older examples show.
+// ============================================================================
+// Shippo + EasyPost — real rate comparison for the Shipping Historical Comparison tool
+// ============================================================================
+// Both of these are genuinely simpler than eBay or the earlier UPS/FedEx groundwork: no
+// OAuth at all, just a static API key on every request. Test vs. live mode is controlled
+// entirely by which key is entered (both companies prefix their test and live keys
+// differently), not by a separate environment toggle — confirmed directly against each
+// company's own current API documentation.
+
+#[tauri::command]
+async fn shippo_get_rates(
+    token: String,
+    from_city: String, from_state: String, from_zip: String, from_country: String,
+    to_city: String, to_state: String, to_zip: String, to_country: String,
+    weight_lb: String, length_in: String, width_in: String, height_in: String,
+) -> ApiResult {
+    let url = "https://api.goshippo.com/shipments/";
+    let body = serde_json::json!({
+        "address_from": { "city": from_city, "state": from_state, "zip": from_zip, "country": from_country },
+        "address_to": { "city": to_city, "state": to_state, "zip": to_zip, "country": to_country },
+        "parcels": [{
+            "length": length_in, "width": width_in, "height": height_in, "distance_unit": "in",
+            "weight": weight_lb, "mass_unit": "lb"
+        }],
+        "async": false
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .header("Authorization", format!("ShippoToken {}", token))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await;
+    match resp {
+        Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
+            ApiResult { ok: status < 300, status, body: text } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+#[tauri::command]
+async fn easypost_get_rates(
+    api_key: String,
+    from_city: String, from_state: String, from_zip: String, from_country: String,
+    to_city: String, to_state: String, to_zip: String, to_country: String,
+    weight_lb: String, length_in: String, width_in: String, height_in: String,
+) -> ApiResult {
+    // EasyPost weighs parcels in ounces, not pounds — confirmed directly from their own
+    // Parcel documentation. Everything else in WIM tracks weight in pounds, so this is the
+    // one place that conversion actually needs to happen.
+    let url = "https://api.easypost.com/beta/rates";
+    let weight_oz: f64 = weight_lb.parse::<f64>().unwrap_or(1.0) * 16.0;
+    let body = serde_json::json!({
+        "shipment": {
+            "from_address": { "city": from_city, "state": from_state, "zip": from_zip, "country": from_country },
+            "to_address": { "city": to_city, "state": to_state, "zip": to_zip, "country": to_country },
+            "parcel": { "length": length_in, "width": width_in, "height": height_in, "weight": weight_oz }
+        }
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .basic_auth(api_key, Option::<String>::None)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await;
+    match resp {
+        Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
+            ApiResult { ok: status < 300, status, body: text } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 #[tauri::command]
 async fn supabase_rpc(url: String, anon_key: String, function_name: String, payload_json: String) -> ApiResult {
     // Defense in depth: the URL can't be hardcoded to one exact value the way eBay's hosts
@@ -971,7 +1046,9 @@ fn main() {
             pick_photo_folder,
             pick_photos_in_folder,
             open_url,
-            supabase_rpc
+            supabase_rpc,
+            shippo_get_rates,
+            easypost_get_rates
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");

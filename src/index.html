@@ -426,7 +426,17 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.2.31", BUILD_DATE="2026-09-16", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.2.35", BUILD_DATE="2026-09-20", SCHEMA_VERSION=13, ADMIN_ID="64";
+// Local Profiles — genuinely separate local datasets on the same device (own inventory, own
+// vendors, own eBay connection, own everything), completely independent of cloud teams. The
+// default/original profile deliberately keeps using the exact same storage keys WIM has
+// always used, so an existing install is never touched or moved — only a newly-created
+// profile ever gets a new, separate key, suffixed with its own id.
+let ACTIVE_PROFILE=""; try{ ACTIVE_PROFILE=localStorage.getItem("WIM_ACTIVE_PROFILE")||""; }catch(e){}
+function profileSuffix(){ return ACTIVE_PROFILE ? ("__"+ACTIVE_PROFILE) : ""; }
+function profilesList(){ try{ return JSON.parse(localStorage.getItem("WIM_PROFILES_LIST")||"[]"); }catch(e){ return []; } }
+function saveProfilesList(list){ try{ localStorage.setItem("WIM_PROFILES_LIST", JSON.stringify(list)); }catch(e){} }
+const KEY="WIM_DATA_V2"+profileSuffix();
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -520,6 +530,10 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.2.35","New Shipping Historical Comparison (Fulfillment) -- built around the decision to keep using eBay.com for actual shipping for now, not talk to carriers directly. A real record gets created automatically every time a sale comes in through Recently Sold, capturing the item real weight and dimensions (new fields on every item, right on Listing Details) and the real ship-to address from that actual order. From there it fetches genuine rate quotes from Shippo and EasyPost -- both confirmed directly against their own current API documentation, both using a simple static API key with no OAuth complexity at all, unlike the eBay or UPS/FedEx work -- and sits them next to a manual entry for what eBay actually charged. New Rate Comparison APIs and Ship-From Address section added to Shipping Data for the two API keys and your warehouse own address. Real Export to Excel button, producing an actual CSV that opens directly in Excel with every record. This is a comparison and evidence-gathering tool, deliberately not a label-buying one -- nothing here changes how an item actually gets shipped today."],
+  ["3.2.34","New Local Profiles (Configuration, admin-only) -- genuinely separate local datasets on the same device, each with its own inventory, vendors, groups, and its own real eBay connection, completely independent of each other. Confirmed the real reason this needed building: cloud teams control shared staff logins and a shared eBay connection across devices, but they never actually reset or separate the local inventory data itself -- switching teams alone would not have given a genuinely blank slate the way this does. The original, existing profile deliberately keeps using the exact same storage locations WIM has always used -- confirmed directly, an existing install is never touched, moved, or put at any risk by this -- only a newly created profile ever gets its own separate storage, including its own separate eBay-credential vault entries, so two profiles genuinely cannot see or overwrite each other data. Create a blank profile, switch between profiles (reloads WIM to load the other one safely), and from that point on, connecting eBay under one profile only ever affects that profile own connection."],
+  ["3.2.33","Reverted the direct UPS/FedEx groundwork from the last update -- a real problem came up while researching the actual economics of that approach: a plain UPS or FedEx developer account gets standard list rates, not the negotiated, discounted rates eBay own labels already use, confirmed directly from eBay own documentation. Talking to UPS and FedEx directly would very likely have meant paying more per label than just buying through eBay already does today, not less -- the opposite of the point. Carrier Accounts, the OAuth token commands, and the rate-quote commands are all fully removed, cleanly, with nothing left behind referencing them. A third-party rate aggregator -- one that already has negotiated rates across USPS, UPS, and FedEx together -- is the real path being evaluated next instead."],
+  ["3.2.32","Groundwork for real UPS and FedEx shipping, started while away from a PC to test on -- built in the most independently-verifiable layers possible given that constraint: credential storage and the actual carrier network calls, nothing that depends on the other yet. New Carrier Accounts screen in Configuration (admin-only, same real credential protection as eBay Connection) for entering UPS and FedEx developer credentials, with a genuine Test Connection button that actually calls each carrier own OAuth endpoint rather than just checking the fields are filled in. Real Rust commands for fetching a token and requesting rate quotes from both carriers now exist, built directly from each carrier own current API documentation and multiple independently-confirmed working examples, not guessed. Nothing user-facing calls these yet -- the actual rate-comparison screen is the next piece. One honest gap: UPS exact sandbox testing domain could not be independently confirmed the way FedEx own sandbox/production split was, and should be verified against a real UPS developer account before relying on it."],
   ["3.2.31","Clicking Create+ no longer closes and reopens the window at all for the normal, single-item case -- the same open page now turns itself from a new item into a real, saved one in place. Upload photos and Publish to eBay appear right there the moment creation finishes, with no window closing, no reopening, nothing to click off of first. Everything else that only made sense for a real, existing item -- actually deleting it instead of just closing the form, printing its label -- correctly unlocks at the same moment too, not just the two buttons this was originally about. Creating more than one unit at once, or sending straight to Live, still opens fresh the way it already did, since there is no single page to stay on in those cases."],
   ["3.2.30","First real listing published successfully end to end. Following straight from that: Upload photos to eBay and Publish to eBay no longer appear at all on a brand new, not-yet-created item -- a real note takes their place instead, saying to create it first. The main button for a new item is now labeled Create+ instead of List Inventory, making the actual required first step clearer. Once that button creates the item, the existing reopen-in-edit-view behavior means Upload photos and Publish appear automatically at exactly that point -- there is no longer a way to reach either button before the item genuinely exists, which is exactly the sequence that caused the quantity-of-zero issue found earlier."],
   ["3.2.29","Found another real, concrete cause on the same test item, once the header fix and the workflow order were both accounted for: Language was being sent as lowercase english, but a restricted, pick-from-a-list aspect on eBay own side often only accepts an exact-case match against its real value list -- and eBay genuinely has English, capitalized, not the lowercase version a past seller happened to type when the original listing was created. Since WIM already stores eBay own real, valid values for a category aspects, added real normalization: whenever a captured value matches one of eBay own known values case-insensitively, it now sends eBay own exact casing instead of whatever casing happened to be captured -- not just for Language, for any restricted aspect this could affect."],
@@ -687,7 +701,7 @@ const CHANGELOG=[
 
 /* ---------- persistence (IndexedDB, with localStorage fallback) ---------- */
 let MEM=null;
-const IDB_NAME="WIM_DB", IDB_STORE="state", IDB_KEY="db";
+const IDB_NAME="WIM_DB", IDB_STORE="state", IDB_KEY="db"+profileSuffix();
 function idbOpen(){ return new Promise((res,rej)=>{ if(!window.indexedDB){ rej(new Error("no idb")); return; }
   const r=indexedDB.open(IDB_NAME,1);
   r.onupgradeneeded=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE); };
@@ -745,7 +759,9 @@ const POPOUT_APPS={
   recentlylisted:{ title:"Recently Listed", open:()=>openRecentlyListed() },
   fulfillmentaccuracy:{ title:"Fulfillment Accuracy", open:()=>openFulfillmentAccuracy() },
   shipping:{ title:"Shipping", open:()=>openShipping() },
+  shipcompare:{ title:"Shipping Historical Comparison", open:()=>openShippingComparison() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
+  localprofiles:{ title:"Local Profiles", open:()=>openLocalProfiles() },
   managedevices:{ title:"Manage Devices", open:()=>openManageDevices() },
   ebaycompliance:{ title:"eBay Compliance Log", open:()=>openEbayComplianceLog() },
   simulation:{ title:"Simulation Mode", open:()=>openSimulationMode() },
@@ -1123,6 +1139,8 @@ function migrate(d){
   if(!d.messageDrafts || typeof d.messageDrafts!=="object") d.messageDrafts={};
   if(!d.vendorCosting || typeof d.vendorCosting!=="object") d.vendorCosting={};
   if(!d.shippingData || typeof d.shippingData!=="object") d.shippingData={ byCategory:{}, packagingCost:"0.00" };
+  if(!d.shipFrom || typeof d.shipFrom!=="object") d.shipFrom={ city:"", state:"", zip:"", country:"US" };
+  if(!Array.isArray(d.shippingComparisons)) d.shippingComparisons=[];
   if(d.pinnedVendor===undefined) d.pinnedVendor="";
   if(!d.agendaReadByUser || typeof d.agendaReadByUser!=="object") d.agendaReadByUser={};
   if(typeof d.agendaCollapsed!=="boolean") d.agendaCollapsed=true;
@@ -1207,6 +1225,10 @@ function migrate(d){
     if(it.listing.reserveItem==null) it.listing.reserveItem=false;
     if(it.storedAt===undefined) it.storedAt=it.createdAt||new Date().toISOString(); // existing items: already stored, not a new pending backlog
     if(!it.aspectTypes || typeof it.aspectTypes!=="object") it.aspectTypes={};
+    if(it.shipWeight===undefined) it.shipWeight="";
+    if(it.shipLength===undefined) it.shipLength="";
+    if(it.shipWidth===undefined) it.shipWidth="";
+    if(it.shipHeight===undefined) it.shipHeight="";
     if(it.storageBatchId===undefined) it.storageBatchId=null;
   });
   (d.invoices||[]).forEach(r=>{ if(!r.type) r.type="Sell"; (r.lines||[]).forEach(l=>{ if(!l.mode) l.mode="sold"; }); });
@@ -1285,14 +1307,14 @@ function thisDeviceKey(){
 // risk, since nothing here can delete or corrupt anything, only fail to read/write.
 async function vaultStoreEbaySecrets(env, certId, refreshToken){
   if(!WIM_IS_DESKTOP) return;
-  try{ await wimDesktop.invoke("store_secret",{key:"ebay-"+env+"-certId", value:certId||""}); }catch(e){}
-  try{ await wimDesktop.invoke("store_secret",{key:"ebay-"+env+"-refreshToken", value:refreshToken||""}); }catch(e){}
+  try{ await wimDesktop.invoke("store_secret",{key:"ebay-"+env+"-certId"+profileSuffix(), value:certId||""}); }catch(e){}
+  try{ await wimDesktop.invoke("store_secret",{key:"ebay-"+env+"-refreshToken"+profileSuffix(), value:refreshToken||""}); }catch(e){}
 }
 async function vaultLoadEbaySecrets(env){
   if(!WIM_IS_DESKTOP) return {certId:"",refreshToken:""};
   let certId="", refreshToken="";
-  try{ certId=await wimDesktop.invoke("get_secret",{key:"ebay-"+env+"-certId"}); }catch(e){}
-  try{ refreshToken=await wimDesktop.invoke("get_secret",{key:"ebay-"+env+"-refreshToken"}); }catch(e){}
+  try{ certId=await wimDesktop.invoke("get_secret",{key:"ebay-"+env+"-certId"+profileSuffix()}); }catch(e){}
+  try{ refreshToken=await wimDesktop.invoke("get_secret",{key:"ebay-"+env+"-refreshToken"+profileSuffix()}); }catch(e){}
   return {certId:certId||"", refreshToken:refreshToken||""};
 }
 // Runs once at app startup. Restores the real certId/refreshToken from the vault into the
@@ -2224,7 +2246,7 @@ function isLive(){ return SESSION.mode==="live"; }
 const TREE_LABEL_FEATURE={
   "Dashboard Widgets":"dashboard_widgets","Photo Default":"dashboard_widgets","Shipping Data":"shipping_data","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
   "eBay Connection":"ebay_connection_admin","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
-  "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
+  "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Local Profiles":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
   "Warehouse Maintenance":"warehouse_maintenance_limited","Vendor Management":"vendor_maintenance","Condition Maintenance":"warehouse_maintenance_limited","Adjustment Configuration":"adjust_inventory",
   "Modify Users":"modify_users","Print Queue":"print_queue","Print Configuration":"print_configuration","Catalog Maintenance":"catalog_maintenance",
   "Item Maintenance":"item_maintenance_view","Group Maintenance":"group_maintenance","Unit Costing":"unit_costing","Find by Photo":"find_by_photo_view",
@@ -2232,7 +2254,7 @@ const TREE_LABEL_FEATURE={
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -2247,14 +2269,14 @@ function nodeVisible(node){
 function nodeActions(node){ return filterActionsByAccess(nodeActionsRaw(node)); }
 function nodeActionsRaw(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Shipping Data","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Photo Default","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Shipping Data","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Photo Default","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
   if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory","Find by Photo"];
-  if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping"];
+  if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping","Shipping Historical Comparison"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
   if(node.key==="reports") return ["Aging Inventory","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
@@ -2730,11 +2752,24 @@ function renderDashboard(){
 // not a guess dressed up as one.
 function openShippingData(){
   const id="shipping-data"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Shipping Data",width:760,height:560,
+  const {body}=buildWindow({id,title:"Shipping Data",width:760,height:700,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Assumed shipping cost by category — used for Assumed GM% until real historical shipping data is available</span>`});
-  function render(){
+  async function render(){
     const sd=DB.shippingData;
+    const shippoTok=await carrierGetSecret2("shippo","token"), epKey=await carrierGetSecret2("easypost","key");
     body.innerHTML=`<div style="padding:16px;">
+      <fieldset class="gb" style="margin-bottom:16px;"><legend>Ship-From Address</legend>
+        <div class="smallhint" style="margin-bottom:8px;">Your warehouse's location — used for real rate quotes in the Shipping Historical Comparison tool.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div><label class="fld" style="width:auto;">City</label><input class="txt" id="sf-city" value="${esc(DB.shipFrom.city)}" style="width:140px;"></div>
+          <div><label class="fld" style="width:auto;">State</label><input class="txt" id="sf-state" value="${esc(DB.shipFrom.state)}" style="width:60px;"></div>
+          <div><label class="fld" style="width:auto;">Zip</label><input class="txt" id="sf-zip" value="${esc(DB.shipFrom.zip)}" style="width:80px;"></div>
+          <div><label class="fld" style="width:auto;">Country</label><input class="txt" id="sf-country" value="${esc(DB.shipFrom.country||"US")}" style="width:60px;"></div>
+        </div></fieldset>
+      <fieldset class="gb" style="margin-bottom:16px;"><legend>Rate Comparison APIs</legend>
+        <div class="smallhint" style="margin-bottom:8px;">Real API keys from Shippo and EasyPost — used only to fetch comparison rate quotes for the Shipping Historical Comparison tool, not to buy or print labels.</div>
+        <div class="ff sm"><label>Shippo Token</label><input class="txt" id="sd-shippo" value="${esc(shippoTok)}" style="width:320px;" placeholder="shippo_test_... or shippo_live_..."></div>
+        <div class="ff sm" style="margin-top:6px;"><label>EasyPost API Key</label><input class="txt" id="sd-easypost" value="${esc(epKey)}" style="width:320px;"></div></fieldset>
       <fieldset class="gb" style="margin-bottom:16px;"><legend>Packaging &amp; Label Cost</legend>
         <div class="smallhint" style="margin-bottom:8px;">A flat estimate for the box or envelope, tape, and the ink/paper to print a label — applied to every item regardless of category.</div>
         <div class="ff sm"><label>Cost per shipment</label><input class="txt" id="sd-pack" value="${esc(sd.packagingCost||"0.00")}" inputmode="decimal" style="width:100px;"></div></fieldset>
@@ -2747,14 +2782,24 @@ function openShippingData(){
     DB.sections.forEach(cat=>{ const tr=document.createElement("tr");
       tr.innerHTML=`<td>${esc(cat)}</td><td><input class="txt" data-cat="${esc(cat)}" value="${esc(sd.byCategory[cat]||"")}" inputmode="decimal" placeholder="0.00" style="width:100px;"></td>`;
       tb.appendChild(tr); });
-    body.querySelector("#sd-save").onclick=()=>{
+    body.querySelector("#sd-save").onclick=async ()=>{
       DB.shippingData.packagingCost=(parseFloat(body.querySelector("#sd-pack").value)||0).toFixed(2);
       body.querySelectorAll("[data-cat]").forEach(inp=>{ const v=parseFloat(inp.value); DB.shippingData.byCategory[inp.dataset.cat]= isNaN(v)?"":v.toFixed(2); });
+      DB.shipFrom.city=body.querySelector("#sf-city").value.trim();
+      DB.shipFrom.state=body.querySelector("#sf-state").value.trim();
+      DB.shipFrom.zip=body.querySelector("#sf-zip").value.trim();
+      DB.shipFrom.country=body.querySelector("#sf-country").value.trim().toUpperCase()||"US";
+      await carrierStoreSecret2("shippo","token",body.querySelector("#sd-shippo").value.trim());
+      await carrierStoreSecret2("easypost","key",body.querySelector("#sd-easypost").value.trim());
       save(); const msg=body.querySelector("#sd-msg"); msg.style.color="#1f7244"; msg.textContent="Saved.";
     };
   }
   render();
 }
+// Real credential storage for the rate-comparison APIs, same vault as everything else
+// sensitive in WIM, kept profile-aware the same way eBay's credentials already are.
+async function carrierStoreSecret2(carrier, field, value){ try{ await wimDesktop.invoke("store_secret",{key:"wim-"+carrier+"-"+field+profileSuffix(), value:value||""}); }catch(e){} }
+async function carrierGetSecret2(carrier, field){ try{ const r=await wimDesktop.invoke("get_secret",{key:"wim-"+carrier+"-"+field+profileSuffix()}); return r||""; }catch(e){ return ""; } }
 // What Shipping Data actually contributes to the GM% math for one item — assumed shipping
 // for its category, falling back to 0 if that category was never given an assumption, plus
 // the flat packaging/label cost.
@@ -3149,6 +3194,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Listing Configuration") return launchApp("listingcfg");
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
   if(k==="config"&&a==="Cloud Sync Setup") return launchApp("cloudsetup");
+  if(k==="config"&&a==="Local Profiles") return launchApp("localprofiles");
   if(k==="config"&&a==="Manage Devices") return launchApp("managedevices");
   if(k==="config"&&a==="eBay Compliance Log") return launchApp("ebaycompliance");
   if(k==="config"&&a==="Simulation Mode") return launchApp("simulation");
@@ -3197,6 +3243,7 @@ function handleAction(k,a){
   if(k==="fulfillment"&&a==="Recently Sold") return launchApp("recentlysold");
   if(k==="fulfillment"&&a==="Recently Listed") return launchApp("recentlylisted");
   if(k==="fulfillment"&&a==="Shipping") return launchApp("shipping");
+  if(k==="fulfillment"&&a==="Shipping Historical Comparison") return launchApp("shipcompare");
   if(k==="comm"&&a==="Communication") return launchApp("comm");
   if(k==="comm"&&a==="Reviews") return launchApp("reviews");
   if(k==="livereports"&&a==="Fulfillment Accuracy") return launchApp("fulfillmentaccuracy");
@@ -4643,6 +4690,15 @@ function openItemDetail(item,mode,nav,defaultTab){
           <span style="font-size:11px;color:#7b828e;font-weight:600;">Assumed GM%</span>
           <span id="l-gm" style="font-size:16px;font-weight:700;margin-left:8px;"></span>
         </div>
+        <div style="margin-top:10px;">
+          <div style="font-size:11px;color:#7b828e;font-weight:600;margin-bottom:4px;">Shipping weight &amp; dimensions — used for the real Shipping Historical Comparison tool (Fulfillment)</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <label class="fld" style="width:auto;">Weight (lb)</label><input class="txt" id="l-weight" value="${esc(it.shipWeight)}" inputmode="decimal" style="width:70px;">
+            <label class="fld" style="width:auto;">L (in)</label><input class="txt" id="l-length" value="${esc(it.shipLength)}" inputmode="decimal" style="width:60px;">
+            <label class="fld" style="width:auto;">W (in)</label><input class="txt" id="l-width" value="${esc(it.shipWidth)}" inputmode="decimal" style="width:60px;">
+            <label class="fld" style="width:auto;">H (in)</label><input class="txt" id="l-height" value="${esc(it.shipHeight)}" inputmode="decimal" style="width:60px;">
+          </div>
+        </div>
         <div class="ff" style="grid-template-columns:90px 1fr;margin-top:8px;"><label class="fld">Description</label>
           <select class="cmb" id="l-desc"><option value="">(write your own below)</option>${descs.map(d=>`<option value="${d.id}" ${it.listing.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}</select></div>
         <textarea id="l-descbody" placeholder="Listing description" style="width:100%;height:90px;margin-top:6px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;">${esc((it.listing.descriptionId&&(DB.descriptions.find(x=>x.id===it.listing.descriptionId)||{}).body)||it.listing.descBody||"")}</textarea>
@@ -4674,6 +4730,10 @@ function openItemDetail(item,mode,nav,defaultTab){
         unitsOf(it).forEach(u=>{ u.listing.reserveItem=next; });
         markDirty&&markDirty(); renderListing();
       }; }
+      const wIn=lwrap.querySelector("#l-weight"); if(wIn) wIn.oninput=()=>{ it.shipWeight=wIn.value; markDirty&&markDirty(); };
+      const lIn=lwrap.querySelector("#l-length"); if(lIn) lIn.oninput=()=>{ it.shipLength=lIn.value; markDirty&&markDirty(); };
+      const wdIn=lwrap.querySelector("#l-width"); if(wdIn) wdIn.oninput=()=>{ it.shipWidth=wdIn.value; markDirty&&markDirty(); };
+      const hIn=lwrap.querySelector("#l-height"); if(hIn) hIn.oninput=()=>{ it.shipHeight=hIn.value; markDirty&&markDirty(); };
       dsel.onchange=()=>{ it.listing.descriptionId=dsel.value||null; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d) dbody.value=d.body; markDirty&&markDirty(); };
       dbody.oninput=()=>{ it.listing.descBody=dbody.value; markDirty&&markDirty(); };
       const pubBtn=lwrap.querySelector("#l-publish"), pubMsg=lwrap.querySelector("#l-pubmsg");
@@ -5942,6 +6002,54 @@ let cloudSession=null; // {session_token, staff_id, staff_name, role, team_id, t
 // database. Once this succeeds, DB.cloud.teamCode is saved locally and the
 // regular User Login screen quietly starts checking the cloud instead of the
 // local user list — staff never see a team code, ever, after this one step.
+// Local Profiles — separate, complete local datasets on this one device. Deliberately not
+// the same thing as a cloud team: a cloud team controls shared staff logins and a shared
+// eBay connection across many devices, while a Local Profile is this one device switching
+// which entirely separate local dataset it's currently looking at — its own inventory, own
+// vendors, own eBay connection, own everything, with no relation to any other profile at all.
+function openLocalProfiles(){
+  const id="local-profiles"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Local Profiles",width:640,height:520,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Separate local datasets on this device — switching reloads WIM</span>`});
+  function render(){
+    const profiles=profilesList();
+    const rows=[{id:"",name:"Default (your original data)"}].concat(profiles);
+    body.innerHTML=`<div style="padding:16px;">
+      <div class="note" style="margin-bottom:14px;">Each profile is a genuinely separate local dataset — its own inventory, vendors, groups, and its own eBay connection. Switching profiles reloads WIM to load the other dataset safely; nothing from your current profile is lost, it's just not what's showing while you're on a different one.</div>
+      <div class="resultwrap" style="margin-bottom:14px;"><table class="res"><thead><tr><th>Profile</th><th style="width:100px;"></th></tr></thead><tbody id="lp-tb"></tbody></table></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input class="txt" id="lp-newname" placeholder="New profile name (e.g. Partner Showcase)" style="width:280px;">
+        <button class="btn primary" id="lp-create">Create Blank Profile</button>
+      </div>
+      <div class="err" id="lp-err" style="margin-top:8px;"></div>
+    </div>`;
+    const tb=body.querySelector("#lp-tb");
+    rows.forEach(p=>{ const tr=document.createElement("tr"); const isActive=p.id===ACTIVE_PROFILE;
+      tr.innerHTML=`<td>${esc(p.name)}${isActive?' <b style="color:#1f7244;">(active now)</b>':''}</td><td class="cc"></td>`;
+      if(!isActive){ const btn=document.createElement("button"); btn.className="btn sm"; btn.textContent="Switch To";
+        btn.onclick=()=>{ uiConfirm("Switch to \""+p.name+"\"? WIM will reload to load its own separate data.", ()=>{
+          try{ localStorage.setItem("WIM_ACTIVE_PROFILE", p.id); }catch(e){}
+          location.reload();
+        }); };
+        tr.querySelector("td.cc").appendChild(btn);
+      }
+      tb.appendChild(tr);
+    });
+    body.querySelector("#lp-create").onclick=()=>{
+      const err=body.querySelector("#lp-err"); err.textContent="";
+      const name=body.querySelector("#lp-newname").value.trim();
+      if(!name){ err.textContent="Give the new profile a name."; return; }
+      const newId="p"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+      const list=profilesList(); list.push({id:newId,name}); saveProfilesList(list);
+      uiConfirm("Created \""+name+"\" — a genuinely blank profile, no inventory, no eBay connection. Switch to it now?", ()=>{
+        try{ localStorage.setItem("WIM_ACTIVE_PROFILE", newId); }catch(e){}
+        location.reload();
+      });
+      render();
+    };
+  }
+  render();
+}
 function openCloudSyncSetup(){
   const id="cloud-sync-setup"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Cloud Sync Setup",width:600,height:480,
@@ -6815,6 +6923,15 @@ async function pullRecentlySold(daysBack){
       DB.pulledOrderIds.push(orderLineKey);
       addHistory(localItem,"Sold on eBay (order "+order.orderId+") — moved to Recently Sold");
       added++;
+      // Real record for the Shipping Historical Comparison tool — created the moment a sale
+      // is detected, using the item's own weight/dimensions if they were ever entered, and
+      // the real ship-to address from this actual order, not a guess.
+      DB.shippingComparisons.push({
+        id:crypto.randomUUID(), itemId:localItem.id, desc:localItem.desc, soldAt:f.soldAt,
+        weight:localItem.shipWeight||"", length:localItem.shipLength||"", width:localItem.shipWidth||"", height:localItem.shipHeight||"",
+        shipToCity:(f.shipTo&&f.shipTo.city)||"", shipToState:(f.shipTo&&f.shipTo.stateOrProvince)||"", shipToZip:(f.shipTo&&f.shipTo.postalCode)||"", shipToCountry:(f.shipTo&&f.shipTo.countryCode)||"US",
+        shippoRate:null, shippoService:"", easypostRate:null, easypostService:"", ebayActualCost:"", fetchedAt:null
+      });
       // Reserve Item: automatically list the next available unit of this same product, so
       // buyers never see the full real quantity — no one has to notice this sold and go
       // relist the next one by hand.
@@ -6959,6 +7076,96 @@ function openShipping(){
   }
   body._refresh=render;
   render();
+}
+// Shipping Historical Comparison — tracks every real sale with its actual weight,
+// dimensions, and ship-to address, and shows what Shippo and EasyPost would genuinely
+// quote for it side by side with what eBay actually charged. Deliberately not a live
+// label-buying tool — per the decision behind this, eBay.com stays the actual shipping
+// method for now; this is purely for building real evidence toward the right long-term
+// carrier decision.
+function openShippingComparison(){
+  const id="ship-compare"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Shipping Historical Comparison",width:1180,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real per-sale shipping cost comparison — Shippo and EasyPost quotes vs. what eBay actually charged</span>`});
+  function render(){
+    const rows=DB.shippingComparisons.slice().sort((a,b)=>new Date(b.soldAt||0)-new Date(a.soldAt||0));
+    body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <button class="btn primary sm" id="sc-fetchall">Fetch Missing Rates</button>
+        <span class="smallhint" id="sc-msg"></span>
+        <span style="flex:1;"></span>
+        <button class="btn sm" id="sc-export">Export to Excel</button>
+      </div>
+      ${!rows.length?`<div class="note">Nothing here yet — a record is created automatically every time a sale is pulled in through Recently Sold.</div>`:``}
+      <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th>Description</th><th style="width:90px;">Sold</th><th style="width:110px;">Wt / Dims</th><th style="width:120px;">Ship To</th>
+        <th style="width:110px;">Shippo</th><th style="width:110px;">EasyPost</th><th style="width:100px;">eBay Actual</th><th style="width:70px;"></th>
+      </tr></thead><tbody id="sc-tb"></tbody></table></div>
+    </div>`;
+    const tb=body.querySelector("#sc-tb");
+    rows.forEach(r=>{ const tr=document.createElement("tr");
+      const dims=(r.length&&r.width&&r.height)?(r.length+"×"+r.width+"×"+r.height+"in"):"—";
+      const wt=r.weight?r.weight+"lb":"—";
+      const shipTo=[r.shipToCity,r.shipToState].filter(Boolean).join(", ")||"—";
+      tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
+        <td style="font-size:11px;">${esc(wt)}<div class="smallhint">${esc(dims)}</div></td>
+        <td style="font-size:11px;">${esc(shipTo)}</td>
+        <td style="font-size:12px;">${r.shippoRate?"$"+esc(r.shippoRate)+"<div class=\"smallhint\">"+esc(r.shippoService||"")+"</div>":'<span class="smallhint">—</span>'}</td>
+        <td style="font-size:12px;">${r.easypostRate?"$"+esc(r.easypostRate)+"<div class=\"smallhint\">"+esc(r.easypostService||"")+"</div>":'<span class="smallhint">—</span>'}</td>
+        <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost||"")}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;"></td>
+        <td class="cc"><button class="btn sm" data-fetch="${esc(r.id)}">Fetch</button></td>`;
+      tb.appendChild(tr);
+    });
+    body.querySelectorAll("[data-actual]").forEach(inp=>{ inp.oninput=()=>{ const rec=DB.shippingComparisons.find(x=>x.id===inp.dataset.actual); if(rec){ rec.ebayActualCost=inp.value; save(); } }; });
+    body.querySelectorAll("[data-fetch]").forEach(btn=>{ btn.onclick=async ()=>{ const rec=DB.shippingComparisons.find(x=>x.id===btn.dataset.fetch); if(rec) await fetchOneComparisonRate(rec, ()=>{ save(); render(); }); }; });
+    body.querySelector("#sc-fetchall").onclick=async ()=>{
+      const msg=body.querySelector("#sc-msg"); const missing=rows.filter(r=>!r.fetchedAt && r.weight);
+      if(!missing.length){ msg.textContent="Nothing to fetch — every record either already has rates, or is missing a weight."; return; }
+      let i=0; for(const r of missing){ i++; msg.textContent="Fetching "+i+" of "+missing.length+"…"; await fetchOneComparisonRate(r); }
+      save(); msg.textContent="Done."; render();
+    };
+    body.querySelector("#sc-export").onclick=()=>{
+      const headers=["Description","Sold Date","Weight (lb)","Length","Width","Height","Ship To City","Ship To State","Shippo Rate","Shippo Service","EasyPost Rate","EasyPost Service","eBay Actual Cost"];
+      const csvRows=[headers.join(",")];
+      rows.forEach(r=>{ const line=[r.desc,r.soldAt?fmtDay(r.soldAt):"",r.weight,r.length,r.width,r.height,r.shipToCity,r.shipToState,r.shippoRate||"",r.shippoService||"",r.easypostRate||"",r.easypostService||"",r.ebayActualCost||""]
+        .map(v=>`"${String(v||"").replace(/"/g,'""')}"`).join(",");
+        csvRows.push(line); });
+      const blob=new Blob([csvRows.join("\n")],{type:"text/csv"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="WIM_Shipping_Comparison_"+new Date().toISOString().slice(0,10)+".csv"; a.click();
+    };
+  }
+  render();
+}
+// Fetches one comparison record's Shippo and EasyPost rates for real, using the item's
+// actual weight/dimensions and the real ship-to address from its order — only runs if a
+// weight was actually entered, since a real rate quote genuinely needs one.
+async function fetchOneComparisonRate(rec, onDone){
+  if(!rec.weight){ uiAlert("This item has no weight entered — open it and fill in Shipping weight & dimensions first."); return; }
+  const from=DB.shipFrom;
+  try{
+    const shippoTok=await carrierGetSecret2("shippo","token");
+    if(shippoTok){
+      const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok,
+        fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
+        toCity:rec.shipToCity, toState:rec.shipToState, toZip:rec.shipToZip, toCountry:rec.shipToCountry||"US",
+        weightLb:rec.weight, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
+      if(r.ok){ try{ const dj=JSON.parse(r.body); const rates=(dj.rates||[]).filter(x=>x.amount);
+        if(rates.length){ rates.sort((a,b)=>parseFloat(a.amount)-parseFloat(b.amount)); rec.shippoRate=parseFloat(rates[0].amount).toFixed(2); rec.shippoService=(rates[0].provider||"")+" "+(rates[0].servicelevel&&rates[0].servicelevel.name||""); } }catch(e){} }
+    }
+  }catch(e){}
+  try{
+    const epKey=await carrierGetSecret2("easypost","key");
+    if(epKey){
+      const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:epKey,
+        fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
+        toCity:rec.shipToCity, toState:rec.shipToState, toZip:rec.shipToZip, toCountry:rec.shipToCountry||"US",
+        weightLb:rec.weight, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
+      if(r.ok){ try{ const dj=JSON.parse(r.body); const rates=(dj.rates||[]);
+        if(rates.length){ rates.sort((a,b)=>parseFloat(a.rate)-parseFloat(b.rate)); rec.easypostRate=parseFloat(rates[0].rate).toFixed(2); rec.easypostService=(rates[0].carrier||"")+" "+(rates[0].service||""); } }catch(e){} }
+    }
+  }catch(e){}
+  rec.fetchedAt=new Date().toISOString();
+  if(onDone) onDone();
 }
 // Tracking number entry — this is the real, working step. Submitting it calls eBay's
 // actual createShippingFulfillment (part of the Fulfillment API we already have access
