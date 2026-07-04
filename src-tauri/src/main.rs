@@ -687,6 +687,7 @@ async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload:
         .post(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
+        .header("Content-Language", "en-US")
         .body(payload.to_string());
     if !marketplace.is_empty() {
         req = req.header("X-EBAY-C-MARKETPLACE-ID", marketplace);
@@ -834,9 +835,18 @@ async fn ebay_upload_picture(env: String, app_id: String, cert_id: String, refre
         Ok(t) => t,
         Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("token error: {}", b) },
     };
-    // Accept either a raw base64 string or a data URL (data:image/...;base64,XXXX)
-    let b64 = if let Some(idx) = image_base64.find("base64,") { &image_base64[idx + 7..] } else { &image_base64[..] };
-    let bytes = match general_purpose::STANDARD.decode(b64.trim()) {
+    // Accept either a raw base64 string or a data URL (data:image/...;base64,XXXX). Locating
+    // the payload by the comma that always separates a data URL's metadata from its actual
+    // content is more robust than searching for the literal text "base64," — that exact
+    // substring can fail to match depending on how the URL was built, and when it does, the
+    // whole "data:image/..." prefix falls straight into the decoder and fails immediately on
+    // the first colon. Also strips any embedded whitespace/newlines, which a valid base64
+    // payload should never contain but which some sources can introduce.
+    let raw = if image_base64.trim_start().starts_with("data:") {
+        match image_base64.find(',') { Some(idx) => &image_base64[idx + 1..], None => &image_base64[..] }
+    } else { &image_base64[..] };
+    let b64: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = match general_purpose::STANDARD.decode(&b64) {
         Ok(v) => v,
         Err(e) => return ApiResult { ok: false, status: 0, body: format!("image decode error: {}", e) },
     };

@@ -426,7 +426,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.2.8", BUILD_DATE="2026-08-24", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
+const APP_VERSION="3.2.31", BUILD_DATE="2026-09-16", SCHEMA_VERSION=13, KEY="WIM_DATA_V2", ADMIN_ID="64";
 const STATIC={ posDepts:["200 - Produce","100 - Grocery","300 - Dairy","400 - Frozen"], sizeUnits:["Pound","Each","Ounce","Case","Gallon"],
   conditions:["New","Open Box","Used - Good","Used - Fair","Refurbished","Damaged"],
   adjustmentTypes:["Damaged","Misc. Sales","Lost","Theft"] };
@@ -484,7 +484,65 @@ function titlesMatch(a,b,fuzzy){ if(normTitle(a)===normTitle(b)) return true; re
 /* Find an existing inventoried item this pulled listing likely duplicates (same fuzzy title + condition within one step). */
 function findDupeCandidate(cat,title,cond){ const fuzzy=!(DB.ebay&&DB.ebay.matchFuzzy===false);
   return (DB.items||[]).find(it=> !it.sold && titlesMatch(title, (it.listing&&it.listing.title)||it.desc, fuzzy) && conditionsWithinOneStep(cat||it.section, cond, it.condition)) || null; }
+// For the Add Item duplicate check specifically — deliberately different rules than the
+// eBay-import matcher above: category and sub category must match exactly (not just used
+// for scale lookup), condition must match exactly (not within a tolerance step), and title
+// is always fuzzy-matched regardless of the eBay import fuzzy-matching setting, since two
+// different people typing the same item's description will rarely type it identically.
+function findAddItemDupeCandidate(section,subCategory,condition,desc,excludeId){
+  return activeItems().find(it=> it.id!==excludeId && it.section===section && (it.subCategory||"")===(subCategory||"")
+    && String(it.condition||"").trim().toLowerCase()===String(condition||"").trim().toLowerCase()
+    && titlesMatch(desc, it.desc, true)) || null;
+}
+// Shown right before a new item is actually created, when something already in inventory
+// looks like it might be the same product — same category, same condition, and a close
+// enough title match (deliberately fuzzy, since two people rarely type the same description
+// identically). A recommendation, not a hard stop — either choice leads to the same real
+// item being created either way, this just makes sure it's a deliberate decision.
+function showAddItemDupePopup(match, onProceed){
+  const groupCount=groupQty(match);
+  const groupsTxt=(match.groups||[]).length?esc(match.groups.join(", ")):"—";
+  const html=`<div style="display:flex;gap:14px;">
+      <div style="flex:0 0 90px;height:90px;border:1px solid var(--line,#dfe3ea);border-radius:8px;overflow:hidden;background:#f6f7f9;display:flex;align-items:center;justify-content:center;">
+        ${match.image?`<img src="${esc(match.image)}" style="width:100%;height:100%;object-fit:cover;">`:'<span style="color:#aaa;font-size:11px;">No photo</span>'}
+      </div>
+      <div style="flex:1;font-size:13px;">
+        <div style="font-weight:600;margin-bottom:2px;">${esc(match.desc)}</div>
+        <div class="smallhint">Condition: ${esc(match.condition||"—")} &middot; Group: ${groupsTxt}</div>
+        <div class="smallhint">${groupCount} already in inventory as this item.</div>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:13px;">This looks like it might already be something you have — add this as another one of the same item, or continue if it's actually different.</div>`;
+  uiModal("Looks like a possible match", html, [
+    {label:"Yes, it's the same item", primary:true, onClick:onProceed},
+    {label:"No, it's different", onClick:onProceed},
+    {label:"Let me check first"}
+  ]);
+}
 const CHANGELOG=[
+  ["3.2.31","Clicking Create+ no longer closes and reopens the window at all for the normal, single-item case -- the same open page now turns itself from a new item into a real, saved one in place. Upload photos and Publish to eBay appear right there the moment creation finishes, with no window closing, no reopening, nothing to click off of first. Everything else that only made sense for a real, existing item -- actually deleting it instead of just closing the form, printing its label -- correctly unlocks at the same moment too, not just the two buttons this was originally about. Creating more than one unit at once, or sending straight to Live, still opens fresh the way it already did, since there is no single page to stay on in those cases."],
+  ["3.2.30","First real listing published successfully end to end. Following straight from that: Upload photos to eBay and Publish to eBay no longer appear at all on a brand new, not-yet-created item -- a real note takes their place instead, saying to create it first. The main button for a new item is now labeled Create+ instead of List Inventory, making the actual required first step clearer. Once that button creates the item, the existing reopen-in-edit-view behavior means Upload photos and Publish appear automatically at exactly that point -- there is no longer a way to reach either button before the item genuinely exists, which is exactly the sequence that caused the quantity-of-zero issue found earlier."],
+  ["3.2.29","Found another real, concrete cause on the same test item, once the header fix and the workflow order were both accounted for: Language was being sent as lowercase english, but a restricted, pick-from-a-list aspect on eBay own side often only accepts an exact-case match against its real value list -- and eBay genuinely has English, capitalized, not the lowercase version a past seller happened to type when the original listing was created. Since WIM already stores eBay own real, valid values for a category aspects, added real normalization: whenever a captured value matches one of eBay own known values case-insensitively, it now sends eBay own exact casing instead of whatever casing happened to be captured -- not just for Language, for any restricted aspect this could affect."],
+  ["3.2.28","Found and fixed a real, confirmed gap in the actual network layer, using eBay own exact error: Invalid value for header Content-Language. The function that creates the eBay inventory item record has always correctly included this header, but the shared function behind creating an offer, publishing it, delisting, and every other write call that goes through it never has -- confirmed directly by reading every POST request in the whole codebase one at a time, not assumed. Every one of those calls now correctly includes it, matching what the inventory item call has always done. Also confirmed a real workflow point worth remembering: an item needs to actually be created (Create/Save) before Publish to eBay has real quantity and SKU data to work with -- publishing before that step is the direct cause of a quantity of zero showing up in what gets sent."],
+  ["3.2.27","Genre split correctly this time, but Author paid the price -- Rowling, J. K. got split into two separate values, which is wrong, since that is one person name in Last, First format, not two different authors. The category-level multi-value flag was never precise enough on its own -- eBay marks Author as allowed to hold multiple values because some books genuinely have several co-authors, but that says nothing about whether this particular comma is separating two values or is just part of how one name is written. Found the actual, precise fix: eBay own response for every aspect already includes a real per-item, per-field type of exactly STRING or STRING_ARRAY, which says definitively whether that specific value is one thing or several -- not a guess about the aspect in general. This is now captured directly from eBay at the moment a photo match gets pulled in, and takes priority over the old category-level guess whenever it is available. One real thing to know: this only applies going forward -- the Harry Potter test item already in progress was created before this existed, so it never captured this data and will still fall back to the old guess for Author specifically. That one field needs a one-time manual fix on that particular item; anything pulled in fresh through Find by Photo from here on should get this right automatically."],
+  ["3.2.26","The Genre rejection from a few updates back was still happening on the same test item, exactly as flagged at the time -- that fix could only take effect once a category own aspect data got refreshed with the new multi-value flag, and this Books category had never been re-pulled since. Rather than leave that as a manual step someone has to remember, Publish to eBay now checks for this itself -- if a category own stored aspect definitions predate the multi-value flag, it silently refreshes them from eBay first, automatically, before building anything to send. No more relying on remembering to re-run Find by Photo or the magnifying glass just to pick up a fix that already shipped."],
+  ["3.2.25","Found the actual, final cause after the last fix did not resolve it -- a clean rebuild with nothing cached confirmed the real problem was somewhere else entirely. Traced offset 5 again for an item created through Find by Photo specifically, and it points precisely at the colon in https:// -- because that photo was never local image data to begin with. Find by Photo stores the real, live thumbnail straight from eBay own search results, a genuine remote URL on eBay CDN, and Upload photos to eBay was trying to treat that URL as base64 data to decode and re-upload, which was never going to work. The actual fix: eBay own Inventory API already accepts an already-hosted HTTPS image URL directly, so a photo that is already a real eBay URL now passes straight through instead of being run through a decode step that was never appropriate for it in the first place -- confirmed by tracing the exact line that stores that URL, not by guessing."],
+  ["3.2.24","Found the real cause of the photo upload decode error, using the exact error text surfaced last update -- HTTP 0 meant this was failing before any network call even happened, and the character position pointed precisely at the colon in data:image/..., meaning the code that is supposed to strip that prefix was not matching it for this photo. It was searching for the literal text base64, -- which can fail to match depending on exactly how the image data was built -- instead of locating the payload the more reliable way, by the comma that always separates a data URL own metadata from its actual content. Fixed to use that instead, and now also strips any stray whitespace from the payload before decoding as an extra safeguard."],
+  ["3.2.23","Same real problem as the eBay publish error, just in a different spot: Upload photos to eBay was only ever reporting a failed photo count, with the actual reason hidden behind see console -- meaning genuinely diagnosing it required opening developer tools, which most people would have no reason to know how to do. Each failed photo now shows its own real eBay response directly in the message, with a Copy Error button right there, matching the same fix already made for Publish to eBay. No upload failure should send anyone looking for a console again."],
+  ["3.2.22","Found and fixed the real cause of the Publish to eBay rejection, using the actual payload copied over. eBay reports a genuinely multi-value aspect, like Genre, as one comma-joined string, and WIM was sending that whole joined string back as a single value -- Adventure, Fantasy, Magic as one value instead of three -- which eBay rejects outright for a restricted-choice aspect. The fix had to be more careful than just splitting every aspect on a comma, though -- an aspect like Author is legitimately one value that happens to contain a comma (Rowling, J. K.), and splitting that would have turned one correct value into two wrong ones. So this now only splits when eBay own category metadata confirms that specific aspect genuinely accepts multiple values, never based on a guess about the aspect name or its punctuation. One real thing to know: this depends on aspect metadata WIM had not been capturing before now, so a category already cached from an earlier pull will need its aspects pulled fresh again (Find by Photo, or the magnifying glass) before this takes effect for it -- it will not silently retrofit data already stored under the old, incomplete capture."],
+  ["3.2.21","Fixed bad guidance given for reading a Publish to eBay error -- the previously-suggested List on eBay button only works on an item that has already been saved once, so it was never going to help on a brand new item, which is exactly when this error tends to show up. Publish to eBay itself now shows the real payload WIM sent directly underneath the error, with a real Copy Error button right there -- no separate screen, no navigating anywhere, everything needed to actually diagnose a rejected listing is right where the error already appears."],
+  ["3.2.20","Real fix for a genuine dead end: eBay does not offer an easy, discoverable screen for setting up an inventory location the first time -- confirmed directly, their own documentation points sellers using the API straight at the API itself, not a Seller Hub page. Listing Setup now has a real Create a new location option right in WIM, calling eBay own createInventoryLocation directly with a name and address -- no more being sent to go hunting through eBay Seller Hub for a screen that is difficult to find. Creating one automatically reloads the list and it is ready to select right away."],
+  ["3.2.19","The waiting-to-be-stored indicator is now the actual shelf icon supplied, not a yellow text box -- shown consistently on Add Item, Bulk Add, and every item landing page now, not just new ones, greyed out with no count when nothing is pending. The Warehouse SKU dropdown next to an item multi-unit field is now genuinely interactive -- it already existed as a read-only list, but clicking a row now actually switches to viewing that specific unit, which it never did before. Full layout overhaul of Bulk Add Inventory: Item Description and Item Number are now one combined field, Item Number shown as a small greyed Auto Filled hint underneath; Category and Sub Category combined the same way; Manual Slot and Warehouse SKU -- previously two separate, confusingly-overlapping fields -- are now one real Warehouse SKU field with an Auto SKU placeholder, typing into it manually places it. The description box now has its template picker as a small corner control instead of a separate row eating space, and the text area itself grows downward automatically as more is typed instead of staying a fixed cramped height. Found and fixed a real column-alignment bug while rebuilding this table -- the editable row had one more cell than its own header accounted for, which would have visually misaligned every column after Warehouse SKU."],
+  ["3.2.18","Real fixes for four separate, serious problems reported after testing. The blank-screen bug is back -- properly this time: did a real, exhaustive audit of the entire item page function using actual brace-boundary analysis rather than just searching for the one pattern fixed before, and found the exact same root cause (a variable reference that silently falls back to the browser own window-closing function) in three more places -- the actual Save success path, Add & Send, and Delete -- all fixed together this time, confirmed as the only function in the whole codebase using the specific pattern that made this possible. Also redesigned what happens on success entirely: creating a new item no longer closes the window at all -- it closes the temporary new-item view and immediately reopens the same item as a real, fully-rendered, already-saved page, with a genuine green success confirmation, instead of ever risking a blank screen. Create a slot for this category now correctly opens Warehouse Maintenance as a real separate window instead of overwriting the item page you were in the middle of creating -- confirmed the exact cause was calling the screen directly instead of through the proper separate-window mechanism, and fixed to preserve the category prefill across that real window boundary. Found and fixed the actual cause of the eBay Offline badge forcing a dead end toward the admin-only connection screen: a device that already has any local eBay credentials at all -- even stale ones left over from before the OAuth scope fix required reconnecting -- was never rechecking the cloud for newer ones. Clicking the badge now forces a fresh cloud pull before giving up, and the fallback message itself is honest about who it is talking to -- staff are told to ask an administrator, never pointed at a screen they cannot open. Also traced the reported cost-auto-fill bug to its real cause: since a new item previously defaulted to a real, already-selected vendor, the change event that triggers the cost suggestion never had a reason to fire. New items now correctly default to no vendor at all, which was also requested directly -- and Vendor Management has a real pin button letting one vendor be set as the actual default instead, if that is genuinely wanted."],
+  ["3.2.17","Bulk Add now has real per-row Vendor and Unit Cost columns, replacing the single default vendor previously applied to every row in a batch. Picking a vendor on a row suggests that vendor own current Unit Costing average automatically, exactly like the single Add Item screen -- editable, and never overwrites a deliberately typed-in figure. Item creation now draws from the real vendor and cost on each individual row instead of one shared default for the whole batch, so a Bulk Add session buying from several different vendors at once now costs correctly, vendor by vendor, row by row."],
+  ["3.2.16","New Unit Costing (Item Maintenance, Supervisor and up), Assumed GM%, and a new Shipping Data application. Unit Costing tracks a real running pool per vendor -- record what you paid for a batch of units, and WIM suggests the current average cost automatically the moment that vendor is picked on a new item, in both Add Item and Bulk Add. The real trick this was built around: whatever cost actually ends up saved on an item -- the suggested average, or a deliberately typed-in override -- is what gets drawn out of the pool, so paying more for a higher-priced item genuinely leaves less average cost for what is left, recalculating every time, not just splitting evenly forever. New Assumed GM% field on an item Listing Details -- read-only, recalculates live as Price or Cost change, factoring in an assumed shipping cost for that category. New Shipping Data screen in Configuration for that assumption -- a manual, editable cost per category plus a flat packaging and label cost, with an honest note that this is a real placeholder for now, not a guess dressed up as fact, until real historical shipping data exists to replace it with an actual average instead."],
+  ["3.2.15","New running pending-storage queue, shared across Add Item, Bulk Add, and a new Missing Item screen in Discrepancies. Every item created now starts as waiting to be physically stored -- a real running count shows right at the top of both Add Item and Bulk Add, so nothing needs to be written down or searched for separately. Clicking it shows every item still waiting, with its real warehouse SKU, and a Select All plus Mark Stored action to confirm a whole batch is placed at once. Existing inventory was not swept into this backlog -- only items created going forward start genuinely pending, so this does not suddenly flood anyone with years of existing stock. New Missing Item screen in Discrepancies doubles as the same pending list and a real troubleshooting tool -- search any item, even ones already marked stored, and see everything else that was added in the same batch (one Add Item save, or one whole Bulk Add Create click) with where each one is supposed to be, for checking nearby spots if something got swapped. The Discrepancies tree badge for Missing Item shows the same real count as the queue itself."],
+  ["3.2.14","New duplicate-item recommendation when adding a new item. Right before a new item is actually created, WIM now checks whether something already in inventory looks like the same product -- same category and sub category (exact), same condition (exact), and a close enough description match, deliberately fuzzy on purpose since two different people rarely type the same description identically. If something matches, a real popup shows the existing item photo, description, condition, and how many are already in inventory as that item, and asks whether this is the same thing or genuinely different. Either answer leads to the same real creation either way -- this is a recommendation, not a gate -- the new item still gets its own real Item Number and warehouse SKU exactly as before, and if it is confirmed as the same product, it automatically joins that product group the moment it is created, since that is exactly what the matching-content grouping fix from the last update already does on its own."],
+  ["3.2.13","New Reserve Item, and a real, significant bug found and fixed while building it. Tracing through exactly how Reserve Item needed to work led to discovering that the function deciding how many of an item to actually list on eBay was matching multiple physical units by Item Number -- but every unit gets a unique Item Number by design, so it could never actually find more than one match. In practice this means every multi-quantity product was very likely only ever being listed as quantity 1 on eBay, regardless of how many physical copies actually existed -- confirmed and fixed by grouping on what actually makes several units the same product instead: matching description, category, and condition. Since nothing has actually been listed live yet, this fix applies cleanly with nothing to reconcile. New Reserve Item checkbox on an item Listing Details -- grayed out when only one unit exists, otherwise lists just one at a time so buyers never see the real total quantity. The moment a reserved unit sells, the next available one lists automatically -- no one has to notice and relist by hand. Also added a real, searchable Reserve Item filter to Item Maintenance Search."],
+  ["3.2.12","Real fix to when the warehouse slot actually shifts. The previous version tied the shift to Mark Shipped, which was the wrong moment -- an item can sit in the shipping area for days waiting to actually ship, during which the slot would still have shown it as present even though the shelf was already empty. New Mark Picked action in Ready to Ship represents the real moment -- physically taken off the shelf and carried to the shipping area -- and this is what actually triggers the shift now, not shipping confirmation. Ready to Ship shows a real Picked/On shelf status per item so it is visible at a glance which ones have already left their slot. Mark Shipped no longer independently triggers a shift -- it is kept only as a guarded fallback for anyone who skips straight to it without marking picked first, so the SKU still corrects itself rather than staying stale, but the real, correct workflow now shifts the moment the item is actually picked."],
+  ["3.2.11","Foundational change to how the Warehouse SKU works, and what actually identifies an item to eBay. The Item Number (auto-generated at creation) is now the one true, permanent identity for an item -- through listing, selling, and the catalog -- and this is now what actually gets sent to eBay as the real SKU, not the warehouse position code. Found and fixed every place that depended on the old assumption: the real publish call, the debug/manual eBay-push screen, and matching incoming eBay orders back to the correct local item, which now matches by Item Number instead, since that is what eBay reports back going forward. The Warehouse SKU is now purely positional -- what slot and position an item currently sits in, nothing more -- and is genuinely dynamic: the moment an item is actually marked shipped or picked up, every remaining item in that slot with a higher position number shifts down by one, so a slot always reads as a clean, gapless 1..N sequence instead of a lone item stranded at position 8. Also found and fixed a real, related bug while building this: slot occupancy was previously being freed the moment an item was marked sold, before it had actually left the shelf -- meaning a brand new item could theoretically have been assigned the exact same physical spot a not-yet-shipped item was still sitting in. An item now correctly keeps holding its slot position until it is actually shipped or picked up, matching physical reality. Scoped precisely to the sold-and-shipped workflow described -- manual slot moves and inventory adjustments do not currently trigger a shift, since that was not part of what was asked for here."],
+  ["3.2.10","Real local pickup detection. Confirmed directly against eBay own API docs first: order data includes a genuine field marking Local Pickup and Click and Collect orders specifically, so this is detected automatically from the real order the moment it gets pulled -- not a manual flag anyone has to remember to set. Recently Sold now shows a real Fulfillment column, Shipping in blue or Pickup in green, and pickup orders get their own Mark Picked Up action that goes straight to Completed, bypassing Ready to Ship and Shipping entirely, per the request. The Completed tab in Shipping shows the same Shipping/Pickup badge too, since both kinds of orders end up there together, and the date column now correctly shows the actual pickup date instead of a misleading blank for pickup orders that were never shipped at all."],
+  ["3.2.9","Real cancellation and refund detection, plus a real restock workflow. Confirmed the exact mechanics directly against eBay own API docs first: the bulk order-list call never returns real cancellation detail, only checking one order at a time does, so this checks individually rather than guessing from the bulk data. New Cancelled Orders screen (Discrepancies) -- a confirmed cancellation automatically pulls the item out of Ready to Ship so nothing gets shipped by mistake, with a real Restock button that puts it back into active inventory and reposts the actual listing on eBay, reusing the exact same publish path a brand new listing uses. New Refunds screen tracking both full and partial refunds identically, treated as a loss for now per the decision made on this -- not an automatic restock path, since a refunded item may or may not have actually come back physically. Both are manual, on-demand checks rather than a silent background poll, since checking every order individually has a real API cost that scales with however many orders are outstanding."],
   ["3.2.8","Fixed the real cause of Load my business policies failing with eBay invalid_scope. Traced this all the way back to the original Connect with eBay flow: the request sent to eBay for a refresh token only ever asked for two of the four scopes WIM actually uses -- sell.inventory and commerce.message -- never sell.account.readonly (business policies, inventory locations) or sell.fulfillment (pulling real orders). A refresh token only ever carries what was actually requested at the moment someone approved it, so no code fix alone could repair an already-issued token missing those grants -- reconnecting is required after this update to actually get a token that carries all four. This same root cause would also have been silently blocking real order pulling (Recently Sold), not just business policies, since sell.fulfillment was equally missing before this fix."],
   ["3.2.7","Fixed the GitHub Actions build failure on the v3.2.6 release tag -- the auto-update signing step was failing with a wrong-password error on the updater private key. Rather than try to debug a password that could not be verified from here, generated a completely fresh signing keypair and updated the app own bundled public key to match it -- the old public key baked into the app would not have verified signatures made with a new private key, which would have caused a second, different failure even after the GitHub secret itself got fixed. Both GitHub secrets (TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD) need to be updated with the new values before tagging and pushing this version -- see the delivered key file and the exact password for what to paste in."],
   ["3.2.6","Final chunk of this round: real Photo Default folder and the eBay cloud architecture. New Configuration -> Photo Default -- a genuine native OS folder picker (a browser file input has no way to be told which folder to start in, that is a real, permanent limitation, not something any amount of JS can work around), wired through a dedicated command rather than guessing at whether a plugin JS API would be auto-exposed the way core window APIs are, since this project has no build step to import it directly. Add Photo on the main item page now uses the real native picker starting in that saved folder when one is set, falling back to the normal picker otherwise. The eBay connection question from the last round: built exactly what was proposed and reasoned through -- eBay credentials are now genuinely shared through the cloud the same way staff accounts already are, so one admin connects once, ever, and every other device on the team automatically has real, working eBay access with nobody else ever entering a login. Also found and fixed a real, concrete gap while building this: the screen that shows the actual raw credentials in plain form fields was only gated at a low permission tier, meaning regular staff could already open it and see them directly -- confirmed directly in the code and restricted to admin only, both in the interface and, for actually setting new credentials, enforced server-side as well, not just hidden in the UI. This closes out the entire batch from this round of feedback."],
@@ -672,6 +730,7 @@ const POPOUT_APPS={
   printqueue:{ title:"Print Queue", open:()=>openPrintQueue() },
   dashwidgets:{ title:"Dashboard Widgets", open:()=>openDashWidgets() },
   photodefault:{ title:"Photo Default", open:()=>openPhotoDefault() },
+  shippingdata:{ title:"Shipping Data", open:()=>openShippingData() },
   itemrank:{ title:"Item Rank", open:()=>openItemRank() },
   listingeff:{ title:"Listing Efficiency", open:()=>openListingEfficiency() },
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
@@ -679,6 +738,9 @@ const POPOUT_APPS={
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
   listingreview:{ title:"Listing Review", open:()=>openListingReview() },
+  cancelledorders:{ title:"Cancelled Orders", open:()=>openCancelledOrders() },
+  refunds:{ title:"Refunds", open:()=>openRefunds() },
+  missingitem:{ title:"Missing Item", open:()=>openMissingItem() },
   recentlysold:{ title:"Recently Sold", open:()=>openRecentlySold() },
   recentlylisted:{ title:"Recently Listed", open:()=>openRecentlyListed() },
   fulfillmentaccuracy:{ title:"Fulfillment Accuracy", open:()=>openFulfillmentAccuracy() },
@@ -695,6 +757,7 @@ const POPOUT_APPS={
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
   categories:{ title:"Category Maintenance", open:()=>openListMaintenance("section") },
   groups:{ title:"Group Maintenance", open:()=>openListMaintenance("group") },
+  unitcosting:{ title:"Unit Costing", open:()=>openUnitCosting() },
   adjustcfg:{ title:"Adjustment Configuration", open:()=>openListMaintenance("adjustment") },
   about:{ title:"About", open:()=>openAbout() },
   users:{ title:"Modify Users", open:()=>openModifyUsers() },
@@ -947,16 +1010,16 @@ function migrate(d){
       { id:"basic", name:"Basic", rank:0, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access"] },
       { id:"warehouse", name:"Warehouse", rank:1, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
-        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","movement_report","item_rank"] },
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","item_report","movement_report","item_rank"] },
       { id:"product_lister", name:"Product Lister", rank:2, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
-        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","movement_report","item_rank",
-        "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","listing_functions","communication"] },
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","item_report","movement_report","item_rank",
+        "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","cancelled_orders","refunds","listing_functions","communication"] },
       { id:"supervisor", name:"Supervisor", rank:3, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
-        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","print_configuration","aging_inventory_report","item_report","movement_report","item_rank",
-        "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","listing_functions","communication",
-        "modify_users","create_new_users","financials","productivity_widgets","listing_review","fulfillment_accuracy"] },
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","item_report","movement_report","item_rank",
+        "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","cancelled_orders","refunds","listing_functions","communication",
+        "modify_users","create_new_users","financials","productivity_widgets","listing_review","fulfillment_accuracy","unit_costing","shipping_data"] },
       { id:"admin", name:"Admin", rank:4, features:["*"] }
     ];
   }
@@ -977,6 +1040,8 @@ function migrate(d){
       { key:"ebay_connection_admin", label:"eBay Connection (shows real credentials)", category:"Supervisor" },
       { key:"category_maintenance", label:"Category Maintenance", category:"Warehouse" },
       { key:"group_maintenance", label:"Group Maintenance", category:"Warehouse" },
+      { key:"unit_costing", label:"Unit Costing", category:"Supervisor" },
+      { key:"shipping_data", label:"Shipping Data", category:"Supervisor" },
       { key:"add_inventory", label:"Add Inventory", category:"Warehouse" },
       { key:"bulk_add_inventory", label:"Bulk Add Inventory", category:"Warehouse" },
       { key:"adjust_inventory", label:"Adjust Inventory", category:"Warehouse" },
@@ -997,6 +1062,9 @@ function migrate(d){
       { key:"bulk_list_items", label:"Bulk List Items", category:"Product Lister" },
       { key:"sku_not_listed", label:"SKU not Listed", category:"Product Lister" },
       { key:"ready_to_list", label:"Ready to List", category:"Product Lister" },
+      { key:"cancelled_orders", label:"Cancelled Orders", category:"Product Lister" },
+      { key:"missing_item", label:"Missing Item", category:"Warehouse" },
+      { key:"refunds", label:"Refunds", category:"Product Lister" },
       { key:"listing_functions", label:"Listing Functions (push to eBay)", category:"Product Lister" },
       { key:"communication", label:"Communication", category:"Product Lister" },
       { key:"reviews", label:"Reviews", category:"Product Lister" },
@@ -1053,6 +1121,9 @@ function migrate(d){
   if(!Array.isArray(d.agendaMessagesCache)) d.agendaMessagesCache=[];
   if(!Array.isArray(d.sentMessages)) d.sentMessages=[];
   if(!d.messageDrafts || typeof d.messageDrafts!=="object") d.messageDrafts={};
+  if(!d.vendorCosting || typeof d.vendorCosting!=="object") d.vendorCosting={};
+  if(!d.shippingData || typeof d.shippingData!=="object") d.shippingData={ byCategory:{}, packagingCost:"0.00" };
+  if(d.pinnedVendor===undefined) d.pinnedVendor="";
   if(!d.agendaReadByUser || typeof d.agendaReadByUser!=="object") d.agendaReadByUser={};
   if(typeof d.agendaCollapsed!=="boolean") d.agendaCollapsed=true;
   // Per-application zoom (Ctrl +/-), 5% per step, persisted per app so it's always
@@ -1133,6 +1204,10 @@ function migrate(d){
     if(it.imageFeatured==null) it.imageFeatured = 0;
     if(!it.aspects || typeof it.aspects!=="object") it.aspects={};
     if(!it.listing || typeof it.listing!=="object") it.listing={ status:"none", title:"", price:"", qty:"1", descriptionId:null, ebayOfferId:null, ebaySku:null, listedAt:null, delistedAt:null };
+    if(it.listing.reserveItem==null) it.listing.reserveItem=false;
+    if(it.storedAt===undefined) it.storedAt=it.createdAt||new Date().toISOString(); // existing items: already stored, not a new pending backlog
+    if(!it.aspectTypes || typeof it.aspectTypes!=="object") it.aspectTypes={};
+    if(it.storageBatchId===undefined) it.storageBatchId=null;
   });
   (d.invoices||[]).forEach(r=>{ if(!r.type) r.type="Sell"; (r.lines||[]).forEach(l=>{ if(!l.mode) l.mode="sold"; }); });
   d.users.forEach(u=>{ if(!u.role){ u.role=(u.id===ADMIN_ID||u.isAdmin)?"admin":"user"; } u.isAdmin=(u.role==="admin"); });
@@ -1243,23 +1318,23 @@ async function pushEbayCredsToCloud(env, appId, certId, refreshToken, ruName){
 // automatically. This is what makes a brand new device just work with zero setup, the
 // moment it's logged in and cloud-connected, instead of needing anyone to repeat the
 // original eBay login on it.
-async function pullEbayCredsFromCloudIfNeeded(){
-  if(!cloudSession) return;
+async function pullEbayCredsFromCloudIfNeeded(force){
+  if(!cloudSession) return false;
   try{
     const already = DB.ebay && DB.ebay.refreshToken;
-    if(already) return; // this device already has real, working credentials of its own
+    if(already && !force) return false; // this device already has credentials of its own — only skip when NOT explicitly forced
     const r=await Cloud.getEbayCredentials(cloudSession.session_token);
-    if(!r.ok) return;
+    if(!r.ok) return false;
     let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
-    const row=rows&&rows[0]; if(!row || !row.refresh_token) return;
+    const row=rows&&rows[0]; if(!row || !row.refresh_token) return false;
     const env=row.env||"production";
     if(!DB.ebay.creds) DB.ebay.creds={};
     DB.ebay.creds[env]={ appId:row.app_id||"", certId:row.cert_id||"", refreshToken:row.refresh_token||"", ruName:row.ru_name||"" };
     DB.ebay.env=env; DB.ebay.appId=row.app_id||""; DB.ebay.certId=row.cert_id||""; DB.ebay.refreshToken=row.refresh_token||""; DB.ebay.ruName=row.ru_name||"";
     DB.ebay.marketplace=DB.ebay.marketplace||"EBAY_US"; DB.ebay.connected=true;
     save(); await vaultStoreEbaySecrets(env, row.cert_id, row.refresh_token);
-    try{ connectEbay(true); }catch(e){}
-  }catch(e){ /* this device just stays without eBay access until it can reach the cloud again */ }
+    return true;
+  }catch(e){ return false; /* this device just stays without eBay access until it can reach the cloud again */ }
 }
 async function restoreEbaySecretsFromVault(){
   if(!DB.ebay) return;
@@ -1302,7 +1377,7 @@ async function attemptDeviceCloudLogin(user){
     const row=rows&&rows[0]; if(!row) return;
     cloudSession=row; save();
     try{ paintCloudBadge(); }catch(e){}
-    try{ pullEbayCredsFromCloudIfNeeded(); }catch(e){}
+    try{ pullEbayCredsFromCloudIfNeeded().then(ok=>{ if(ok) connectEbay(true); }); }catch(e){}
   }catch(e){ /* silent — local login already succeeded regardless */ }
 }
 async function refreshSyncPausedState(){
@@ -1652,6 +1727,19 @@ function activeFeedbackSummary(){
   return { positivePercent:(pos+neg)>0?Math.round((pos/(pos+neg))*1000)/10:(entries.length?98.5:null), fetchedAt:entries.length?new Date().toISOString():null };
 }
 function activeItems(){ return visibleItems().filter(i=>!i.sold && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold"); }
+// Items created but not yet confirmed physically placed in their slot — the shared queue
+// behind both the running count at the top of Add Item/Bulk Add and the Missing Item screen.
+function pendingStorageItems(){ return activeItems().filter(i=>!i.storedAt); }
+// The waiting-to-be-stored icon+count, shared across Add Item, Bulk Add, and every item
+// landing page — same icon everywhere, just greyed out when there's nothing pending.
+function pendingStorageBadgeHtml(id){
+  const n=pendingStorageItems().length;
+  return `<button class="btn sm" id="${id}" title="${n?n+' item(s) waiting to be confirmed stored':'Nothing waiting to be stored'}" style="display:inline-flex;align-items:center;gap:5px;opacity:${n?'1':'.4'};">
+    <span style="width:16px;height:16px;display:inline-flex;color:${n?'#c98a1b':'#8a95a3'};">${I.shelf}</span>${n?`<span style="font-weight:700;">(${n})</span>`:''}</button>`;
+}
+// Everything created in the same batch as this item (one Add Item save, or one Bulk Add
+// Create click) — used by Missing Item to show where else to check for a possible swap.
+function batchMates(it){ if(!it.storageBatchId) return []; return activeItems().filter(i=>i.storageBatchId===it.storageBatchId && i.id!==it.id); }
 function soldItems(){ return visibleItems().filter(i=>i.sold||itemStatus(i)==="inactive"); }
 function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"); }
 // ---- Fulfillment workflow data ----
@@ -1659,11 +1747,38 @@ function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"
 // order it came from, the buyer's shipping info, and which stage it's at within
 // Fulfillment (recentlySold -> readyToShip/shipped -> completed). Kept separate from the
 // item's normal fields so a reactivated/returned item doesn't carry stale shipping data.
-function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"recentlySold", orderId:null, lineItemId:null, buyer:null, shipTo:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
+function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"recentlySold", orderId:null, lineItemId:null, buyer:null, shipTo:null, isPickup:false, pickedAt:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
 function fulfillmentItems(stage){ return visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage===stage); }
 function createdItems(){ return visibleItems().filter(i=>itemStatus(i)==="created"); }
-function activeInSlot(slotId,ex){ return activeItems().filter(i=>i.slot===slotId&&i.id!==ex); }
+// Real physical slot occupancy — deliberately NOT the same as activeItems(), which excludes
+// anything sold the moment it's marked sold. An item sold but not yet shipped or picked up
+// is still physically sitting in its slot, so it needs to keep blocking that placement
+// number until the actual departure is confirmed — otherwise a brand new item could be
+// assigned the exact same physical spot a not-yet-shipped item is still occupying.
+function stillInSlot(it){
+  if(itemStatus(it)==="inactive") return false;
+  if(!it.sold) return true;
+  // The real signal is whether it's actually been physically carried off the shelf yet —
+  // not whether shipping has gotten around to confirming it, which can trail behind by
+  // days. A sold item that hasn't been picked yet is still sitting right where it was.
+  return !(it.fulfillment && it.fulfillment.pickedAt);
+}
+function activeInSlot(slotId,ex){ return DB.items.filter(i=>i.slot===slotId&&i.id!==ex&&stillInSlot(i)); }
 function takenPlacements(slotId,ex){ return new Set(activeInSlot(slotId,ex).map(i=>i.placement)); }
+// Runs the moment an item is confirmed shipped or picked up — every other item still
+// physically in that same slot with a higher position number shifts down by one, so the
+// slot always reads as a clean 1..N sequence with no gaps, matching the numbering choice
+// made for this. The departed item's own sku/slot/placement fields are left exactly as
+// they were at that moment — a historical snapshot, not something anyone needs going
+// forward, since the item number (not the warehouse SKU) is what actually identifies it
+// from here on.
+function shiftSlotDown(slotId, departedPlacement){
+  if(!slotId || departedPlacement==null) return;
+  const affected=DB.items.filter(i=>i.slot===slotId && stillInSlot(i) && i.placement>departedPlacement);
+  affected.sort((a,b)=>a.placement-b.placement);
+  affected.forEach(i=>{ const oldSku=i.sku; i.placement=i.placement-1; i.sku=skuOf(slotId,i.placement);
+    addHistory(i,"Warehouse SKU shifted "+oldSku+" → "+i.sku+" (slot position closed up)"); });
+}
 function lowestPlacement(slotId,ex){ const s=slotById(slotId); if(!s) return null; const t=takenPlacements(slotId,ex);
   for(let p=1;p<=s.skuLimit;p++){ if(!t.has(p)) return p; } return null; }
 function autoSlot(ex,category){ const c=DB.slots.filter(s=>!s.manualOnly&&(category==null||slotHasCat(s,category))&&activeInSlot(s.id,ex).length<s.skuLimit);
@@ -1720,10 +1835,29 @@ function fmtDay(iso){ if(!iso)return "—"; return new Date(iso).toLocaleDateStr
 
 /* ---- item-number grouping (same Item Number = quantity of one item) ---- */
 function skuCmp(a,b){ const sa=a||"\uffff", sb=b||"\uffff"; return sa.localeCompare(sb,undefined,{numeric:true}); }
-function groupKey(it){ const n=(it.upc||"").trim(); return n?("#"+n):("@"+it.id); } // blank item numbers stay individual
-function unitsOf(it){ // active units sharing this item number, ordered by SKU (closest to A.1.01 first)
+// Groups by matching content, not Item Number — every physical unit gets its own unique
+// Item Number by design (individually trackable), so matching on that would never find more
+// than one unit per group. What actually makes several records "the same product" is the
+// same description, same category, and same condition.
+function groupKey(it){ return [String(it.desc||"").trim().toLowerCase(), it.section||"", it.subCategory||"", String(it.condition||"").trim().toLowerCase()].join("‡"); }
+// Unit Costing pool, per vendor. A purchase adds units and dollars to the pool; every time
+// an item is actually created against that vendor, one unit is drawn out at whatever cost
+// actually ends up saved on it — the current suggested average, or a manually typed-in
+// override — and the pool's average recalculates from what's left, exactly matching the
+// worked example this was designed around: 10 units at $100 (avg $10), first item saved at
+// a deliberately higher $19 leaves 9 units and $81 remaining (new avg $9), not a flat $10
+// forever.
+function vendorPool(vendor){ if(!vendor) return null; if(!DB.vendorCosting[vendor]) DB.vendorCosting[vendor]={ unitsRemaining:0, costRemaining:0, purchases:[] }; return DB.vendorCosting[vendor]; }
+function vendorAvgCost(vendor){ const p=DB.vendorCosting[vendor]; if(!p || !p.unitsRemaining) return null; return p.costRemaining/p.unitsRemaining; }
+function vendorDrawUnit(vendor, actualCost){ const p=DB.vendorCosting[vendor]; if(!p || p.unitsRemaining<=0) return;
+  p.unitsRemaining-=1; p.costRemaining=Math.max(0, p.costRemaining-(parseFloat(actualCost)||0)); }
+function unitsOf(it){ // active units of the same product (matching description/category/condition), ordered by SKU (closest to A.1.01 first)
   const k=groupKey(it); return activeItems().filter(x=>groupKey(x)===k).sort((a,b)=>skuCmp(a.sku,b.sku)); }
 function groupQty(it){ return unitsOf(it).reduce((n,u)=>n+(parseFloat(u.onHand)||1),0); }
+// What actually gets sent to eBay as the listing quantity — the real count, unless Reserve
+// Item is on, in which case it's always 1 regardless of how many physical copies exist, so
+// buyers never see the real total.
+function listingQty(it){ return (it.listing&&it.listing.reserveItem) ? 1 : groupQty(it); }
 function firstUnit(it){ const u=unitsOf(it); return u[0]||it; }
 function groupActive(){ // one representative per item-number group, rep = lowest SKU
   const seen={}, out=[];
@@ -1852,6 +1986,7 @@ function renderTaskbar(){ tbWindows.innerHTML="";
 const ICON_CLOUD_ON='<svg width="17" height="13" viewBox="0 0 24 18" fill="none"><path d="M7 14.5C4.5 14.5 2.5 12.5 2.5 10C2.5 7.7 4.2 5.8 6.4 5.55C7.1 3.1 9.35 1.3 12 1.3C15.1 1.3 17.65 3.7 17.95 6.75C20.2 7.05 22 8.95 22 11.25C22 13.75 19.95 15.8 17.4 15.8H7.3C7.2 15.8 7.1 15.75 7 15.75" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_CLOUD_OFF='<svg width="17" height="13" viewBox="0 0 24 18" fill="none"><path d="M7 14.5C4.5 14.5 2.5 12.5 2.5 10C2.5 7.7 4.2 5.8 6.4 5.55C7.1 3.1 9.35 1.3 12 1.3C15.1 1.3 17.65 3.7 17.95 6.75C20.2 7.05 22 8.95 22 11.25C22 13.75 19.95 15.8 17.4 15.8H7.3C7.2 15.8 7.1 15.75 7 15.75" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><line x1="1.5" y1="17" x2="22.5" y2="1" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round"/></svg>';
 const I={
+  shelf:`<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 1h1.4v14H2zM12.6 1H14v14h-1.4z"/><path d="M2 5h12v1H2zM2 10h12v1H2z"/><rect x="3.5" y="2" width="3.6" height="2.6" rx=".3"/><rect x="7.6" y="2.4" width="2.6" height="2.2" rx=".3"/><rect x="3.5" y="6.2" width="2.3" height="2.2" rx=".3"/><rect x="6.2" y="6.2" width="2.3" height="2.2" rx=".3"/><rect x="8.9" y="6.2" width="2.3" height="2.2" rx=".3"/><rect x="3.5" y="11.2" width="3.6" height="2.6" rx=".3"/><rect x="7.6" y="11.4" width="2.6" height="2.2" rx=".3"/></svg>`,
   save:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 2h9l3 3v9H2z"/><path d="M5 2v4h6V2M5 14v-4h6v4" fill="#cfe1f5"/></svg>`,
   plus:`<svg viewBox="0 0 16 16" fill="currentColor"><path d="M7 2h2v5h5v2H9v5H7V9H2V7h5z"/></svg>`,
   del:`<svg viewBox="0 0 16 16"><path d="M3.5 3l9 9M12.5 3l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
@@ -2087,17 +2222,17 @@ function isLive(){ return SESSION.mode==="live"; }
 // see those menu items, just with read-only behavior once opened (that deeper
 // within-screen enforcement is a separate, further layer beyond this sweep).
 const TREE_LABEL_FEATURE={
-  "Dashboard Widgets":"dashboard_widgets","Photo Default":"dashboard_widgets","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
+  "Dashboard Widgets":"dashboard_widgets","Photo Default":"dashboard_widgets","Shipping Data":"shipping_data","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
   "eBay Connection":"ebay_connection_admin","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
   "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
   "Warehouse Maintenance":"warehouse_maintenance_limited","Vendor Management":"vendor_maintenance","Condition Maintenance":"warehouse_maintenance_limited","Adjustment Configuration":"adjust_inventory",
   "Modify Users":"modify_users","Print Queue":"print_queue","Print Configuration":"print_configuration","Catalog Maintenance":"catalog_maintenance",
-  "Item Maintenance":"item_maintenance_view","Group Maintenance":"group_maintenance","Find by Photo":"find_by_photo_view",
+  "Item Maintenance":"item_maintenance_view","Group Maintenance":"group_maintenance","Unit Costing":"unit_costing","Find by Photo":"find_by_photo_view",
   "Add Inventory":"add_inventory","Sell Inventory":"sell_inventory","Adjust Inventory":"adjust_inventory","Listed, no SKU":"listed_no_sku",
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -2112,12 +2247,12 @@ function nodeVisible(node){
 function nodeActions(node){ return filterActionsByAccess(nodeActionsRaw(node)); }
 function nodeActionsRaw(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Photo Default","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Shipping Data","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Photo Default","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
-  if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance"];
+  if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
   if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory","Find by Photo"];
   if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
@@ -2125,7 +2260,7 @@ function nodeActionsRaw(node){
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items","Find by Photo"];
-  if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List"];
+  if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List","Cancelled Orders","Refunds","Missing Item"];
   if(node.key==="comm") return isLive() ? ["Communication","Reviews"] : ["Communication"];
   if(node.key==="livereports") return ["Fulfillment Accuracy","Listing Report","Item Rank","Listing Efficiency"];
   return [];
@@ -2588,6 +2723,42 @@ function renderDashboard(){
   if(isLive() && layout.some(e=>e.k==="newMessages")) refreshLiveMsgStats();
   if(layout.some(e=>e.k==="itemsNeedingSku")) refreshLiveSkuStats();
 }
+// Manual, editable-per-category shipping cost assumptions, used for the Assumed GM% figure
+// on an item until WIM actually has real historical shipping cost data to draw from instead
+// (that needs real carrier-rate integration, which doesn't exist yet — see Configuration ->
+// eBay Connection roadmap). This is a deliberate, honest placeholder: a real number now,
+// not a guess dressed up as one.
+function openShippingData(){
+  const id="shipping-data"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Shipping Data",width:760,height:560,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Assumed shipping cost by category — used for Assumed GM% until real historical shipping data is available</span>`});
+  function render(){
+    const sd=DB.shippingData;
+    body.innerHTML=`<div style="padding:16px;">
+      <fieldset class="gb" style="margin-bottom:16px;"><legend>Packaging &amp; Label Cost</legend>
+        <div class="smallhint" style="margin-bottom:8px;">A flat estimate for the box or envelope, tape, and the ink/paper to print a label — applied to every item regardless of category.</div>
+        <div class="ff sm"><label>Cost per shipment</label><input class="txt" id="sd-pack" value="${esc(sd.packagingCost||"0.00")}" inputmode="decimal" style="width:100px;"></div></fieldset>
+      <div class="col-title" style="text-align:left;">Assumed Shipping Cost by Category</div>
+      <div class="smallhint" style="margin:4px 0 8px;">A manual best guess for now. Once real shipping costs start getting recorded per order, this can be replaced with an actual historical average instead of an assumption.</div>
+      <div class="resultwrap"><table class="res"><thead><tr><th>Category</th><th style="width:120px;">Assumed Cost</th></tr></thead><tbody id="sd-tb"></tbody></table></div>
+      <div style="margin-top:14px;"><button class="btn primary" id="sd-save">Save</button><span class="smallhint" id="sd-msg" style="margin-left:10px;"></span></div>
+    </div>`;
+    const tb=body.querySelector("#sd-tb");
+    DB.sections.forEach(cat=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(cat)}</td><td><input class="txt" data-cat="${esc(cat)}" value="${esc(sd.byCategory[cat]||"")}" inputmode="decimal" placeholder="0.00" style="width:100px;"></td>`;
+      tb.appendChild(tr); });
+    body.querySelector("#sd-save").onclick=()=>{
+      DB.shippingData.packagingCost=(parseFloat(body.querySelector("#sd-pack").value)||0).toFixed(2);
+      body.querySelectorAll("[data-cat]").forEach(inp=>{ const v=parseFloat(inp.value); DB.shippingData.byCategory[inp.dataset.cat]= isNaN(v)?"":v.toFixed(2); });
+      save(); const msg=body.querySelector("#sd-msg"); msg.style.color="#1f7244"; msg.textContent="Saved.";
+    };
+  }
+  render();
+}
+// What Shipping Data actually contributes to the GM% math for one item — assumed shipping
+// for its category, falling back to 0 if that category was never given an assumption, plus
+// the flat packaging/label cost.
+function assumedShipCost(section){ return (parseFloat(DB.shippingData.byCategory[section])||0) + (parseFloat(DB.shippingData.packagingCost)||0); }
 // Real native folder picker — a browser file input genuinely cannot be told which folder to
 // start in, so this uses an actual OS-level dialog instead, wired through a dedicated Rust
 // command rather than the dialog plugin's own frontend API, matching the same pattern
@@ -2814,7 +2985,22 @@ function ebayProdCredsReady(){ const c=DB.ebay&&DB.ebay.creds&&DB.ebay.creds.pro
 // clicks (silent not set) still explain what went wrong.
 async function connectEbay(silent){
   if(!WIM_IS_DESKTOP){ if(!silent) uiAlert("eBay connections run in the desktop app."); return; }
-  if(!ebayProdCredsReady()){ if(!silent) uiAlert("No Production eBay connection is saved yet. Open Configuration → eBay Connection, set up Production, and Connect with eBay once — after that this badge will use it directly."); return; }
+  if(!ebayProdCredsReady()){
+    // Local credentials might just be stale — e.g., from before a required reconnect — not
+    // necessarily nonexistent. Try a forced, fresh pull from the cloud before giving up, so
+    // a regular staff member clicking this never needs to depend on reaching the admin-only
+    // connection screen at all.
+    const pulled = await pullEbayCredsFromCloudIfNeeded(true);
+    if(!pulled || !ebayProdCredsReady()){
+      if(!silent){
+        const isAdmin = role()==="admin";
+        uiAlert(isAdmin
+          ? "No Production eBay connection is saved yet. Open Configuration → eBay Connection, set up Production, and Connect with eBay once — after that this badge will use it directly."
+          : "eBay isn't connected yet on this team. Ask an administrator to connect it once — after that, this will work automatically for everyone.");
+      }
+      return;
+    }
+  }
   const myGen=++ebayConnectGen;
   const txt=document.getElementById("mode-text"); if(txt) txt.textContent=(isLive()?"Live Mode":"Warehouse Mode")+" — Connecting…";
   const c=DB.ebay.creds.production;
@@ -2943,6 +3129,9 @@ function actionCountBadge(label){
   else if(label==="Shipping") n=fulfillmentItems("readyToShip").length;
   else if(label==="Fulfillment Accuracy" && SESSION.user) n=unreadViolationCount(SESSION.user.id, null);
   else if(label==="Listed, no SKU") n=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId)).length;
+  else if(label==="Cancelled Orders") n=cancelledOrderItems().length;
+  else if(label==="Missing Item") n=pendingStorageItems().length;
+  else if(label==="Refunds") n=refundedOrderItems().length;
   else if(label==="SKU not Listed") n=unlistedActive().length;
   if(!n) return "";
   return ` (${n})`;
@@ -2971,6 +3160,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Category Maintenance") return launchApp("categories");
   if(k==="config"&&a==="Dashboard Widgets") return launchApp("dashwidgets");
   if(k==="config"&&a==="Photo Default") return launchApp("photodefault");
+  if(k==="config"&&a==="Shipping Data") return launchApp("shippingdata");
   if((k==="reports"||k==="livereports")&&a==="Item Rank") return launchApp("itemrank");
   if((k==="reports"||k==="livereports")&&a==="Listing Efficiency") return launchApp("listingeff");
   if(k==="config"&&a==="About / Version") return launchApp("about");
@@ -2981,6 +3171,7 @@ function handleAction(k,a){
   if(k==="item"&&a==="Item Maintenance") return launchApp("itemsearch");
   if(k==="item"&&a==="Category Maintenance") return launchApp("categories");
   if(k==="item"&&a==="Group Maintenance") return launchApp("groups");
+  if(k==="item"&&a==="Unit Costing") return launchApp("unitcosting");
   if(k==="config"&&a==="Adjustment Configuration") return launchApp("adjustcfg");
   if(k==="addsell"&&a==="Add Inventory") return launchApp("additem");
   if(k==="addsell"&&a==="Bulk Add Inventory") return launchApp("bulkadd");
@@ -3000,6 +3191,9 @@ function handleAction(k,a){
   if(k==="discrepancies"&&a==="SKU not Listed") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="Ready to List") return launchApp("readytolist");
   if(k==="discrepancies"&&a==="Listing Review") return launchApp("listingreview");
+  if(k==="discrepancies"&&a==="Cancelled Orders") return launchApp("cancelledorders");
+  if(k==="discrepancies"&&a==="Refunds") return launchApp("refunds");
+  if(k==="discrepancies"&&a==="Missing Item") return launchApp("missingitem");
   if(k==="fulfillment"&&a==="Recently Sold") return launchApp("recentlysold");
   if(k==="fulfillment"&&a==="Recently Listed") return launchApp("recentlylisted");
   if(k==="fulfillment"&&a==="Shipping") return launchApp("shipping");
@@ -3021,6 +3215,7 @@ function showInventoryApps(which){
 /* ============================================================ WAREHOUSE MAINTENANCE ============================================================ */
 let mapState={ selSlot:null };
 function openWarehouseMaintenance(prefillCategory){
+  if(!prefillCategory){ try{ const stashed=localStorage.getItem("WIM_WHMAINT_PREFILL"); if(stashed){ prefillCategory=stashed; localStorage.removeItem("WIM_WHMAINT_PREFILL"); } }catch(e){} }
   if(openWindows["wh-map"]){ focusWin(openWindows["wh-map"].el); if(prefillCategory){ const sel=openWindows["wh-map"].el.querySelector("#ws-cat"); if(sel) sel.value=prefillCategory; } return; }
   const {body}=buildWindow({id:"wh-map",title:"Warehouse Maintenance",width:900,height:660,
     toolbar:`${tbtn(I.bolt,'Refresh')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Create slots, set SKU limits &amp; view contents</span>`});
@@ -3284,6 +3479,10 @@ function openListMaintenance(kind){
         if(canOpen){ span.style.cursor="pointer"; span.title="Double-click to see items"; span.ondblclick=()=>openListItems(kind,name); } left.appendChild(span); }
       const wrap=document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
       if(kind==="section"){ const subs=document.createElement("button"); subs.className="btn sm"; subs.textContent="Sub Categories"; subs.onclick=()=>openSubcatManager(name); wrap.appendChild(subs); }
+      if(kind==="vendor"){ const isPinned=DB.pinnedVendor===name; const pin=document.createElement("button"); pin.className="btn sm"; pin.title=isPinned?"This is the default vendor for new items — click to unpin":"Pin as the default vendor for new items";
+        pin.innerHTML=isPinned?"📌":"📍"; pin.style.opacity=isPinned?"1":".55";
+        pin.onclick=()=>{ DB.pinnedVendor = isPinned ? "" : name; save(); render(); };
+        wrap.appendChild(pin); }
       const mod=document.createElement("button"); mod.className="btn sm"; mod.textContent=editing===name?"OK":"Modify";
       mod.onclick=()=>{ if(editing===name){ const inp=left.querySelector("input"); if(inp) inp.blur(); } else { editing=name; render(); } };
       const del=document.createElement("button"); del.className="btn sm"; del.textContent="Delete";
@@ -3301,6 +3500,56 @@ function openListMaintenance(kind){
   body.querySelector("#lm-add").onclick=addNow;
   body.querySelector("#lm-name").addEventListener("keydown",e=>{ if(e.key==="Enter") addNow(); });
   body.querySelector("#lm-okay").onclick=close;
+  render();
+}
+/* ============================================================ UNIT COSTING ============================================================ */
+function openUnitCosting(){
+  const id="unit-costing"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Unit Costing",width:980,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Set what you paid a vendor for a batch of units — WIM tracks the running average and suggests it automatically when you add items from that vendor</span>`});
+  let selected=DB.vendors[0]||null;
+  function render(){
+    body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
+      <div style="flex:0 0 240px;border-right:1px solid var(--line,#dfe3ea);overflow:auto;" id="uc-list"></div>
+      <div style="flex:1;overflow:auto;padding:16px;" id="uc-detail"></div>
+    </div>`;
+    const listEl=body.querySelector("#uc-list");
+    if(!DB.vendors.length){ listEl.innerHTML=`<div class="smallhint" style="padding:14px;">No vendors yet — add one in Vendor Management first.</div>`; }
+    DB.vendors.forEach(v=>{ const row=document.createElement("div"); const avg=vendorAvgCost(v); const pool=DB.vendorCosting[v];
+      row.style.cssText="padding:10px 14px;border-bottom:1px solid #f0f2f6;cursor:pointer;"+(v===selected?"background:#e2ebf9;":"");
+      row.innerHTML=`<div style="font-weight:600;font-size:13px;">${esc(v)}</div><div class="smallhint">${pool&&pool.unitsRemaining?pool.unitsRemaining+" left · $"+avg.toFixed(2)+"/unit":"No active pool"}</div>`;
+      row.onclick=()=>{ selected=v; render(); }; listEl.appendChild(row); });
+    const det=body.querySelector("#uc-detail");
+    if(!selected){ det.innerHTML=`<div class="smallhint">Choose a vendor on the left.</div>`; return; }
+    const pool=vendorPool(selected); const avg=vendorAvgCost(selected);
+    det.innerHTML=`<div style="font-size:18px;font-weight:700;margin-bottom:4px;">${esc(selected)}</div>
+      <div style="display:flex;gap:14px;margin:14px 0;">
+        <div class="gb" style="padding:10px 16px;"><div class="smallhint">Units Remaining</div><div style="font-size:22px;font-weight:700;">${pool.unitsRemaining}</div></div>
+        <div class="gb" style="padding:10px 16px;"><div class="smallhint">Remaining Cost</div><div style="font-size:22px;font-weight:700;">$${pool.costRemaining.toFixed(2)}</div></div>
+        <div class="gb" style="padding:10px 16px;"><div class="smallhint">Current Avg Unit Cost</div><div style="font-size:22px;font-weight:700;">${avg!=null?"$"+avg.toFixed(2):"—"}</div></div>
+      </div>
+      <fieldset class="gb" style="margin:0 0 16px;"><legend>Record a Purchase</legend>
+        <div style="display:flex;gap:10px;align-items:flex-end;">
+          <div class="ff sm"><label>Units Bought</label><input class="txt" id="uc-units" inputmode="numeric" style="width:100px;"></div>
+          <div class="ff sm"><label>Total Cost</label><input class="txt" id="uc-cost" inputmode="decimal" style="width:120px;"></div>
+          <button class="btn primary" id="uc-add">Add to Pool</button>
+        </div>
+        <div class="err" id="uc-err" style="margin-top:6px;"></div></fieldset>
+      <div class="col-title" style="text-align:left;">Purchase History</div>
+      <div class="resultwrap" style="margin-top:6px;"><table class="res"><thead><tr><th>Date</th><th>Units</th><th>Total Cost</th><th>Per Unit</th></tr></thead><tbody id="uc-hist"></tbody></table></div>`;
+    const histTb=det.querySelector("#uc-hist");
+    if(!pool.purchases.length){ histTb.innerHTML=`<tr><td colspan="4" style="color:#888;">No purchases recorded yet.</td></tr>`; }
+    pool.purchases.slice().reverse().forEach(p=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${fmtDay(p.at)}</td><td>${p.units}</td><td>$${p.cost.toFixed(2)}</td><td>$${(p.cost/p.units).toFixed(2)}</td>`; histTb.appendChild(tr); });
+    det.querySelector("#uc-add").onclick=()=>{
+      const err=det.querySelector("#uc-err"); err.textContent="";
+      const units=parseInt(det.querySelector("#uc-units").value,10), cost=parseFloat(det.querySelector("#uc-cost").value);
+      if(!units||units<1){ err.textContent="Enter how many units you bought."; return; }
+      if(isNaN(cost)||cost<0){ err.textContent="Enter the total cost of the purchase."; return; }
+      pool.unitsRemaining+=units; pool.costRemaining+=cost; pool.purchases.push({units,cost,at:new Date().toISOString()});
+      save(); render();
+    };
+  }
   render();
 }
 function openListItems(kind,name){
@@ -3575,7 +3824,19 @@ function openEbayConfig(){
         <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Payment policy</label><select class="cmb" id="eb-payment"><option value="">— load policies above —</option></select></div>
         <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Return policy</label><select class="cmb" id="eb-return"><option value="">— load policies above —</option></select></div>
         <div class="ff" style="grid-template-columns:140px 1fr;"><label class="fld">Inventory location</label><select class="cmb" id="eb-location"><option value="">— load locations above —</option></select></div>
-        <div style="margin-top:8px;"><span class="smallhint" id="eb-setup-msg"></span></div></fieldset></div>`;
+        <div style="margin-top:8px;"><span class="smallhint" id="eb-setup-msg"></span></div>
+        <div style="margin-top:12px;border-top:1px solid var(--line,#dfe3ea);padding-top:10px;">
+          <div class="smallhint" style="margin-bottom:6px;">Nothing to load? eBay doesn't offer an easy screen for this the first time — WIM can create one directly instead.</div>
+          <button class="btn sm" id="eb-newloc-toggle">+ Create a new location</button>
+          <div id="eb-newloc-form" style="display:none;margin-top:8px;">
+            <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">Location name</label><input class="txt" id="eb-loc-name" placeholder="e.g. Main Warehouse"></div>
+            <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">City</label><input class="txt" id="eb-loc-city"></div>
+            <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">State</label><input class="txt" id="eb-loc-state" placeholder="e.g. IA"></div>
+            <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:6px;"><label class="fld">Postal Code</label><input class="txt" id="eb-loc-zip"></div>
+            <div class="ff" style="grid-template-columns:120px 1fr;margin-bottom:8px;"><label class="fld">Country</label><input class="txt" id="eb-loc-country" value="US" placeholder="2-letter, e.g. US"></div>
+            <button class="btn primary sm" id="eb-loc-create">Create Location</button>
+          </div>
+        </div></fieldset></div>`;
   const msg=body.querySelector("#eb-msg");
   const envSel=body.querySelector("#eb-env"), appI=body.querySelector("#eb-app"), certI=body.querySelector("#eb-cert"), ruI=body.querySelector("#eb-ru"), tokI=body.querySelector("#eb-tok");
   if(!DB.ebay.creds) DB.ebay.creds={ sandbox:{appId:"",certId:"",refreshToken:"",ruName:""}, production:{appId:"",certId:"",refreshToken:"",ruName:""} };
@@ -3660,9 +3921,32 @@ function openEbayConfig(){
       const r=await EBAY.user("/sell/inventory/v1/location?limit=100", EBAY_SCOPE_INV);
       if(!r.ok){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Couldn't load locations (HTTP "+r.status+"): "+(r.body||"").slice(0,200); return; }
       const locs=(JSON.parse(r.body).locations)||[];
-      if(!locs.length){ setupMsg.style.color="#c0392b"; setupMsg.textContent="No inventory locations found on this eBay account yet — create one in Seller Hub (Account → Postage and packaging → Locations) or via the Inventory API, then load again."; return; }
+      if(!locs.length){ setupMsg.style.color="#c0392b"; setupMsg.textContent="No inventory locations found on this eBay account yet — use \"Create a new location\" below."; return; }
       fillSelect(locSel,locs,x=>(x.name||x.merchantLocationKey)+" ("+x.merchantLocationKey+")",x=>x.merchantLocationKey,DB.ebay.merchantLocationKey);
       setupMsg.style.color="#1f7244"; setupMsg.textContent="Loaded "+locs.length+" location(s). Pick one — it's saved automatically.";
+    }catch(e){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
+  };
+  const nlToggle=body.querySelector("#eb-newloc-toggle"), nlForm=body.querySelector("#eb-newloc-form");
+  nlToggle.onclick=()=>{ const show=nlForm.style.display==="none"; nlForm.style.display=show?"block":"none"; nlToggle.textContent=show?"− Hide":"+ Create a new location"; };
+  body.querySelector("#eb-loc-create").onclick=async ()=>{
+    if(!EBAY.ready()){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Connect with eBay first (click Connect next to the mode badge)."; return; }
+    const name=body.querySelector("#eb-loc-name").value.trim(), city=body.querySelector("#eb-loc-city").value.trim(),
+      state=body.querySelector("#eb-loc-state").value.trim(), zip=body.querySelector("#eb-loc-zip").value.trim(),
+      country=body.querySelector("#eb-loc-country").value.trim().toUpperCase();
+    if(!name){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Enter a location name."; return; }
+    if(!country || (!zip && !(city&&state))){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Enter a Country, and either a Postal Code or a City + State."; return; }
+    // Real eBay requirement, confirmed against their own docs: a seller-defined key,
+    // never changeable once set, plus a name and a physical address (postal code + country,
+    // or city + state + country, at minimum).
+    const key="WIM-"+Date.now();
+    const payload={ name, location:{ address:{ city:city||undefined, stateOrProvince:state||undefined, postalCode:zip||undefined, country } }, locationTypes:["WAREHOUSE"], merchantLocationStatus:"ENABLED" };
+    setupMsg.style.color="#555"; setupMsg.textContent="Creating location on eBay…";
+    try{
+      const r=await EBAY.postUser("/sell/inventory/v1/location/"+encodeURIComponent(key), JSON.stringify(payload), EBAY_SCOPE_INV);
+      if(!r.ok){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Couldn't create the location (HTTP "+r.status+"): "+(r.body||"").slice(0,250); return; }
+      setupMsg.style.color="#1f7244"; setupMsg.textContent="Location created \u2713 — loading it now…";
+      nlForm.style.display="none"; nlToggle.textContent="+ Create a new location";
+      body.querySelector("#eb-loadlocations").click();
     }catch(e){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
   };
 }
@@ -3687,18 +3971,56 @@ function openListingConfig(){
   body.querySelector("#lc-save").onclick=()=>{ DB.ebay.seller=body.querySelector("#lc-seller").value.trim(); DB.ebay.matchFuzzy=body.querySelector("#lc-fuzzy").checked; DB.ebay.condTolerance=parseInt(body.querySelector("#lc-tol").value,10)||2; save();
     const m=body.querySelector("#lc-msg"); m.style.color="#1f7244"; m.textContent="Saved."; };
 }
+// Real bug found and fixed here: eBay returns a genuinely multi-value aspect (like Genre) as
+// one comma-joined string, and WIM was sending that whole string back as a single value
+// instead of splitting it — which eBay rejects outright for a restricted-choice aspect. But
+// blindly splitting every aspect on comma is just as wrong the other way: an aspect like
+// Author is legitimately one value that happens to contain a comma ("Rowling, J. K."), and
+// splitting that would turn one real value into two invalid ones. So this only splits when
+// eBay's own aspect metadata for this category confirms the aspect is genuinely multi-value
+// — never based on a guess about the aspect's name or its value's punctuation.
+function aspectValueArray(name, value, it){
+  const s=String(value);
+  let parts;
+  // Most precise signal first: eBay's own localizedAspects response tags each value with
+  // STRING or STRING_ARRAY for that specific item — authoritative for this exact value,
+  // unlike the category-level flag below, which only says an aspect is allowed to be
+  // multi-value in general, not whether this particular one actually is. This is what
+  // correctly tells "Rowling, J. K." (STRING, one author) apart from "Adventure, Fantasy,
+  // Magic" (STRING_ARRAY, three genres) even though both simply contain commas.
+  const instanceType = it.aspectTypes && it.aspectTypes[name];
+  if(instanceType==="STRING_ARRAY" && s.includes(",")) parts=s.split(",").map(x=>x.trim()).filter(Boolean);
+  else if(instanceType==="STRING") parts=[s];
+  else {
+    let isMulti=false;
+    try{ const sc=subcatObj(it.section,it.subCategory); const def=sc&&sc.aspects&&sc.aspects.find(a=>a.name===name); isMulti=!!(def&&def.multi); }catch(e){}
+    parts = (isMulti && s.includes(",")) ? s.split(",").map(x=>x.trim()).filter(Boolean) : [s];
+  }
+  // Real, direct fix for silent rejections on a restricted (pick-from-a-list) aspect: eBay
+  // often only accepts an exact-case match against its own controlled value list, but a
+  // value pulled in from an existing listing can carry whatever casing that seller happened
+  // to type ("english" instead of "English"). Since WIM already stores eBay's own real,
+  // valid values for a category's aspects, correct the case here whenever a case-insensitive
+  // match exists, rather than pass through whatever casing was originally captured.
+  try{
+    const sc=subcatObj(it.section,it.subCategory); const def=sc&&sc.aspects&&sc.aspects.find(a=>a.name===name);
+    if(def && def.values && def.values.length){
+      parts = parts.map(p=>{ const match=def.values.find(v=>v.toLowerCase()===p.toLowerCase()); return match||p; });
+    }
+  }catch(e){}
+  return parts;
+}
 function ebayPayload(it){ // builds the Sell Inventory API createOrReplaceInventoryItem body (sku goes in the URL, not the body)
   return { condition: ebayCondEnum(it.condition),
     product:{ title:(it.listing&&it.listing.title?it.listing.title:it.desc||"").slice(0,80),
       description:(it.listing&&it.listing.descBody)||it.desc||"",
-      aspects: (it.aspects&&Object.keys(it.aspects).length)?Object.fromEntries(Object.entries(it.aspects).map(([k,v])=>[k,[String(v)]])):{ Condition:[it.condition||"Unspecified"] },
+      aspects: (it.aspects&&Object.keys(it.aspects).length)?Object.fromEntries(Object.entries(it.aspects).map(([k,v])=>[k, aspectValueArray(k,v,it)])):{ Condition:[it.condition||"Unspecified"] },
       imageUrls: (it.listing&&it.listing.ebayImageUrls)||[] },
-    availability:{ shipToLocationAvailability:{ quantity: groupQty(it) } } };
+    availability:{ shipToLocationAvailability:{ quantity: listingQty(it) } } };
 }
 // Everything an item needs before WIM will attempt a real eBay publish.
 function ebayListingPrereqs(it){
   const missing=[];
-  if(!it.sku) missing.push("a Warehouse SKU (save the item first)");
   const sc=subcatObj(it.section,it.subCategory);
   if(!sc || !sc.ebayId) missing.push("an eBay category mapped for "+(it.subCategory||it.section||"this category")+" (set it in Category Maintenance)");
   if(!DB.ebay.fulfillmentPolicyId) missing.push("a shipping policy");
@@ -3712,17 +4034,38 @@ function ebayListingPrereqs(it){
 }
 // Full Sell Inventory API publish: createOrReplaceInventoryItem -> createOffer (once) -> publishOffer.
 // Safe to call again after a partial failure — it reuses an existing offer instead of duplicating one.
+// If a category's stored aspect definitions predate the multi-value flag being captured
+// (an older cache, from before this was added), refresh them from eBay automatically before
+// publishing — rather than silently sending known-incomplete data and rely on someone
+// remembering to manually re-trigger Find by Photo or the magnifying glass for this
+// category first.
+async function refreshAspectDefsIfStale(it, onStep){
+  try{
+    const sc=subcatObj(it.section,it.subCategory);
+    if(!sc || !sc.ebayId || !EBAY.ready()) return;
+    const stale = !sc.aspects || !sc.aspects.length || sc.aspects.some(a=>a.multi===undefined);
+    if(!stale) return;
+    onStep&&onStep("Refreshing this category's eBay field definitions…");
+    const tree=await EBAY.treeId();
+    const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=`+encodeURIComponent(sc.ebayId));
+    if(r.ok){ const aspectStruct=(JSON.parse(r.body).aspects)||[];
+      sc.aspects=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),multi:!!(a.aspectConstraint&&a.aspectConstraint.itemToAspectCardinality==="MULTI"),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
+      save();
+    }
+  }catch(e){ /* best-effort — publishing continues either way, just possibly with stale data */ }
+}
 async function publishToEbay(it,onStep){
   if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to the mode badge." };
   const missing=ebayListingPrereqs(it);
   if(missing.length) return { ok:false, error:"Missing before publishing:\n• "+missing.join("\n• ") };
-  const sku=String(it.sku);
+  await refreshAspectDefsIfStale(it, onStep);
+  const sku=String(it.upc);
   onStep&&onStep("Creating/updating the eBay inventory item…");
   const invPayload=ebayPayload(it);
   let r;
   try{ r=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku, payloadJson:JSON.stringify(invPayload) }); }
   catch(e){ return { ok:false, error:"Could not reach eBay (inventory item): "+(e&&e.message?e.message:e) }; }
-  if(!r.ok) return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"") };
+  if(!r.ok) return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"")+"\n\n— What WIM sent —\n"+JSON.stringify(invPayload,null,2) };
 
   let offerId=it.listing&&it.listing.offerId;
   if(!offerId){
@@ -3730,7 +4073,7 @@ async function publishToEbay(it,onStep){
     const sc=subcatObj(it.section,it.subCategory);
     const price=(it.listing&&it.listing.price)||it.retail;
     const offerPayload={ sku, marketplaceId:DB.ebay.marketplace||"EBAY_US", format:"FIXED_PRICE",
-      availableQuantity: groupQty(it), categoryId: sc.ebayId,
+      availableQuantity: listingQty(it), categoryId: sc.ebayId,
       listingDescription: (it.listing&&it.listing.descBody)||it.desc||"",
       listingPolicies:{ fulfillmentPolicyId:DB.ebay.fulfillmentPolicyId, paymentPolicyId:DB.ebay.paymentPolicyId, returnPolicyId:DB.ebay.returnPolicyId },
       pricingSummary:{ price:{ value:String(price), currency:"USD" } },
@@ -3783,7 +4126,7 @@ function openEbayList(it){
     ${live?'<div class="note" style="margin-bottom:8px;">Desktop build connected to eBay. <b>Create / Update eBay Inventory Item</b> sends this live to your eBay account.</div>'
         : (WIM_IS_DESKTOP?'<div class="err" style="margin-bottom:8px;">No eBay keys yet — open Configuration → eBay Connection first.</div>'
         :'<div class="note" style="margin-bottom:8px;">Preview only. Live publishing works in the desktop app build.</div>')}
-    <div class="col-title" style="text-align:left;">createOrReplaceInventoryItem payload (SKU ${esc(it.sku||it.id)})</div>
+    <div class="col-title" style="text-align:left;">createOrReplaceInventoryItem payload (SKU ${esc(it.upc||it.id)})</div>
     <pre style="background:#f6f6f6;border:1px solid #ccc;padding:10px;font-size:12px;overflow:auto;max-height:230px;">${esc(JSON.stringify(payload,null,2))}</pre>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
       ${live?'<button class="btn primary" id="el-send">Create / Update eBay Inventory Item</button>':''}
@@ -3793,9 +4136,9 @@ function openEbayList(it){
   body.querySelector("#el-close").onclick=close;
   const send=body.querySelector("#el-send");
   if(send){ send.onclick=async ()=>{ const out=body.querySelector("#el-result"); out.style.color="#444"; out.textContent="Sending to eBay…"; send.disabled=true;
-    try{ const res=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku:String(it.sku||it.id), payloadJson:JSON.stringify(payload) });
+    try{ const res=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku:String(it.upc||it.id), payloadJson:JSON.stringify(payload) });
       out.style.color = res.ok?"#1f7244":"#c0392b"; out.textContent = (res.ok?"Success (HTTP "+res.status+"). Inventory item created/updated on eBay.\n":"eBay returned HTTP "+res.status+":\n")+(res.body||"");
-      if(res.ok){ addHistory(it,"eBay inventory item created/updated (SKU "+(it.sku||it.id)+")"); save(); }
+      if(res.ok){ addHistory(it,"eBay inventory item created/updated (SKU "+(it.upc||it.id)+")"); save(); }
     }catch(e){ out.style.color="#c0392b"; out.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
     send.disabled=false; }; }
 }
@@ -3826,7 +4169,7 @@ function applyDelete(kind,name){
       DB.invoices.push({ num:nextInvoiceNum(), type:"Group Deleted", lines, createdAt:new Date().toISOString(), soldBy:(SESSION.user?SESSION.user.id:null) });
     }
   }
-  else if(kind==="vendor"){ DB.vendors=DB.vendors.filter(x=>x!==name); }
+  else if(kind==="vendor"){ DB.vendors=DB.vendors.filter(x=>x!==name); if(DB.pinnedVendor===name) DB.pinnedVendor=""; }
   else if(kind==="adjustment"){ DB.adjustmentTypes=DB.adjustmentTypes.filter(x=>x!==name); }
 }
 
@@ -3891,6 +4234,7 @@ function buildSearchUI(body,{scope,cols,winId}){
       <div class="ff"><label>Category</label><select class="cmb" id="s-sec">${optSec}</select></div>
       <div class="ff"><label>Group</label><select class="cmb" id="s-grp">${optGrp}</select></div>
       <div class="ff"><label>Condition</label><select class="cmb" id="s-con">${optCon}</select></div>
+      <div class="ff"><label>Reserve Item</label><select class="cmb" id="s-reserve"><option value="">(any)</option><option value="yes">Reserved only</option><option value="no">Not reserved</option></select></div>
       ${isCat?`<div class="ff"><label>Added on/after</label><input class="txt" id="s-added" type="date"></div>
       <div class="ff"><label>Sold on/after</label><input class="txt" id="s-soldon" type="date"></div>`:'<div></div>'}
     </div>
@@ -3909,7 +4253,7 @@ function buildSearchUI(body,{scope,cols,winId}){
   function run(){
     const g=id=>{ const e=body.querySelector("#"+id); return e?e.value:""; };
     const upc=g("s-upc").trim().toLowerCase(), sku=g("s-sku").trim().toLowerCase(), slot=g("s-slot").trim(), desc=g("s-desc").trim().toLowerCase();
-    const sec=g("s-sec").trim(), grp=g("s-grp").trim(), con=g("s-con").trim();
+    const sec=g("s-sec").trim(), grp=g("s-grp").trim(), con=g("s-con").trim(), reserve=g("s-reserve").trim();
     const addedAfter=isCat?g("s-added"):"", soldAfter=isCat?g("s-soldon"):"";
     const eqi=(a,b)=>String(a||"").trim().toLowerCase()===String(b||"").trim().toLowerCase();
     st.results=pool().filter(it=>{
@@ -3920,6 +4264,8 @@ function buildSearchUI(body,{scope,cols,winId}){
       if(sec){ if(sec.toLowerCase()==="none"){ if(it.section) return false; } else if(!eqi(it.section,sec)) return false; }
       if(grp){ if(grp.toLowerCase()==="none"){ if((it.groups||[]).length) return false; } else if(!(it.groups||[]).some(x=>eqi(x,grp))) return false; }
       if(con){ if(con.toLowerCase()==="none"){ if(it.condition) return false; } else if(!eqi(it.condition,con)) return false; }
+      if(reserve==="yes" && !(it.listing&&it.listing.reserveItem)) return false;
+      if(reserve==="no" && it.listing&&it.listing.reserveItem) return false;
       if(addedAfter&&(!it.createdAt||it.createdAt.slice(0,10)<addedAfter)) return false;
       if(soldAfter&&(!it.soldAt||it.soldAt.slice(0,10)<soldAfter)) return false;
       return true;
@@ -4110,22 +4456,23 @@ function openInvoiceDetail(inv){
 }
 
 /* ============================================================ ITEM DETAIL ============================================================ */
-function wimToast(msg){
+function wimToast(msg,kind){
   try{ let t=document.getElementById("wim-toast"); if(!t){ t=document.createElement("div"); t.id="wim-toast";
-      t.style.cssText="position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:#2f3a4a;color:#fff;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:99999;opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;"; document.body.appendChild(t); }
+      t.style.cssText="position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);color:#fff;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:99999;opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;"; document.body.appendChild(t); }
+    t.style.background = kind==="success" ? "#1f9d55" : "#2f3a4a";
     t.textContent=msg; requestAnimationFrame(()=>{ t.style.opacity="1"; t.style.transform="translateX(-50%) translateY(0)"; });
     clearTimeout(t._h); t._h=setTimeout(()=>{ t.style.opacity="0"; t.style.transform="translateX(-50%) translateY(20px)"; },1600);
   }catch(e){}
 }
 function openItemDetail(item,mode,nav,defaultTab){
-  const isNew=mode==="new", isCat=mode==="catalog", ro=isCat;
+  let isNew=mode==="new"; const isCat=mode==="catalog", ro=isCat;
   // Open existing-item landing pages in their own OS window (when floating is on), so each level is its own window and closes cleanly.
   if(!isNew && item && item.id && !WIM_ITEMDETAIL_WIN && WIM_IS_DESKTOP
      && !(DB.meta && DB.meta.floatWindows===false)
      && ((window.__TAURI__&&window.__TAURI__.webviewWindow&&window.__TAURI__.webviewWindow.WebviewWindow)||(window.__TAURI__&&window.__TAURI__.window&&window.__TAURI__.window.WebviewWindow))){
     if(popOutItem(item, mode, nav)) return;
   }
-  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:"HYVEE DISTRIBUTION",condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
+  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:(DB.pinnedVendor||""),condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
     unitCost:"0.000",retail:"0.00",onHand:"1",groups:[],category:"FRUIT",subCategory:"",image:"",slot:"",placement:null,sku:"",
     manualSlot:false,sold:false,createdAt:null,soldAt:null,soldBy:null,caseCost:"0.00",casePack:"",base:"0.00",mixMatch:"None - 0",
     posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}, item||{}):item;
@@ -4137,11 +4484,14 @@ function openItemDetail(item,mode,nav,defaultTab){
     hasAccess("list_items") ? tbtn(I.bolt,"Send Listing") : ""
   ) : "";
   const tbar= (ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
-    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${listBtn}`) + navHtml;
+    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${listBtn}`)
+    + `<span class="tbar-sep"></span>${pendingStorageBadgeHtml("d-waiting")}`
+    + navHtml;
   const {body,close:_closeWin}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48,zoomGroup:"itemdetail"});
   const close=()=>{ try{ _closeWin(); }catch(e){}
     if(WIM_ITEMDETAIL_WIN){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
   let dirty=false;
+  let dupeAcknowledged=false;
   const secOpts=DB.sections.map(s=>`<option ${s===it.section?'selected':''}>${esc(s)}</option>`).join("");
   const dl=`<datalist id="sl-${it.id}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}">`).join("")+`</datalist>`
     +`<datalist id="con-${it.id}">`+condsFor(it.section).map(c=>`<option value="${esc(c)}">`).join("")+`</datalist>`;
@@ -4156,7 +4506,7 @@ function openItemDetail(item,mode,nav,defaultTab){
       <div style="display:grid;gap:10px;">
         <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" readonly title="Item Number is auto-generated from the category and locked" ${isNew?'placeholder="(auto-generated on save)"':''} style="background:#f1f3f7;color:#5b6470;cursor:default;"></div>
         <div class="ff"><label class="blue" style="text-align:left;">Item Description</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
-        <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
+        <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}><option value="" ${!it.vendor?'selected':''}>None</option>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
         <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${(ro||(!isNew&&!it.manualSlot))?'disabled':''}>${secOpts}</select></div>
         <div class="ff"><label style="text-align:left;">Sub Category</label><select class="cmb" id="d-subcat" ${dis}></select></div>
         <div class="ff"><label style="text-align:left;">Condition</label><input class="txt" id="d-condition" list="con-${it.id}" value="${esc(it.condition||"")}" ${dis}></div>
@@ -4172,15 +4522,15 @@ function openItemDetail(item,mode,nav,defaultTab){
         <div class="ff sm"><label style="text-align:left;">Placement</label><input class="txt" id="d-place" value="${it.placement!=null?it.placement:''}" inputmode="numeric" ${dis}></div>
         <div class="ff sm"><label style="text-align:left;">Warehouse SKU</label>
           <div style="display:flex;gap:4px;align-items:center;"><input class="txt" id="d-sku" value="${esc(isNew?'':firstUnit(it).sku)}" readonly style="flex:1;">
-          ${(!isNew&&!isCat)?`<button class="btn sm" id="d-sku-dd" title="View all SKUs for this item">▼</button>`:''}</div></div>
+          ${(!isNew&&!isCat&&groupQty(it)>1)?`<button class="btn sm" id="d-sku-dd" title="Switch to viewing a different unit of this item">▼</button>`:''}</div></div>
         <div id="d-sku-list" style="display:none;border:1px solid #bbb;background:#fff;max-height:130px;overflow:auto;font-size:12px;"></div>
       </div>
     </div>
-    <div class="lastsold">${isCat?`Added: <b>${fmtDate(it.createdAt)}</b> &nbsp;|&nbsp; Sold: <b>${fmtDate(it.soldAt)}</b> &nbsp;|&nbsp; Sold by <b>${esc(userLabel(it.soldBy))}</b>`:(it.createdAt?`Added to system: ${fmtDate(it.createdAt)}`:'New item — not yet saved')}</div>
+    <div class="lastsold" id="d-lastsold">${isCat?`Added: <b>${fmtDate(it.createdAt)}</b> &nbsp;|&nbsp; Sold: <b>${fmtDate(it.soldAt)}</b> &nbsp;|&nbsp; Sold by <b>${esc(userLabel(it.soldBy))}</b>`:(it.createdAt?`Added to system: ${fmtDate(it.createdAt)}`:'New item — not yet saved')}</div>
     <div class="tabs"><div class="tab sel" id="d-tab-groups">Groups</div><div class="tab" id="d-tab-history">Item History</div><div class="tab" id="d-tab-listing">Listing Details</div><div class="tab" id="d-tab-compare">Price Compare</div></div>
     <div class="pane-tabbody" id="d-tabbody"></div>
     </div>
-    <div class="statusbar"><span id="d-status"></span><span id="d-status-action" style="margin-left:8px;"></span><span>${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}${(isNew&&!isLive())?'<button class="btn" id="d-addsend">Add &amp; Send</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'List Inventory':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
+    <div class="statusbar"><span id="d-status"></span><span id="d-status-action" style="margin-left:8px;"></span><span id="d-statusbtns">${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}${(isNew&&!isLive())?'<button class="btn" id="d-addsend">Add &amp; Send</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'Create+':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
 
   if(!it.images) it.images=it.image?[it.image]:[]; if(it.imageFeatured==null) it.imageFeatured=0;
   if(it.images.length && !it.images.includes(it.image)) it.image=it.images[it.imageFeatured]||it.images[0];
@@ -4287,19 +4637,27 @@ function openItemDetail(item,mode,nav,defaultTab){
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Listing status</label><input class="txt" value="${esc(it.listing.status||"not listed")}" readonly title="Whether this item is live on eBay (not listed / listed / delisted). This is NOT the item's condition."></div>
           <div class="ff" style="grid-template-columns:90px 1fr;"><label class="fld">Price</label><input class="txt" id="l-price" value="${esc((it.listing&&it.listing.price)||'')}" inputmode="decimal" title="Same as the Price at the top — changing either updates both."></div>
         </div>
+        <label class="chkrow" style="margin-top:8px;${groupQty(it)<=1?'opacity:.5;':''}" title="${groupQty(it)<=1?'Only one of this item exists — nothing to reserve':'Lists just one at a time, so buyers never see how many you actually have. The next one lists automatically the moment this one sells.'}">
+          <span class="chk ${it.listing.reserveItem?'on':''}" id="l-reserve" style="${groupQty(it)<=1?'pointer-events:none;':''}"></span> Reserve Item — only list 1 of ${groupQty(it)} at a time${groupQty(it)<=1?' (only one exists)':''}</label>
+        <div style="margin-top:10px;padding:8px 12px;background:#f6f7f9;border-radius:8px;display:inline-block;" title="Price minus Cost minus assumed shipping for this category (Configuration → Shipping Data), divided by Price. Updates live as Price or Cost change — cannot be typed into directly.">
+          <span style="font-size:11px;color:#7b828e;font-weight:600;">Assumed GM%</span>
+          <span id="l-gm" style="font-size:16px;font-weight:700;margin-left:8px;"></span>
+        </div>
         <div class="ff" style="grid-template-columns:90px 1fr;margin-top:8px;"><label class="fld">Description</label>
           <select class="cmb" id="l-desc"><option value="">(write your own below)</option>${descs.map(d=>`<option value="${d.id}" ${it.listing.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}</select></div>
         <textarea id="l-descbody" placeholder="Listing description" style="width:100%;height:90px;margin-top:6px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;">${esc((it.listing.descriptionId&&(DB.descriptions.find(x=>x.id===it.listing.descriptionId)||{}).body)||it.listing.descBody||"")}</textarea>
         <div class="col-title" style="text-align:left;margin-top:8px;">Photos</div>
         <div class="smallhint" style="margin-bottom:6px;">Manage photos at the top of this item page — Add Photo, Remove, and click any thumbnail to preview or make it Featured.</div>
+        ${isNew ? `<div class="note" style="margin-top:4px;">Create this item first — the buttons to upload photos and publish to eBay appear here once it's a real, saved item.</div>` : `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${WIM_IS_DESKTOP?'<button class="btn sm" id="l-photoupload">Upload photos to eBay</button>':''}<span class="smallhint" id="l-photomsg"></span></div>
         <div id="l-ebayimgs" style="margin-top:6px;"></div>
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           ${it.listing.status==="listed"
             ? `<button class="btn" id="l-publish">Delist from eBay</button>`
             : `<button class="btn primary" id="l-publish">Publish to eBay</button>`}
-          <span class="smallhint" id="l-pubmsg"></span></div>
-        <div style="margin-top:4px;"><a href="#" id="l-localtoggle" class="smallhint" style="text-decoration:underline;">${it.listing.status==="listed"?"…or just mark it delisted locally, without contacting eBay":"…or just mark it listed locally, without contacting eBay (e.g. you listed it manually)"}</a></div>
+          <span class="smallhint" id="l-pubmsg" style="white-space:pre-wrap;word-break:break-word;"></span></div>
+        <div id="l-pubcopy-wrap" style="margin-top:4px;display:none;"><button class="btn sm" id="l-pubcopy">Copy Error</button></div>
+        <div style="margin-top:4px;"><a href="#" id="l-localtoggle" class="smallhint" style="text-decoration:underline;">${it.listing.status==="listed"?"…or just mark it delisted locally, without contacting eBay":"…or just mark it listed locally, without contacting eBay (e.g. you listed it manually)"}</a></div>`}
       </fieldset>`;
     }
     lwrap.innerHTML=html;
@@ -4309,18 +4667,26 @@ function openItemDetail(item,mode,nav,defaultTab){
       const t=lwrap.querySelector("#l-title"), q=lwrap.querySelector("#l-qty"), dsel=lwrap.querySelector("#l-desc"), dbody=lwrap.querySelector("#l-descbody");
       t.oninput=()=>{ it.listing.title=t.value; it._titleManuallySet=true; markDirty&&markDirty(); };
       q.oninput=()=>{ it.listing.qty=q.value; markDirty&&markDirty(); };
-      const lp=lwrap.querySelector("#l-price"); if(lp) lp.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=lp.value; const dp=body.querySelector("#d-price"); if(dp) dp.value=lp.value; markDirty&&markDirty(); };
+      const lp=lwrap.querySelector("#l-price"); if(lp) lp.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=lp.value; const dp=body.querySelector("#d-price"); if(dp) dp.value=lp.value; markDirty&&markDirty(); updateGmDisplay(); };
+      const resv=lwrap.querySelector("#l-reserve");
+      if(resv && groupQty(it)>1){ resv.onclick=()=>{
+        const next=!it.listing.reserveItem;
+        unitsOf(it).forEach(u=>{ u.listing.reserveItem=next; });
+        markDirty&&markDirty(); renderListing();
+      }; }
       dsel.onchange=()=>{ it.listing.descriptionId=dsel.value||null; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d) dbody.value=d.body; markDirty&&markDirty(); };
       dbody.oninput=()=>{ it.listing.descBody=dbody.value; markDirty&&markDirty(); };
       const pubBtn=lwrap.querySelector("#l-publish"), pubMsg=lwrap.querySelector("#l-pubmsg");
+      const pubCopyWrap=lwrap.querySelector("#l-pubcopy-wrap"), pubCopyBtn=lwrap.querySelector("#l-pubcopy");
       if(pubBtn) pubBtn.onclick=async ()=>{
-        pubBtn.disabled=true; pubMsg.style.color="#555";
+        pubBtn.disabled=true; pubMsg.style.color="#555"; pubCopyWrap.style.display="none";
         const wasListed=it.listing.status==="listed";
         const onStep=(t)=>{ pubMsg.textContent=t; };
         const res = wasListed ? await delistFromEbay(it,onStep) : await publishToEbay(it,onStep);
         pubBtn.disabled=false;
         if(res.ok){ pubMsg.style.color="#1f7244"; pubMsg.textContent=wasListed?"Delisted from eBay.":("Published to eBay"+(res.listingId?(" — listing "+res.listingId):"")+"."); refreshSearchWindows&&refreshSearchWindows(); renderListing(); }
-        else { pubMsg.style.color="#c0392b"; pubMsg.textContent=res.error||"Something went wrong."; }
+        else { pubMsg.style.color="#c0392b"; pubMsg.textContent=res.error||"Something went wrong."; pubCopyWrap.style.display="block";
+          pubCopyBtn.onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(res.error||""); pubCopyBtn.textContent="Copied \u2713"; setTimeout(()=>{ pubCopyBtn.textContent="Copy Error"; },1200); }; }
       };
       const localTog=lwrap.querySelector("#l-localtoggle"); if(localTog) localTog.onclick=(e)=>{ e.preventDefault();
         if(it.listing.status==="listed"){ it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString(); addHistory(it,"Delisted (local status only, eBay not contacted)"); }
@@ -4332,14 +4698,31 @@ function openItemDetail(item,mode,nav,defaultTab){
       const upBtn=lwrap.querySelector("#l-photoupload"), upMsg=lwrap.querySelector("#l-photomsg");
       if(upBtn) upBtn.onclick=async ()=>{ if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to the mode badge (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
         if(!it.images || !it.images.length){ upMsg.style.color="#c0392b"; upMsg.textContent="Add at least one photo first."; return; }
-        upBtn.disabled=true; const urls=[]; let failed=0;
-        for(let i=0;i<it.images.length;i++){ upMsg.style.color="#555"; upMsg.textContent="Uploading "+(i+1)+" of "+it.images.length+"…";
-          try{ const r=await EBAY.uploadPicture(it.images[i], (it.desc||"WIM")+" "+(i+1)); if(r&&r.ok&&r.body){ urls.push(r.body); } else { failed++; console.warn("EPS upload failed:", r&&r.body); } }
-          catch(e){ failed++; console.warn("EPS upload error:",e); } }
+        upBtn.disabled=true; const urls=[]; let failed=0; const failDetails=[];
+        for(let i=0;i<it.images.length;i++){
+          // A photo pulled in from Find by Photo is already a real, remote HTTPS URL on
+          // eBay's own CDN — not local image data to re-encode. eBay's own Inventory API
+          // accepts an already-hosted HTTPS URL directly, so there's genuinely nothing to
+          // upload here; passing it straight through is the correct behavior, not a
+          // workaround. Trying to treat it as base64 data to re-upload was the actual bug.
+          if(/^https?:\/\//i.test(it.images[i])){ urls.push(it.images[i]); continue; }
+          upMsg.style.color="#555"; upMsg.textContent="Uploading "+(i+1)+" of "+it.images.length+"…";
+          try{ const r=await EBAY.uploadPicture(it.images[i], (it.desc||"WIM")+" "+(i+1)); if(r&&r.ok&&r.body){ urls.push(r.body); } else { failed++; const detail="Photo "+(i+1)+" (HTTP "+(r&&r.status)+"): "+((r&&r.body)||"no response body").slice(0,400); failDetails.push(detail); console.warn("EPS upload failed:", r&&r.body); } }
+          catch(e){ failed++; const detail="Photo "+(i+1)+": "+(e&&e.message?e.message:e); failDetails.push(detail); console.warn("EPS upload error:",e); } }
         if(!it.listing) it.listing={status:"none"}; it.listing.ebayImageUrls=urls;
         addHistory(it,"Uploaded "+urls.length+" photo(s) to eBay"+(failed?(" ("+failed+" failed)"):"")); markDirty&&markDirty(); save();
-        upMsg.style.color= failed?"#c0392b":"#1f7244"; upMsg.textContent="Uploaded "+urls.length+" of "+it.images.length+" to eBay"+(failed?" — "+failed+" failed (see console).":"."); upBtn.disabled=false; renderEbayImgs(); };
+        upMsg.style.color= failed?"#c0392b":"#1f7244";
+        upMsg.textContent="Uploaded "+urls.length+" of "+it.images.length+" to eBay"+(failed?" — "+failed+" failed:\n"+failDetails.join("\n"):".");
+        upMsg.style.whiteSpace="pre-wrap"; upMsg.style.wordBreak="break-word"; upMsg.style.display="block";
+        let upCopyBtn=lwrap.querySelector("#l-photocopy");
+        if(failed){
+          if(!upCopyBtn){ upCopyBtn=document.createElement("button"); upCopyBtn.className="btn sm"; upCopyBtn.id="l-photocopy"; upCopyBtn.style.marginTop="4px"; upMsg.insertAdjacentElement("afterend",upCopyBtn); }
+          upCopyBtn.textContent="Copy Error"; upCopyBtn.style.display="inline-block";
+          upCopyBtn.onclick=()=>{ navigator.clipboard&&navigator.clipboard.writeText(failDetails.join("\n")); upCopyBtn.textContent="Copied \u2713"; setTimeout(()=>{ upCopyBtn.textContent="Copy Error"; },1200); };
+        } else if(upCopyBtn){ upCopyBtn.style.display="none"; }
+        upBtn.disabled=false; renderEbayImgs(); };
     }
+    updateGmDisplay();
   }
   if(secSel) secSel.addEventListener("change",()=>{ it.subCategory=null; fillSubcats(); renderListing(); markDirty&&markDirty(); });
   if(subSel) subSel.addEventListener("change",()=>{ it.subCategory=subSel.value; renderListing(); markDirty&&markDirty(); });
@@ -4655,7 +5038,32 @@ function openItemDetail(item,mode,nav,defaultTab){
   body.querySelector("#d-tab-history").onclick=()=>showTab("history");
   body.querySelector("#d-tab-listing").onclick=()=>showTab("listing");
   body.querySelector("#d-tab-compare").onclick=()=>showTab("compare");
-  const priceTop=body.querySelector("#d-price"); if(priceTop && !ro) priceTop.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=priceTop.value; const lp=body.querySelector("#l-price"); if(lp) lp.value=priceTop.value; markDirty&&markDirty(); };
+  const priceTop=body.querySelector("#d-price"); if(priceTop && !ro) priceTop.oninput=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.price=priceTop.value; const lp=body.querySelector("#l-price"); if(lp) lp.value=priceTop.value; markDirty&&markDirty(); updateGmDisplay(); };
+  // Assumed GM% — read-only, recomputed live from whatever's currently in Price and Cost,
+  // minus this category's assumed shipping (Configuration → Shipping Data). Never something
+  // to type into directly, only ever a reflection of the other two fields.
+  function updateGmDisplay(){
+    const gmEl=body.querySelector("#l-gm"); if(!gmEl) return;
+    const price=parseFloat((body.querySelector("#d-price")||{}).value)||0;
+    const cost=parseFloat((body.querySelector("#d-unitcost")||{}).value)||0;
+    const ship=assumedShipCost(it.section);
+    if(!price){ gmEl.textContent="—"; gmEl.style.color="#7b828e"; return; }
+    const gm=((price-cost-ship)/price)*100;
+    gmEl.textContent=gm.toFixed(1)+"%";
+    gmEl.style.color = gm<0?"#c0392b" : gm<15?"#c98a1b" : "#1f7244";
+  }
+  const vendorSel=body.querySelector("#d-vendor"), costInp=body.querySelector("#d-unitcost");
+  if(costInp && !ro) costInp.addEventListener("input",()=>{ markDirty&&markDirty(); updateGmDisplay(); });
+  // Suggests the vendor's current Unit Costing average the moment a vendor is picked on a
+  // new item — only while the cost field is still untouched, so it never clobbers a
+  // deliberate manual figure someone already typed in.
+  if(isNew && vendorSel && costInp && !ro){
+    vendorSel.addEventListener("change",()=>{
+      const avg=vendorAvgCost(vendorSel.value);
+      if(avg!=null && (!costInp.value || costInp.dataset.autoFilled==="1")){ costInp.value=avg.toFixed(2); costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); }
+    });
+    costInp.addEventListener("input",()=>{ if(costInp.dataset.autoFilled==="1" ) delete costInp.dataset.autoFilled; });
+  }
   const descTop=body.querySelector("#d-desc"); if(descTop && !ro) descTop.oninput=()=>{
     // Title reflects the item description automatically, same live-sync pattern as Price —
     // but only while the listing title hasn't been deliberately typed differently, so a
@@ -4691,8 +5099,11 @@ function openItemDetail(item,mode,nav,defaultTab){
   // Warehouse SKU dropdown (all units of this item number)
   const skuDD=body.querySelector("#d-sku-dd"), skuList=body.querySelector("#d-sku-list");
   if(skuDD){ skuDD.onclick=()=>{ if(skuList.style.display==="none"){ const units=unitsOf(it);
-      skuList.innerHTML = units.length? units.map(u=>`<div class="li" style="padding:5px 10px;">${esc(u.sku)} <span class="smallhint">(slot ${esc(u.slot)})</span></div>`).join("") : `<div class="li" style="color:#888;">No active units.</div>`;
-      skuList.style.display="block"; } else { skuList.style.display="none"; } }; }
+      skuList.innerHTML = units.length? units.map(u=>`<div class="li sku-switch" data-id="${esc(u.id)}" style="padding:5px 10px;cursor:pointer;${u.id===it.id?'background:#e2ebf9;font-weight:600;':''}">${esc(u.sku)} <span class="smallhint">(slot ${esc(u.slot)})${u.id===it.id?' — viewing now':''}</span></div>`).join("") : `<div class="li" style="color:#888;">No active units.</div>`;
+      skuList.style.display="block";
+      skuList.querySelectorAll(".sku-switch").forEach(row=>{ row.onclick=()=>{ const target=units.find(u=>u.id===row.dataset.id); skuList.style.display="none";
+        if(target && target.id!==it.id) openItemDetail(target,"edit"); }; });
+      } else { skuList.style.display="none"; } }; }
 
   const manual=body.querySelector("#d-manual"), slotI=body.querySelector("#d-slot"), placeI=body.querySelector("#d-place"), skuI=body.querySelector("#d-sku");
   const catSel=body.querySelector("#d-section");
@@ -4715,7 +5126,7 @@ function openItemDetail(item,mode,nav,defaultTab){
       if(!statusAction) return;
       statusAction.innerHTML="";
       const btn=document.createElement("button"); btn.className="btn sm"; btn.textContent="Create a slot for \""+category+"\"";
-      btn.onclick=()=>openWarehouseMaintenance(category);
+      btn.onclick=()=>{ try{ localStorage.setItem("WIM_WHMAINT_PREFILL", category); }catch(e){} launchApp("warehouse"); };
       statusAction.appendChild(btn);
     }
     const upc=body.querySelector("#d-upc").value.trim(), desc=body.querySelector("#d-desc").value.trim();
@@ -4729,6 +5140,11 @@ function openItemDetail(item,mode,nav,defaultTab){
           const ff=inp.closest(".ff"), lab=ff&&ff.querySelector("label"); if(lab && !lab.querySelector(".reqx")){ const s=document.createElement("span"); s.className="reqx"; s.style.color="#c0392b"; s.textContent=" *"; lab.appendChild(s); } } });
         status.textContent="Fill the required eBay field(s) marked *: "+missing.map(a=>a.name).join(", "); return; } }
     const condition=(body.querySelector("#d-condition")?body.querySelector("#d-condition").value.trim():(it.condition||""));
+    if(isNew && !dupeAcknowledged){
+      const match=findAddItemDupeCandidate(cat, it.subCategory, condition, desc, it.id);
+      if(match){ showAddItemDupePopup(match, ()=>{ dupeAcknowledged=true; doSave(keepOpen, sendToLive); }); return; }
+      dupeAcknowledged=true;
+    }
     const base={ upc, desc, condition, vendor:body.querySelector("#d-vendor").value, section:cat,
       unitCost:body.querySelector("#d-unitcost").value.trim()||"0.000", retail:body.querySelector("#d-retail").value.trim()||"0.00",
       onHand:body.querySelector("#d-onhand").value.trim()||"1", groups:assigned, image:it.image||"",
@@ -4756,10 +5172,12 @@ function openItemDetail(item,mode,nav,defaultTab){
     let savedNew=null;
     if(isNew){
       const created=[]; savedNew=created; const _itnTaken=new Set();
+      const batchId=crypto.randomUUID();
       placements.forEach((pl,i)=>{ const ni=(i===0)?it:Object.assign({},it,{id:crypto.randomUUID()});
-        Object.assign(ni, base, {slot:pl.slot,placement:pl.placement,sku:skuOf(pl.slot,pl.placement),onHand:(qty>1?"1":base.onHand),createdAt:new Date().toISOString(),sold:false,soldAt:null,soldBy:null});
+        Object.assign(ni, base, {slot:pl.slot,placement:pl.placement,sku:skuOf(pl.slot,pl.placement),onHand:(qty>1?"1":base.onHand),createdAt:new Date().toISOString(),sold:false,soldAt:null,soldBy:null,storedAt:null,storageBatchId:batchId});
         ni.upc=genItemNumber(cat, _itnTaken);
         ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+", Item # "+ni.upc+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
+        vendorDrawUnit(ni.vendor, ni.unitCost);
         DB.items.push(ni); created.push(ni); });
       recordAdds(created, SESSION.user.id, "Add");
       if(it._pendingListing && created[0]){ const L=it._pendingListing;
@@ -4821,19 +5239,35 @@ function openItemDetail(item,mode,nav,defaultTab){
       }
     }
     if(isNew){
-      const made=(savedNew||[]).slice(); close();
-      if(sendToLive){ wimToast("Added "+made.length+" & sent to Live \u2192 Ready to List"); }
-      else if(made.length && !isLive() && !it._pendingListing){
-        uiConfirm("Added "+made.length+" item"+(made.length>1?"s":"")+" to inventory. Send SKU tag"+(made.length>1?"s":"")+" to the Print Queue?", ()=>{ try{ enqueuePrint(made); }catch(e){ uiAlert("Couldn't queue the label: "+(e&&e.message?e.message:e)); } });
+      const made=(savedNew||[]).slice();
+      if(made.length===1 && !sendToLive){
+        // Single item, normal case — transition this same window in place rather than
+        // closing and reopening a new one, so Upload photos / Publish appear immediately
+        // without ever leaving the page.
+        transitionToExisting();
+        if(!isLive() && !it._pendingListing){
+          wimToast("Created \u2713","success");
+          uiConfirm("Added 1 item to inventory. Send SKU tag to the Print Queue?", ()=>{ try{ enqueuePrint(made); }catch(e){ uiAlert("Couldn't queue the label: "+(e&&e.message?e.message:e)); } });
+        } else { wimToast("Created \u2713","success"); }
+      } else {
+        // Multiple units created at once, or sent straight to Live — no single item to stay
+        // on, so this still closes and opens the first one fresh.
+        _closeWin();
+        if(made.length){ setTimeout(()=>{ openItemDetail(made[0],"edit"); },30); }
+        if(sendToLive){ wimToast("Created & sent to Live \u2192 Ready to List \u2713","success"); }
+        else if(made.length && !isLive() && !it._pendingListing){
+          wimToast("Created \u2713","success");
+          uiConfirm("Added "+made.length+" item"+(made.length>1?"s":"")+" to inventory. Send SKU tag"+(made.length>1?"s":"")+" to the Print Queue?", ()=>{ try{ enqueuePrint(made); }catch(e){ uiAlert("Couldn't queue the label: "+(e&&e.message?e.message:e)); } });
+        } else if(made.length){ wimToast("Created \u2713","success"); }
       }
     }
-    else if(!keepOpen){ close(); }
-    else { dirty=false; updateBtn(); status.style.color="#1f7244"; status.textContent="Saved \u2713"; wimToast("Saved \u2713"); flashSaved(); showTab(curTab); }
+    else if(!keepOpen){ _closeWin(); }
+    else { dirty=false; updateBtn(); status.style.color="#1f7244"; status.textContent="Saved \u2713"; wimToast("Saved \u2713","success"); flashSaved(); showTab(curTab); }
   }
   function flashSaved(){ try{ ["#d-desc","#d-price","#d-cost","#d-section","#d-condition","#d-onhand"].forEach(sel=>{ const e=body.querySelector(sel); if(e){ e.style.transition="background-color .15s"; const prev=e.style.backgroundColor; e.style.backgroundColor="#e2f3e6"; setTimeout(()=>{ e.style.backgroundColor=prev||""; },450); } }); }catch(e){} }
   dirty=false;
-  const bottomBtn=body.querySelector("#d-save");
-  function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"List Inventory":"Add Item"):(dirty?(itemStatus(it)==="listed"?"Update Listing":"Save"):"Okay"); }
+  let bottomBtn=body.querySelector("#d-save");
+  function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"Create+":"Add Item"):(dirty?(itemStatus(it)==="listed"?"Update Listing":"Save"):"Okay"); }
   const s2l=body.querySelector("#d-send2list"); if(s2l) s2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); wimRefreshAll(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
   function markDirty(){ if(!dirty){ dirty=true; updateBtn(); } }
   body.addEventListener("input",markDirty); body.addEventListener("change",markDirty);
@@ -4841,11 +5275,29 @@ function openItemDetail(item,mode,nav,defaultTab){
   bottomBtn.onclick=()=>doSave(false);
   const addSendBtn=body.querySelector("#d-addsend"); if(addSendBtn) addSendBtn.onclick=()=>doSave(false,true);
   const topSave=body.parentElement? null:null; const tsv=openWindows[wid].el.querySelector('[data-act="Save"]'); if(tsv) tsv.onclick=()=>doSave(true);
+  const wts=openWindows[wid].el.querySelector('#d-waiting'); if(wts) wts.onclick=()=>openMissingItem();
   function confirmCloseItem(proceed){ if(dirty){ uiModal("Save changes?","<div style=\"font-size:13px;\">You have unsaved changes. Save them?</div>",[{label:"Yes, save",primary:true,onClick:()=>doSave(false)},{label:"No, discard",onClick:proceed},{label:"Keep editing"}]); } else proceed(); }
   body._confirmClose=confirmCloseItem;
   body.querySelector("#d-close").onclick=()=>confirmCloseItem(_closeWin);
-  const db=openWindows[wid].el.querySelector('[data-act="Delete"]'); if(db) db.onclick=()=>{ if(isNew){ close(); return; }
-    openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); close(); }); };
+  // Turns this same, still-open window from "new item" into "real, saved item" in place —
+  // no closing or reopening anything. Regenerates just the pieces that actually depend on
+  // isNew (the status bar buttons, the added-on-date line, and the Photos/Publish section),
+  // then rewires the buttons that got recreated, since replacing their HTML destroys their
+  // old click handlers.
+  function transitionToExisting(){
+    isNew=false;
+    const lastsold=body.querySelector("#d-lastsold"); if(lastsold) lastsold.innerHTML="Added to system: "+fmtDate(it.createdAt);
+    const statusBtns=body.querySelector("#d-statusbtns");
+    if(statusBtns){
+      statusBtns.innerHTML=`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">Okay</button> <button class="btn" id="d-close">Cancel</button>`;
+      bottomBtn=body.querySelector("#d-save"); bottomBtn.onclick=()=>doSave(false); updateBtn();
+      const newClose=body.querySelector("#d-close"); if(newClose) newClose.onclick=()=>confirmCloseItem(_closeWin);
+      const newS2l=body.querySelector("#d-send2list"); if(newS2l) newS2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); wimRefreshAll(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
+    }
+    renderListing();
+  }
+  const db=openWindows[wid].el.querySelector('[data-act="Delete"]'); if(db) db.onclick=()=>{ if(isNew){ _closeWin(); return; }
+    openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); _closeWin(); }); };
   const pbtn=openWindows[wid].el.querySelector('[data-act="Print"]'); if(pbtn) pbtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first — labels print once a Warehouse SKU is assigned."); return; } openPrintMenu(it); };
   const ebtn=openWindows[wid].el.querySelector('[data-act="List on eBay"]'); if(ebtn) ebtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first, then list it on eBay."); return; } openEbayList(it); };
   // "Send Listing" (Warehouse level) — marks the item Created and queues it for supervisor review
@@ -4922,10 +5374,18 @@ function normSlot(v){ if(!v) return ""; v=v.toUpperCase().trim().replace(/\.+$/,
 function openBulkAdd(){
   if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
   const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:1180,height:600,popoutKey:"bulkadd",
-    toolbar:`${tbtn(I.plus,'Add Record','plus')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Type rows, then Create to assign Warehouse SKUs</span>`});
-  const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",qty:"1",slot:"",skus:[],created:false,error:"",images:[],aspects:{},_aspectDefs:[],descTemplateId:"",descBody:""});
+    toolbar:`${tbtn(I.plus,'Add Record','plus')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Type rows, then Create to assign Warehouse SKUs</span><span class="tbar-sep"></span>${pendingStorageBadgeHtml("ba-waiting")}`});
+  function refreshWaitingBadge(){
+    const btn=openWindows["bulk-add"] && openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(!btn) return;
+    btn.outerHTML=pendingStorageBadgeHtml("ba-waiting");
+    const fresh=openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(fresh) fresh.onclick=()=>openMissingItem();
+  }
+  { const wb=openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(wb) wb.onclick=()=>openMissingItem(); }
+  refreshWaitingBadge();
+  const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",vendor:(DB.vendors[0]||""),unitCost:"",_costAutoFilled:false,qty:"1",slot:"",skus:[],created:false,error:"",images:[],aspects:{},_aspectDefs:[],descTemplateId:"",descBody:""});
   let rows=[blank()], createdItems=[], phase="edit";
   const dlSec=`<datalist id="ba-sec">`+DB.sections.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
+  const dlVen=`<datalist id="ba-ven">`+DB.vendors.map(v=>`<option value="${esc(v)}"></option>`).join("")+`</datalist>`;
   const allSubs=[...new Set(Object.values(DB.subcats||{}).flat().map(s=>s.name))];
   const dlSub=`<datalist id="ba-sub">`+allSubs.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
   const dlCon=`<datalist id="ba-con">`+allConditions().map(c=>`<option value="${esc(c)}"></option>`).join("")+`</datalist>`;
@@ -4936,8 +5396,8 @@ function openBulkAdd(){
   // an empty, non-required cell for it rather than the whole table needing separate layouts
   // per category.
   function dynamicAspectNames(){ const set=new Set(); rows.forEach(r=>(r._aspectDefs||[]).forEach(a=>set.add(a.name))); return [...set]; }
-  body.innerHTML=`${dlSec}${dlSub}${dlCon}${dlSlot}
-    <div style="padding:10px 14px 4px;font-size:12.5px;color:#333;">Fill a row and press <b>Enter</b> to start the next one (or use +). Item Number is optional. <b>Quantity</b> defaults to 1 — each unit gets its own Warehouse SKU, kept together in a slot. Leave <b>Manual Slot</b> blank to auto-slot. Click the magnifying glass to pull real eBay category requirements for a row.</div>
+  body.innerHTML=`${dlSec}${dlVen}${dlSub}${dlCon}${dlSlot}
+    <div style="padding:10px 14px 4px;font-size:12.5px;color:#333;">Fill a row and press <b>Enter</b> to start the next one (or use +). <b>Quantity</b> defaults to 1 — each unit gets its own Warehouse SKU, kept together in a slot. Leave <b>Warehouse SKU</b> on "Auto SKU" to let WIM pick the slot, or type one in to place it manually. Click the magnifying glass to pull real eBay category requirements for a row.</div>
     <div class="resultwrap" style="margin:6px 14px;overflow:auto;"><table class="res" id="ba-table"><thead><tr id="ba-head"></tr></thead><tbody id="ba-tb"></tbody></table></div>
     <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn sm" id="ba-addrow">+ Add Record</button>
@@ -5003,35 +5463,53 @@ function openBulkAdd(){
   function render(){
     const dynCols=dynamicAspectNames();
     const head=body.querySelector("#ba-head");
-    head.innerHTML=`<th style="width:34px;"></th><th style="width:90px;">Photos</th><th style="width:130px;">Item Number <span class="smallhint">(opt)</span></th><th>Item Description</th><th style="width:120px;">Category</th><th style="width:110px;">Sub Category</th><th style="width:100px;">Condition</th><th style="width:50px;">Qty</th><th style="width:150px;">Description</th>`
+    head.innerHTML=`<th style="width:34px;"></th><th style="width:90px;">Photos</th><th style="width:170px;">Item Description</th><th style="width:150px;">Category</th><th style="width:100px;">Condition</th><th style="width:120px;">Vendor</th><th style="width:80px;">Unit Cost</th><th style="width:50px;">Qty</th><th style="width:190px;">Description</th>`
       + dynCols.map(n=>`<th style="width:110px;">${esc(n)}</th>`).join("")
-      + `<th style="width:80px;">Manual Slot</th><th style="width:140px;">Warehouse SKU</th><th style="width:34px;"></th>`;
+      + `<th style="width:140px;">Warehouse SKU</th><th style="width:34px;"></th>`;
     tb.innerHTML="";
     rows.forEach((r,i)=>{ const tr=document.createElement("tr");
       if(r.created){
-        tr.innerHTML=`<td></td><td></td><td>${esc(r.upc)||'<span class="smallhint">—</span>'}</td><td>${esc(r.desc)}</td><td>${esc(r.section)||'<span class="smallhint">—</span>'}</td><td>${esc(r.subcat)||'<span class="smallhint">—</span>'}</td><td>${esc(r.condition)||'<span class="smallhint">—</span>'}</td><td class="cc">${esc(r.qty)}</td><td>${esc(r.descBody?r.descBody.slice(0,30):"")}</td>`
+        tr.innerHTML=`<td></td><td></td><td>${esc(r.desc)}<div class="smallhint">${esc(r.upc)||"—"}</div></td><td>${esc(r.section)||'<span class="smallhint">—</span>'}${r.subcat?`<div class="smallhint">${esc(r.subcat)}</div>`:''}</td><td>${esc(r.condition)||'<span class="smallhint">—</span>'}</td><td>${esc(r.vendor)||'<span class="smallhint">—</span>'}</td><td>${r.unitCost?"$"+esc(r.unitCost):'<span class="smallhint">—</span>'}</td><td class="cc">${esc(r.qty)}</td><td>${esc(r.descBody?r.descBody.slice(0,30):"")}</td>`
           + dynCols.map(n=>`<td>${esc(r.aspects[n]||"")}</td>`).join("")
-          + `<td>${esc(r.slot)||'<span class="smallhint">auto</span>'}</td><td><b>${esc(r.skus.join(", "))}</b></td><td class="cc"><span class="badge ok">✓</span></td>`;
+          + `<td><b>${esc(r.skus.join(", "))}</b></td><td class="cc"><span class="badge ok">✓</span></td>`;
         tr.style.cursor="pointer"; tr.title="Double-click to open this item"; tr.ondblclick=()=>{ if(r._items&&r._items[0]) openItemDetail(r._items[0],"edit"); };
       } else {
         const descOptions=descsForCat(r.section||"");
-        tr.innerHTML=`<td class="cc"><button class="btn sm ba-find" title="Search eBay to set sub category &amp; required fields">🔍</button></td><td></td><td>${inputCell(r.upc,'upc')}</td><td>${inputCell(r.desc,'desc','',' placeholder="required"')}</td><td>${inputCell(r.section,'section','ba-sec')}</td><td>${inputCell(r.subcat,'subcat','ba-sub')}</td><td>${inputCell(r.condition,'condition','ba-con')}</td><td>${inputCell(r.qty,'qty','',' inputmode="numeric"')}</td>
-          <td><select class="cmb ba-desctpl" style="width:100%;"><option value="">(type below)</option>${descOptions.map(d=>`<option value="${d.id}" ${r.descTemplateId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}</select><textarea class="ba-descbody" placeholder="Description" style="width:100%;height:36px;margin-top:2px;font-size:11px;font-family:inherit;">${esc(r.descBody||"")}</textarea></td>`
-          + dynCols.map(n=>`<td><input class="txt" style="width:100%;" data-asp="${esc(n)}" value="${esc(r.aspects[n]||"")}"></td>`).join("")
-          + `<td>${inputCell(r.slot,'slot','ba-slot',' placeholder="auto"')}</td><td>${r.error?`<span class="smallhint" style="color:#c0392b;">${esc(r.error)}</span>`:'<span class="smallhint">—</span>'}</td>`;
+        tr.innerHTML=`<td class="cc"><button class="btn sm ba-find" title="Search eBay to set sub category &amp; required fields">🔍</button></td><td></td>
+          <td><input class="txt" data-f="desc" value="${esc(r.desc)}" placeholder="Item Description (required)" style="width:100%;box-sizing:border-box;">
+            <input class="txt" data-f="upc" value="${esc(r.upc)}" placeholder="(Auto Filled)" style="width:100%;box-sizing:border-box;margin-top:2px;font-size:11px;color:#8a95a3;"></td>
+          <td><input class="txt" data-f="section" list="ba-sec" value="${esc(r.section)}" placeholder="Category" style="width:100%;box-sizing:border-box;">
+            <input class="txt" data-f="subcat" list="ba-sub" value="${esc(r.subcat)}" placeholder="Sub Category" style="width:100%;box-sizing:border-box;margin-top:2px;font-size:11px;"></td>
+          <td>${inputCell(r.condition,'condition','ba-con')}</td><td>${inputCell(r.vendor,'vendor','ba-ven')}</td><td><input class="txt ba-unitcost" style="width:100%;box-sizing:border-box;" value="${esc(r.unitCost)}" inputmode="decimal" placeholder="0.00"></td><td>${inputCell(r.qty,'qty','',' inputmode="numeric"')}</td>
+          <td><div style="position:relative;"><select class="cmb ba-desctpl" style="position:absolute;top:2px;right:2px;width:26px;height:20px;font-size:0;padding:0;opacity:0;cursor:pointer;z-index:2;"><option value="">(type below)</option>${descOptions.map(d=>`<option value="${d.id}">${esc(d.title)}</option>`).join("")}</select><span style="position:absolute;top:3px;right:4px;pointer-events:none;font-size:11px;color:#8a95a3;">▾</span>
+            <textarea class="txt ba-descbody" placeholder="Description" style="width:100%;box-sizing:border-box;min-height:34px;padding:6px 22px 6px 6px;font-size:11.5px;font-family:inherit;resize:none;overflow:hidden;display:block;">${esc(r.descBody||"")}</textarea></div></td>`
+          + dynCols.map(n=>`<td><input class="txt" style="width:100%;box-sizing:border-box;" data-asp="${esc(n)}" value="${esc(r.aspects[n]||"")}"></td>`).join("")
+          + `<td><input class="txt" data-f="slot" list="ba-slot" value="${esc(r.slot)}" placeholder="Auto SKU" style="width:100%;box-sizing:border-box;color:${r.slot?'inherit':'#8a95a3'};">${r.error?`<div class="smallhint" style="color:#c0392b;">${esc(r.error)}</div>`:''}</td>`;
         const del=document.createElement("td"); del.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕";
         x.onclick=()=>{ rows.splice(i,1); if(!rows.length) rows.push(blank()); render(); };
         tr.appendChild(del); del.appendChild(x);
-        tr.querySelectorAll("input[data-f]").forEach(inp=>{ inp.oninput=()=>{ r[inp.dataset.f]=inp.value; };
+        tr.querySelectorAll("input[data-f]").forEach(inp=>{ inp.oninput=()=>{ r[inp.dataset.f]=inp.value; if(inp.dataset.f==="slot") inp.style.color=inp.value?"inherit":"#8a95a3"; };
           inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addRow(true); } });
         });
         tr.querySelectorAll("input[data-asp]").forEach(inp=>{ inp.oninput=()=>{ r.aspects[inp.dataset.asp]=inp.value; }; });
         const secInp=tr.querySelector('input[data-f="section"]'); if(secInp) attachAutofill(secInp, ()=>DB.sections);
         const subInp=tr.querySelector('input[data-f="subcat"]'); if(subInp) attachAutofill(subInp, ()=>allSubs);
         const conInp=tr.querySelector('input[data-f="condition"]'); if(conInp) attachAutofill(conInp, ()=>allConditions());
+        const venInp=tr.querySelector('input[data-f="vendor"]'); if(venInp) attachAutofill(venInp, ()=>DB.vendors);
+        const costInp=tr.querySelector(".ba-unitcost");
+        if(venInp && costInp){
+          venInp.addEventListener("change",()=>{
+            r.vendor=venInp.value;
+            const avg=vendorAvgCost(r.vendor);
+            if(avg!=null && (!costInp.value || r._costAutoFilled)){ costInp.value=avg.toFixed(2); r.unitCost=costInp.value; r._costAutoFilled=true; }
+          });
+        }
+        if(costInp) costInp.addEventListener("input",()=>{ r.unitCost=costInp.value; r._costAutoFilled=false; });
         const dsel=tr.querySelector(".ba-desctpl"), dbody=tr.querySelector(".ba-descbody");
-        dsel.onchange=()=>{ r.descTemplateId=dsel.value||""; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d){ r.descBody=d.body; dbody.value=d.body; } };
-        dbody.oninput=()=>{ r.descBody=dbody.value; };
+        function autoGrow(){ dbody.style.height="auto"; dbody.style.height=Math.max(34,dbody.scrollHeight)+"px"; }
+        dsel.onchange=()=>{ r.descTemplateId=dsel.value||""; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d){ r.descBody=d.body; dbody.value=d.body; autoGrow(); } dsel.value=""; };
+        dbody.oninput=()=>{ r.descBody=dbody.value; autoGrow(); };
+        autoGrow();
         const photoTd=tr.children[1]; photoTd.appendChild(photoCell(r));
         const mg=tr.querySelector('.ba-find'); if(mg) mg.onclick=async ()=>{
           let sec=r.section.trim(); if(!DB.sections.includes(sec)) sec="General";
@@ -5057,6 +5535,7 @@ function openBulkAdd(){
   function doCreate(){
    try{
     let made=0, errors=0; const batch=[]; const _bulkItn=new Set();
+    const storageBatchId=crypto.randomUUID(); // shared across this whole Create click, not per-row — everything gets carried out together
     rows.forEach(r=>{ if(r.created) return; r.error=""; r.skus=[]; r._items=[];
       if(!r.desc.trim() && !r.upc.trim() && !r.section.trim() && !r.slot.trim()) return; // skip empty rows
       if(!r.desc.trim()){ r.error="needs description"; errors++; return; }
@@ -5069,21 +5548,23 @@ function openBulkAdd(){
         if(!slotHasCat(slotById(slotV),cat)){ r.error="slot ≠ category"; errors++; return; }
         alloc=allocateInSlot(slotV,qty,null); if(!alloc){ r.error="slot can't fit "+qty; errors++; return; } }
       else { alloc=allocateMulti(qty,null,cat); if(alloc.length<qty){ r.error="no "+cat+" space ("+alloc.length+")"; errors++; return; } }
-      alloc.forEach(pl=>{ const it={ id:crypto.randomUUID(), upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
-        vendor:(DB.vendors[0]||"HYVEE DISTRIBUTION"), condition:r.condition.trim(),
+      alloc.forEach(pl=>{ const rowVendor=r.vendor.trim(), rowCost=r.unitCost||(vendorAvgCost(rowVendor)!=null?vendorAvgCost(rowVendor).toFixed(2):"0.00");
+        const it={ id:crypto.randomUUID(), upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
+        vendor:rowVendor, condition:r.condition.trim(),
         section:cat,
-        unitCost:"0.000", retail:"0.00", onHand:"1", groups:[],
+        unitCost:rowCost, retail:"0.00", onHand:"1", groups:[],
         category:"", subCategory:sub, aspects:Object.assign({},r.aspects||{}),
         listing:{status:"none",title:"",price:"",qty:"1",descriptionId:r.descTemplateId||null,descBody:r.descBody||""},
         images:r.images.slice(), imageFeatured:0, image:r.images[0]||"", slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), manualSlot:!!manual,
-        sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null,
+        sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null, storageBatchId:storageBatchId,
         caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0] };
         it.history=[{at:it.createdAt,desc:"Item created (SKU "+it.sku+", Bulk Add)",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
+        vendorDrawUnit(rowVendor, it.unitCost);
         DB.items.push(it); createdItems.push(it); batch.push(it); r._items.push(it); r.skus.push(it.sku); made++; });
       r.slot=alloc[0].slot; r.created=true;
     });
     if(batch.length) recordAdds(batch, SESSION.user.id, "Bulk Add");
-    save(); refreshSearchWindows(); refreshInvoices(); render();
+    save(); refreshSearchWindows(); refreshInvoices(); render(); refreshWaitingBadge();
     if(made && !errors){ phase="done"; addBtn.disabled=false; addBtn.textContent="+ Add More"; createBtn.textContent="Print Labels"; createBtn.onclick=printLabels;
       msg.style.color="#1f7244"; msg.textContent=made+" item(s) created (double-click a row to open it). Add more with +, or press Print Labels."; }
     else { msg.style.color= errors?"#c0392b":"#1f7244";
@@ -5529,7 +6010,7 @@ function openCloudSyncSetup(){
         DB.cloud={ teamCode:team, teamId:row.team_id, teamName:row.team_name, deviceName:devName, connectedAt:new Date().toISOString() };
         cloudSession=row; save();
         await Cloud.registerDevice(cloudSession.session_token, thisDeviceKey(), devName);
-        try{ pullEbayCredsFromCloudIfNeeded(); }catch(e){}
+        try{ pullEbayCredsFromCloudIfNeeded().then(ok=>{ if(ok) connectEbay(true); }); }catch(e){}
         msg.style.color="#1f7244"; msg.textContent="Connected!";
         setTimeout(render,400);
       }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach the server: "+(e&&e.message?e.message:e); }
@@ -6199,6 +6680,67 @@ function envelopeCellHtml(buyerUsername){
 // number of days (default 7). This stands in for real delivery confirmation, which eBay's
 // own API genuinely doesn't expose to sellers (only "shipped," not "delivered") — see the
 // 3.0.4 changelog entry for the full reasoning.
+// Real cancellation detection. eBay's own docs are explicit that the bulk getOrders call
+// always returns cancelStatus.cancelRequests empty — only a per-order getOrder call
+// actually populates it — so this has to check items one at a time, which is why it's a
+// manual, on-demand check rather than a silent background poll on every screen open.
+// Confirmed CANCELED (not just a pending request) is the trigger, since a cancellation
+// that's still in progress could still be rejected — pulling the item out of Ready to Ship
+// before that's actually final would be premature.
+async function checkOrderCancellations(onProgress){
+  if(!EBAY.ready()) throw new Error("Not connected to eBay — click Connect next to the mode badge.");
+  const candidates=visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage==="readyToShip" && i.fulfillment.orderId && !i.fulfillment.cancelled);
+  let found=0, checked=0;
+  for(const it of candidates){
+    checked++; if(onProgress) onProgress(checked, candidates.length);
+    try{
+      const r=await EBAY.user("/sell/fulfillment/v1/order/"+encodeURIComponent(it.fulfillment.orderId), EBAY_SCOPE_FULFILL);
+      if(!r.ok) continue;
+      const order=JSON.parse(r.body);
+      const cs=order.cancelStatus;
+      if(cs && cs.cancelState==="CANCELED"){
+        it.fulfillment.cancelled=true; it.fulfillment.cancelledAt=cs.cancelledDate||new Date().toISOString();
+        const req=(cs.cancelRequests||[])[0];
+        it.fulfillment.cancelReason=req?req.cancelReason:""; it.fulfillment.cancelInitiator=req?req.cancelInitiator:"";
+        it.fulfillment.restocked=false;
+        addHistory(it,"Order cancelled on eBay"+(it.fulfillment.cancelReason?" ("+it.fulfillment.cancelReason+")":"")+" — moved to Cancelled Orders");
+        found++;
+      }
+    }catch(e){ /* one order failing to check shouldn't stop checking the rest */ }
+  }
+  if(found) save();
+  return { checked, found };
+}
+// Real refund detection, same reasoning as cancellations — only getOrder returns the
+// actual paymentSummary.refunds detail. Covers both full and partial refunds identically,
+// per the decision that both should be tracked and reflected in profit the same way.
+async function checkOrderRefunds(onProgress){
+  if(!EBAY.ready()) throw new Error("Not connected to eBay — click Connect next to the mode badge.");
+  const candidates=visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && (i.fulfillment.stage==="shipped"||i.fulfillment.stage==="completed") && i.fulfillment.orderId && !i.fulfillment.refunded);
+  let found=0, checked=0;
+  for(const it of candidates){
+    checked++; if(onProgress) onProgress(checked, candidates.length);
+    try{
+      const r=await EBAY.user("/sell/fulfillment/v1/order/"+encodeURIComponent(it.fulfillment.orderId), EBAY_SCOPE_FULFILL);
+      if(!r.ok) continue;
+      const order=JSON.parse(r.body);
+      const refunds=(order.paymentSummary&&order.paymentSummary.refunds)||[];
+      if(refunds.length){
+        const total=refunds.reduce((s,rf)=>s+(parseFloat(rf.amount&&rf.amount.value)||0),0);
+        const isFull=total>=(parseFloat(it.fulfillment.soldPrice)||0)-0.01;
+        it.fulfillment.refunded=true; it.fulfillment.refundedAt=new Date().toISOString();
+        it.fulfillment.refundAmount=total.toFixed(2); it.fulfillment.refundFull=isFull;
+        // Treated as a loss for now, per the decision — no automatic restock-to-inventory
+        // path for a refund the way there is for a cancellation, since a refunded item may
+        // or may not have physically come back yet.
+        addHistory(it,(isFull?"Full":"Partial")+" refund detected on eBay ($"+total.toFixed(2)+") — treated as a loss");
+        found++;
+      }
+    }catch(e){ /* one order failing to check shouldn't stop checking the rest */ }
+  }
+  if(found) save();
+  return { checked, found };
+}
 function checkAutoComplete(){
   const days=(DB.fulfillmentSettings&&DB.fulfillmentSettings.autoCompleteDays)||7;
   const cutoff=Date.now()-days*86400000;
@@ -6255,19 +6797,36 @@ async function pullRecentlySold(daysBack){
       const orderLineKey=order.orderId+"::"+li.lineItemId;
       if(DB.pulledOrderIds.includes(orderLineKey)){ skipped++; continue; }
       const sku=li.sku;
-      const localItem = sku ? DB.items.find(i=>i.sku===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : null;
-      if(!localItem){ continue; } // no local match (no SKU, or SKU not found) — nothing to move; left for manual handling
+      const localItem = sku ? DB.items.find(i=>i.upc===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : null;
+      if(!localItem){ continue; } // no local match (no Item Number, or not found) — nothing to move; left for manual handling
       const f=ensureFulfillment(localItem);
       f.stage="recentlySold";
       f.orderId=order.orderId; f.lineItemId=li.lineItemId;
       f.buyer=order.buyer&&order.buyer.username||null;
-      f.shipTo=order.fulfillmentStartInstructions&&order.fulfillmentStartInstructions[0]&&order.fulfillmentStartInstructions[0].shippingStep&&order.fulfillmentStartInstructions[0].shippingStep.shipTo||null;
+      const startInstr=order.fulfillmentStartInstructions&&order.fulfillmentStartInstructions[0];
+      f.shipTo=startInstr&&startInstr.shippingStep&&startInstr.shippingStep.shipTo||null;
+      // Real detection, not a guess — eBay's own order data marks Local Pickup and Click and
+      // Collect orders with this exact value, confirmed against eBay's own API docs. These
+      // bypass the shipping process entirely once detected.
+      f.isPickup = !!(startInstr && startInstr.fulfillmentInstructionsType==="PREPARE_FOR_PICKUP");
       f.soldPrice=li.total&&li.total.value||null;
       f.soldAt=order.creationDate||new Date().toISOString();
       setItemStatus(localItem,"sold");
       DB.pulledOrderIds.push(orderLineKey);
       addHistory(localItem,"Sold on eBay (order "+order.orderId+") — moved to Recently Sold");
       added++;
+      // Reserve Item: automatically list the next available unit of this same product, so
+      // buyers never see the full real quantity — no one has to notice this sold and go
+      // relist the next one by hand.
+      if(localItem.listing && localItem.listing.reserveItem){
+        const next=unitsOf(localItem).find(u=>u.id!==localItem.id && itemStatus(u)==="active" && (!u.listing||u.listing.status!=="listed"));
+        if(next){
+          try{ const r=await publishToEbay(next);
+            if(r.ok) addHistory(next,"Auto-listed — Reserve Item: previous unit just sold");
+            else addHistory(next,"Reserve Item auto-list failed: "+(r.error||"unknown error")+" — needs manual attention");
+          }catch(e){ addHistory(next,"Reserve Item auto-list failed: "+(e&&e.message?e.message:e)+" — needs manual attention"); }
+        }
+      }
     }
   }
   save(); wimRefreshAll();
@@ -6322,6 +6881,7 @@ function openShipping(){
       ${tab==="readyToShip" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
         <button class="btn" id="sh-printlabel" ${!picked.size?"disabled":""}>Print Label${picked.size===1?"":"s"}${picked.size?" ("+picked.size+")":""}</button>
+        <button class="btn primary" id="sh-picked" ${!picked.size?"disabled":""} style="background:#8a5cd6;border-color:#8a5cd6;" title="Confirms the item was physically taken off the shelf and moved to the shipping area — this is what actually frees up its slot position, not Mark Shipped">Mark Picked${picked.size?" ("+picked.size+")":""}</button>
         <button class="btn primary" id="sh-shipped" ${!picked.size?"disabled":""}>Mark Shipped${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${tab==="completed" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
@@ -6331,8 +6891,9 @@ function openShipping(){
       ${!items.length?`<div class="note">${tab==="readyToShip"?'Nothing waiting to ship. Items move here from Recently Sold.':tab==="shipped"?'Nothing shipped yet.':'Nothing completed yet. Items move here automatically '+DB.fulfillmentSettings.autoCompleteDays+' day(s) after shipping.'}</div>`:``}
       <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
         <th style="width:30px;"></th><th style="width:54px;">Photo</th>${SH_COLS.slice(0,4).map(c=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${shSort.key===c.k?` <span class="arr">${shSort.dir>0?'▲':'▼'}</span>`:""}</th>`).join("")}
+        ${tab==="readyToShip"?'<th style="width:90px;">Status</th>':''}
         ${tab==="shipped"?'<th>Tracking</th><th>Shipped</th>':''}
-        ${tab==="completed"?'<th>Feedback</th><th>Rating</th><th style="width:90px;">Shipped</th>':''}
+        ${tab==="completed"?'<th>Feedback</th><th>Rating</th><th style="width:90px;">Shipped</th><th style="width:80px;">Fulfillment</th>':''}
         <th style="width:34px;">&#9993;</th><th></th>
       </tr></thead><tbody id="sh-tb"></tbody></table></div></div>`;
     body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(shSort.key===k) shSort.dir*=-1; else shSort={key:k,dir:1}; render(); });
@@ -6352,6 +6913,13 @@ function openShipping(){
       body.querySelector("#sh-printlabel").onclick=()=>{
         const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
         printPackingSlips(targets);
+      };
+      body.querySelector("#sh-picked").onclick=()=>{
+        const targets=items.filter(i=>picked.has(i.id)&&!i.fulfillment.pickedAt); if(!targets.length) return;
+        targets.forEach(it=>{ it.fulfillment.pickedAt=new Date().toISOString();
+          if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement);
+          addHistory(it,"Marked picked — physically removed from slot "+esc(it.slot||"")+", moved to shipping area"); });
+        save(); wimRefreshAll(); picked.clear(); render();
       };
       body.querySelector("#sh-shipped").onclick=()=>openMarkShippedDialog(items.filter(i=>picked.has(i.id)), ()=>{ picked.clear(); render(); });
     }
@@ -6376,8 +6944,9 @@ function openShipping(){
         <td style="font-size:12px;">${esc(it.sku||"—")}</td>
         <td style="font-size:12px;">${esc(f.buyer||"—")}</td>
         <td style="font-size:12px;">${esc(shipToText)}</td>
+        ${tab==="readyToShip"?`<td style="font-size:11.5px;font-weight:600;color:${f.pickedAt?'#8a5cd6':'#9aa3ad'};">${f.pickedAt?"Picked":"On shelf"}</td>`:""}
         ${tab==="shipped"?`<td style="font-size:12px;">${esc(f.trackingNumber||"—")}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
-        ${tab==="completed"?`<td style="font-size:12px;cursor:${fb?'pointer':'default'};" ${fb?`data-full="${esc(fb.commentText||"")}"`:""}>${fb?esc((fb.commentText||"").slice(0,25))+((fb.commentText||"").length>25?"…":""):"—"}</td><td style="font-size:12px;color:${fbColor};font-weight:600;">${fb?esc(fb.commentType):"—"}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
+        ${tab==="completed"?`<td style="font-size:12px;cursor:${fb?'pointer':'default'};" ${fb?`data-full="${esc(fb.commentText||"")}"`:""}>${fb?esc((fb.commentText||"").slice(0,25))+((fb.commentText||"").length>25?"…":""):"—"}</td><td style="font-size:12px;color:${fbColor};font-weight:600;">${fb?esc(fb.commentType):"—"}</td><td style="font-size:11px;">${f.isPickup?(f.pickedUpAt?fmtDate(f.pickedUpAt):"—"):(f.shippedAt?fmtDate(f.shippedAt):"—")}</td><td><span style="font-weight:700;font-size:11.5px;color:${f.isPickup?'#1f9d55':'#3b7dd8'};">${f.isPickup?"Pickup":"Shipping"}</span></td>`:""}
         <td style="text-align:center;">${envelopeCellHtml(f.buyer)}</td>
         <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
       if(tab==="readyToShip"||tab==="completed"){ const chk=tr.querySelector(`[data-id="${it.id}"]`); if(chk) chk.onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); }; }
@@ -6419,6 +6988,10 @@ function openMarkShippedDialog(items,onDone){
         const f=it.fulfillment;
         if(!it.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, tracking, carrier.toUpperCase().replace(/\s+/g,"_")||"OTHER");
         f.stage="shipped"; f.shippedAt=new Date().toISOString(); f.trackingNumber=tracking;
+        // Safety net only — the real shift should already have happened when this was
+        // marked Picked. If that step got skipped for some reason, this still corrects
+        // the slot now rather than leaving it stale indefinitely.
+        if(!f.pickedAt){ f.pickedAt=new Date().toISOString(); if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement); }
         addHistory(it,(it.simulated?"[Simulated] ":"")+"Marked shipped (tracking "+tracking+")"); okCount++;
       }catch(e){ addHistory(it,"Failed to mark shipped on eBay: "+(e&&e.message||e)); }
     }
@@ -6529,21 +7102,24 @@ function openRecentlyListed(){
 }
 function openRecentlySold(){
   if(openWindows["recently-sold"]){ focusWin(openWindows["recently-sold"].el); return; }
-  const {body}=buildWindow({id:"recently-sold",title:"Recently Sold",width:980,height:600,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sold on eBay — pull updates this list, then move items to Shipping</span>`});
+  const {body}=buildWindow({id:"recently-sold",title:"Recently Sold",width:1040,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sold on eBay — pull updates this list, then move shipping items to Shipping, or mark pickup items picked up directly</span>`});
   let picked=new Set();
   let rsSort={key:"sold",dir:-1};
-  const RS_COLS=[{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"cond",label:"Condition",get:it=>it.condition,t:"text"},{k:"sku",label:"Warehouse SKU",get:it=>it.sku,t:"mixed"},{k:"price",label:"Sold Price",get:it=>parseFloat(it.fulfillment.soldPrice)||0,t:"mixed"},{k:"sold",label:"Sold Date",get:it=>it.fulfillment.soldAt||"",t:"text"}];
+  const RS_COLS=[{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"cond",label:"Condition",get:it=>it.condition,t:"text"},{k:"sku",label:"Warehouse SKU",get:it=>it.sku,t:"mixed"},{k:"price",label:"Sold Price",get:it=>parseFloat(it.fulfillment.soldPrice)||0,t:"mixed"},{k:"sold",label:"Sold Date",get:it=>it.fulfillment.soldAt||"",t:"text"},{k:"pickup",label:"Fulfillment",get:it=>it.fulfillment.isPickup?"Pickup":"Shipping",t:"text"}];
   function render(){
     const col=RS_COLS.find(c=>c.k===rsSort.key);
     const items=fulfillmentItems("recentlySold").sort((a,b)=>cmpVal(col.get(a),col.get(b),col.t)*rsSort.dir);
     const th=(c)=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${rsSort.key===c.k?` <span class="arr">${rsSort.dir>0?'▲':'▼'}</span>`:""}</th>`;
+    const pickedItems=items.filter(i=>picked.has(i.id));
+    const anyShipping=pickedItems.some(i=>!i.fulfillment.isPickup), anyPickup=pickedItems.some(i=>i.fulfillment.isPickup);
     body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
         <button class="btn" id="rs-pull">Pull Recently Sold</button>
         <span class="smallhint" id="rs-pullmsg"></span>
         ${items.length?`<span style="flex:1;"></span><label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="rs-selall"></span> Select All</label>
-        <button class="btn primary" id="rs-move" ${!picked.size?"disabled":""}>Move to Shipping${picked.size?" ("+picked.size+")":""}</button>`:``}
+        <button class="btn primary" id="rs-move" ${!picked.size||anyPickup?"disabled":""} title='${anyPickup?"Deselect pickup items first — they skip Shipping entirely":""}'>Move to Shipping${picked.size?" ("+picked.size+")":""}</button>
+        <button class="btn primary" id="rs-pickup" ${!picked.size||anyShipping?"disabled":""} style="background:#1f9d55;border-color:#1f9d55;" title='${anyShipping?"Deselect shipping items first":""}'>Mark Picked Up${picked.size?" ("+picked.size+")":""}</button>`:``}
       </div>
       ${!items.length?`<div class="note">Nothing here yet. Click "Pull Recently Sold" to check eBay for new sales.</div>`:``}
       <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
@@ -6564,13 +7140,23 @@ function openRecentlySold(){
     if(items.length){
       body.querySelector("#rs-selall").onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
       body.querySelector("#rs-move").onclick=()=>{
-        const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
+        const targets=items.filter(i=>picked.has(i.id)&&!i.fulfillment.isPickup); if(!targets.length) return;
         targets.forEach(it=>{ it.fulfillment.stage="readyToShip"; it.fulfillment.movedToShippingAt=new Date().toISOString(); addHistory(it,"Moved to Shipping (Ready to Ship)"); });
+        picked.clear(); save(); wimRefreshAll(); render();
+      };
+      // Bypasses the whole shipping process, per the request — a pickup order never touches
+      // Ready to Ship or Shipping at all, it goes straight to Completed.
+      body.querySelector("#rs-pickup").onclick=()=>{
+        const targets=items.filter(i=>picked.has(i.id)&&i.fulfillment.isPickup); if(!targets.length) return;
+        targets.forEach(it=>{ it.fulfillment.stage="completed"; it.fulfillment.pickedUpAt=new Date().toISOString(); it.fulfillment.completedAt=new Date().toISOString(); it.fulfillment.pickedAt=new Date().toISOString();
+          if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement);
+          addHistory(it,"Marked picked up (local pickup / Click and Collect — bypassed shipping)"); });
         picked.clear(); save(); wimRefreshAll(); render();
       };
     }
     items.forEach(it=>{
       const sold=it.fulfillment.soldAt?new Date(it.fulfillment.soldAt):null;
+      const isPickup=it.fulfillment.isPickup;
       const tr=document.createElement("tr");
       tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td>
         <td>${it.image?`<img src="${it.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`:'<span style="font-size:20px;">📦</span>'}</td>
@@ -6579,6 +7165,7 @@ function openRecentlySold(){
         <td style="font-size:12px;">${esc(it.sku||"—")}</td>
         <td style="font-size:12px;">${it.fulfillment.soldPrice?"$"+esc(it.fulfillment.soldPrice):"—"}</td>
         <td style="font-size:11px;">${sold&&!isNaN(sold)?sold.toLocaleString():"—"}</td>
+        <td><span style="font-weight:700;font-size:11.5px;color:${isPickup?'#1f9d55':'#3b7dd8'};">${isPickup?"Pickup":"Shipping"}</span></td>
         <td style="text-align:center;">${envelopeCellHtml(it.fulfillment.buyer)}</td>
         <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
       tr.querySelector(`[data-id="${it.id}"]`).onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
@@ -7006,6 +7593,134 @@ function openDiscrepancies(){
   }
   render();
 }
+function cancelledOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.cancelled && !i.fulfillment.restocked); }
+function refundedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.refunded); }
+function openCancelledOrders(){
+  if(openWindows["cancelled-orders"]){ focusWin(openWindows["cancelled-orders"].el); return; }
+  const {body}=buildWindow({id:"cancelled-orders",title:"Cancelled Orders",width:1000,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Orders eBay confirms were cancelled — pulled out of Ready to Ship automatically so nothing gets shipped by mistake</span>`});
+  function render(){
+    const rows=cancelledOrderItems().sort((a,b)=>new Date(b.fulfillment.cancelledAt||0)-new Date(a.fulfillment.cancelledAt||0));
+    body.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+        <button class="btn" id="co-check">Check for Cancellations</button><span class="smallhint" id="co-msg"></span>
+        <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} cancelled order(s) awaiting restock.</span></div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Cancelled</th><th>Reason</th><th>Requested By</th><th></th></tr></thead><tbody id="co-tb"></tbody></table></div>`;
+    const msg=body.querySelector("#co-msg"), tb=body.querySelector("#co-tb");
+    body.querySelector("#co-check").onclick=async ()=>{
+      msg.style.color="#555"; msg.textContent="Checking…";
+      try{ const r=await checkOrderCancellations((i,n)=>{ msg.textContent="Checking "+i+" of "+n+"…"; });
+        msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly cancelled."; render();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
+    };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">No cancelled orders waiting on restock.</td></tr>`; return; }
+    rows.forEach(it=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${it.fulfillment.cancelledAt?fmtDay(it.fulfillment.cancelledAt):""}</td><td>${esc(it.fulfillment.cancelReason||"—")}</td><td>${esc(it.fulfillment.cancelInitiator||"—")}</td>`;
+      const td=document.createElement("td"); td.className="cc"; const b=document.createElement("button"); b.className="btn sm primary"; b.textContent="Restock";
+      b.title="Puts this item back into active inventory and reposts the listing on eBay";
+      b.onclick=async ()=>{
+        b.disabled=true; b.textContent="Restocking…";
+        try{
+          it.sold=false; it.soldAt=null; it.soldBy=null;
+          it.fulfillment.restocked=true; it.fulfillment.restockedAt=new Date().toISOString();
+          it.listing.status="none"; it.listing.offerId=null; it.listing.ebayListingId=null;
+          addHistory(it,"Restocked after cancelled order — reposting to eBay");
+          save();
+          const res=await publishToEbay(it);
+          if(res && res.ok){ addHistory(it,"Repost to eBay succeeded after restock"); }
+          else { addHistory(it,"Restocked, but repost to eBay needs attention — open the item to try again"); }
+          save(); render();
+        }catch(e){ uiAlert("Restock failed: "+(e&&e.message?e.message:e)); b.disabled=false; b.textContent="Restock"; }
+      };
+      td.appendChild(b); tr.appendChild(td); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+  }
+  render();
+}
+function openRefunds(){
+  if(openWindows["refunds"]){ focusWin(openWindows["refunds"].el); return; }
+  const {body}=buildWindow({id:"refunds",title:"Refunds",width:1000,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Orders eBay confirms were refunded, full or partial — treated as a loss for now</span>`});
+  function render(){
+    const rows=refundedOrderItems().sort((a,b)=>new Date(b.fulfillment.refundedAt||0)-new Date(a.fulfillment.refundedAt||0));
+    body.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+        <button class="btn" id="rf-check">Check for Refunds</button><span class="smallhint" id="rf-msg"></span>
+        <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} refunded order(s).</span></div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Refunded</th><th>Type</th><th>Amount</th></tr></thead><tbody id="rf-tb"></tbody></table></div>`;
+    const msg=body.querySelector("#rf-msg"), tb=body.querySelector("#rf-tb");
+    body.querySelector("#rf-check").onclick=async ()=>{
+      msg.style.color="#555"; msg.textContent="Checking…";
+      try{ const r=await checkOrderRefunds((i,n)=>{ msg.textContent="Checking "+i+" of "+n+"…"; });
+        msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly refunded."; render();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
+    };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">No refunds on record.</td></tr>`; return; }
+    rows.forEach(it=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${it.fulfillment.refundedAt?fmtDay(it.fulfillment.refundedAt):""}</td><td>${it.fulfillment.refundFull?"Full":"Partial"}</td><td>$${esc(it.fulfillment.refundAmount||"0.00")}</td>`;
+      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+  }
+  render();
+}
+
+function openMissingItem(){
+  if(openWindows["missing-item"]){ focusWin(openWindows["missing-item"].el); return; }
+  const {body}=buildWindow({id:"missing-item",title:"Missing Item",width:1040,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Everything waiting to be confirmed stored — search any item to see what else it was added with, for checking nearby spots if something's been swapped</span>`});
+  let picked=new Set(); let q="";
+  function render(){
+    const pending=pendingStorageItems().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
+    const searchResults = q ? activeItems().filter(i=>(i.desc||"").toLowerCase().includes(q.toLowerCase()) || (i.upc||"").toLowerCase().includes(q.toLowerCase()) || (i.sku||"").toLowerCase().includes(q.toLowerCase())).slice(0,25) : null;
+    body.innerHTML=`<div style="padding:10px 14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+        <input class="txt" id="mi-search" placeholder="Search any item by description, Item Number, or Warehouse SKU…" style="flex:1;max-width:420px;" value="${esc(q)}">
+        ${q?'<button class="btn sm" id="mi-clearsearch">Clear search</button>':''}
+        <span style="flex:1;"></span>
+        ${!q&&pending.length?`<label class="chkrow"><span class="chk ${picked.size===pending.length&&pending.length?'on':''}" id="mi-selall"></span> Select All</label>
+        <button class="btn primary" id="mi-store" ${!picked.size?"disabled":""}>Mark Stored${picked.size?" ("+picked.size+")":""}</button>`:''}
+      </div>
+      ${q?`<div class="col-title" style="text-align:left;">Search results</div>`:`<div class="col-title" style="text-align:left;">Waiting to be stored (${pending.length})</div>`}
+      <div class="resultwrap" style="margin:6px 0;flex:1;overflow:auto;"><table class="res"><thead><tr>
+        ${q?'':'<th style="width:30px;"></th>'}<th>Description</th><th style="width:120px;">Warehouse SKU</th><th style="width:90px;">Status</th><th style="width:90px;"></th>
+      </tr></thead><tbody id="mi-tb"></tbody></table></div>
+      <div id="mi-batch" style="border-top:1px solid var(--line,#dfe3ea);padding-top:10px;max-height:220px;overflow:auto;display:none;"></div>
+    </div>`;
+    const tb=body.querySelector("#mi-tb"), batchWrap=body.querySelector("#mi-batch");
+    const search=body.querySelector("#mi-search");
+    search.oninput=()=>{ q=search.value.trim(); render(); setTimeout(()=>{ const s2=body.querySelector("#mi-search"); if(s2){ s2.focus(); s2.setSelectionRange(s2.value.length,s2.value.length); } },0); };
+    const clr=body.querySelector("#mi-clearsearch"); if(clr) clr.onclick=()=>{ q=""; render(); };
+    function showBatch(it){
+      const mates=batchMates(it);
+      if(!it.storageBatchId || !mates.length){ batchWrap.style.display="block"; batchWrap.innerHTML=`<div class="smallhint">Nothing else was added in the same batch as "${esc(it.desc)}".</div>`; return; }
+      batchWrap.style.display="block";
+      batchWrap.innerHTML=`<div class="col-title" style="text-align:left;">Added together with "${esc(it.desc)}" — check these spots too</div>
+        <table class="res"><thead><tr><th>Description</th><th style="width:120px;">Warehouse SKU</th><th style="width:90px;">Status</th></tr></thead><tbody></tbody></table>`;
+      const mtb=batchWrap.querySelector("tbody");
+      mates.forEach(m=>{ const tr=document.createElement("tr");
+        tr.innerHTML=`<td>${esc(m.desc)}</td><td><b>${esc(m.sku||"—")}</b></td><td>${m.storedAt?'<span style="color:#1f7244;">Stored</span>':'<span style="color:#c0392b;">Pending</span>'}</td>`;
+        tr.style.cursor="pointer"; tr.ondblclick=()=>openItemDetail(m,"edit"); mtb.appendChild(tr); });
+    }
+    if(q){
+      batchWrap.style.display="none";
+      if(!searchResults.length){ tb.innerHTML=`<tr><td colspan="4" style="color:#888;">No matches.</td></tr>`; }
+      searchResults.forEach(it=>{ const tr=document.createElement("tr");
+        tr.innerHTML=`<td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td>${it.storedAt?'<span style="color:#1f7244;">Stored</span>':'<span style="color:#c0392b;">Pending</span>'}</td><td class="cc"><button class="btn sm">Show batch</button></td>`;
+        tr.querySelector("button").onclick=()=>showBatch(it); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+    } else {
+      batchWrap.style.display="none";
+      if(!pending.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">Nothing waiting to be stored — everything added has been confirmed placed.</td></tr>`; }
+      pending.forEach(it=>{ const tr=document.createElement("tr");
+        tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td><td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td><span style="color:#c0392b;">Pending</span></td><td class="cc"><button class="btn sm">Show batch</button></td>`;
+        tr.querySelector('[data-id]').onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
+        tr.querySelector("button").onclick=()=>showBatch(it); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+      const selall=body.querySelector("#mi-selall"); if(selall) selall.onclick=()=>{ if(picked.size===pending.length){ picked.clear(); } else { pending.forEach(i=>picked.add(i.id)); } render(); };
+      const storeBtn=body.querySelector("#mi-store"); if(storeBtn) storeBtn.onclick=()=>{
+        const targets=pending.filter(i=>picked.has(i.id)); if(!targets.length) return;
+        targets.forEach(it=>{ it.storedAt=new Date().toISOString(); addHistory(it,"Confirmed stored in slot "+esc(it.sku||"")); });
+        picked.clear(); save(); wimRefreshAll(); render();
+      };
+    }
+  }
+  body._refresh=render;
+  render();
+}
 
 /* ============================================================ eBay READ API (v2.2.4) ============================================================ */
 const EBAY_SCOPE_APP="https://api.ebay.com/oauth/api_scope";
@@ -7289,10 +8004,10 @@ function openEbayFind(it, onDone){
       let sc=DB.subcats[cat].find(s=>s.name.toLowerCase()===chosen.leaf.toLowerCase());
       if(!sc){ sc={name:chosen.leaf,ebayId:"",ebayName:"",aspects:[],_new:true}; DB.subcats[cat].push(sc); }
       sc.ebayId=chosen.id; sc.ebayName=chosen.path;
-      sc.aspects=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
+      sc.aspects=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),multi:!!(a.aspectConstraint&&a.aspectConstraint.itemToAspectCardinality==="MULTI"),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
       it.subCategory=sc.name;
       if(!it.aspects) it.aspects={};
-      localized.forEach(a=>{ if(a&&a.name&&a.value) it.aspects[a.name]=a.value; });
+      localized.forEach(a=>{ if(a&&a.name&&a.value){ it.aspects[a.name]=a.value; if(!it.aspectTypes) it.aspectTypes={}; it.aspectTypes[a.name]=a.type||""; } });
       if(!it.listing) it.listing={status:"none"};
       const title=summary.title||"";
       if(title){ it.listing.title=title; it.listing.descBody=title; it.desc=title; }
@@ -7337,7 +8052,7 @@ function openEbayFind(it, onDone){
         let sc=DB.subcats[cat].find(s=>s.name.toLowerCase()===chosen.leaf.toLowerCase());
         if(!sc){ sc={name:chosen.leaf,ebayId:"",ebayName:"",aspects:[],_new:true}; DB.subcats[cat].push(sc); }
         sc.ebayId=chosen.id; sc.ebayName=chosen.path;
-        sc.aspects=aspects.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
+        sc.aspects=aspects.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),multi:!!(a.aspectConstraint&&a.aspectConstraint.itemToAspectCardinality==="MULTI"),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
         it.subCategory=sc.name;
         body.querySelectorAll(".ef-val").forEach(inp=>{ const v=inp.value.trim(); if(v) it.aspects[inp.dataset.name]=v; else delete it.aspects[inp.dataset.name]; });
         const title=body.querySelector("#ef-title").value.trim();
@@ -7459,7 +8174,7 @@ async function pullNewListings(after,silent){
     const inv=await EBAY.user("/sell/inventory/v1/inventory_item?limit=100&offset=0", EBAY_SCOPE_INV);
     if(!inv.ok){ if(!silent){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); } return; }
     const items=(JSON.parse(inv.body).inventoryItems)||[];
-    const known=new Set(); DB.items.forEach(x=>{ if(x.listing&&x.listing.ebaySku) known.add(x.listing.ebaySku); if(x.sku) known.add(x.sku); });
+    const known=new Set(); DB.items.forEach(x=>{ if(x.listing&&x.listing.ebaySku) known.add(x.listing.ebaySku); if(x.sku) known.add(x.sku); if(x.upc) known.add(x.upc); });
     (DB.ebay.filedSkus||[]).forEach(s=>known.add(s));
     const candidates=[];
     for(let n=0;n<items.length;n++){ const ei=items[n]; const sku=ei.sku; if(known.has(sku)) continue;
@@ -7566,7 +8281,7 @@ async function createItemFromFindByPhoto(r){
     if(EBAY.ready() && r.itemId){
       const d=await EBAY.app("/buy/browse/v1/item/"+encodeURIComponent(r.itemId));
       if(d.ok){ const dj=JSON.parse(d.body);
-        (dj.localizedAspects||[]).forEach(a=>{ if(a&&a.name&&a.value) it.aspects[a.name]=a.value; });
+        (dj.localizedAspects||[]).forEach(a=>{ if(a&&a.name&&a.value){ it.aspects[a.name]=a.value; if(!it.aspectTypes) it.aspectTypes={}; it.aspectTypes[a.name]=a.type||""; } });
       }
     }
     if(EBAY.ready() && r.categoryId && it.section){
@@ -7577,7 +8292,7 @@ async function createItemFromFindByPhoto(r){
         const ar=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=`+encodeURIComponent(r.categoryId));
         if(ar.ok){ const aspectStruct=(JSON.parse(ar.body).aspects)||[];
           if(!sc){ sc={name:it.subCategory||"General",ebayId:r.categoryId,ebayName:"",aspects:[],_new:true}; DB.subcats[it.section].push(sc); it.subCategory=sc.name; }
-          sc.aspects=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
+          sc.aspects=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),multi:!!(a.aspectConstraint&&a.aspectConstraint.itemToAspectCardinality==="MULTI"),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
         }
       }
     }
