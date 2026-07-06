@@ -343,6 +343,65 @@ async fn easypost_get_rates(
     }
 }
 
+// Real EasyPost shipment creation — deliberately different from easypost_get_rates above.
+// That one calls /beta/rates, which their own docs say plainly returns Rate objects "that
+// do not include IDs" — fine for comparison, useless for actually buying anything. Buying a
+// label requires a real, persisted Shipment object from /v2/shipments, whose rates do have
+// real, purchasable IDs.
+#[tauri::command]
+async fn easypost_create_shipment(
+    api_key: String,
+    from_name: String, from_street: String, from_city: String, from_state: String, from_zip: String, from_country: String,
+    to_name: String, to_street: String, to_city: String, to_state: String, to_zip: String, to_country: String,
+    weight_lb: String, length_in: String, width_in: String, height_in: String,
+) -> ApiResult {
+    let url = "https://api.easypost.com/v2/shipments";
+    let weight_oz: f64 = weight_lb.parse::<f64>().unwrap_or(1.0) * 16.0;
+    let body = serde_json::json!({
+        "shipment": {
+            "from_address": { "name": from_name, "street1": from_street, "city": from_city, "state": from_state, "zip": from_zip, "country": from_country },
+            "to_address": { "name": to_name, "street1": to_street, "city": to_city, "state": to_state, "zip": to_zip, "country": to_country },
+            "parcel": { "length": length_in, "width": width_in, "height": height_in, "weight": weight_oz }
+        }
+    });
+    let client = reqwest::Client::new();
+    let resp = client.post(url).basic_auth(api_key, Option::<String>::None).header("Content-Type","application/json").json(&body).send().await;
+    match resp {
+        Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
+            ApiResult { ok: status < 300, status, body: text } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+#[tauri::command]
+async fn easypost_buy_label(api_key: String, shipment_id: String, rate_id: String) -> ApiResult {
+    let url = format!("https://api.easypost.com/v2/shipments/{}/buy", shipment_id);
+    let body = serde_json::json!({ "rate": { "id": rate_id } });
+    let client = reqwest::Client::new();
+    let resp = client.post(&url).basic_auth(api_key, Option::<String>::None).header("Content-Type","application/json").json(&body).send().await;
+    match resp {
+        Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
+            ApiResult { ok: status < 300, status, body: text } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// Shippo's own shipments/ endpoint (already used for rate comparison) already returns real,
+// purchasable rate object_ids directly in its response — unlike EasyPost's compare-only
+// endpoint, no separate "create a real shipment" step is needed here. Buying is one call.
+#[tauri::command]
+async fn shippo_buy_label(token: String, rate_id: String) -> ApiResult {
+    let url = "https://api.goshippo.com/transactions";
+    let body = serde_json::json!({ "rate": rate_id, "async": false, "label_file_type": "PDF_4x6" });
+    let client = reqwest::Client::new();
+    let resp = client.post(url).header("Authorization", format!("ShippoToken {}", token)).header("Content-Type","application/json").json(&body).send().await;
+    match resp {
+        Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
+            ApiResult { ok: status < 300, status, body: text } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 #[tauri::command]
 async fn supabase_rpc(url: String, anon_key: String, function_name: String, payload_json: String) -> ApiResult {
     // Defense in depth: the URL can't be hardcoded to one exact value the way eBay's hosts
@@ -1048,7 +1107,10 @@ fn main() {
             open_url,
             supabase_rpc,
             shippo_get_rates,
-            easypost_get_rates
+            shippo_buy_label,
+            easypost_get_rates,
+            easypost_create_shipment,
+            easypost_buy_label
         ])
         .run(tauri::generate_context!())
         .expect("error while running WIM");

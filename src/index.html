@@ -426,7 +426,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.2.35", BUILD_DATE="2026-09-20", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.2", BUILD_DATE="2026-09-25", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -512,6 +512,7 @@ function findAddItemDupeCandidate(section,subCategory,condition,desc,excludeId){
 function showAddItemDupePopup(match, onProceed){
   const groupCount=groupQty(match);
   const groupsTxt=(match.groups||[]).length?esc(match.groups.join(", ")):"—";
+  const dims=(match.shipWeight||match.shipLength)?`<div class="smallhint">${match.shipWeight?match.shipWeight+"lb":""}${(match.shipLength&&match.shipWidth&&match.shipHeight)?" — "+match.shipLength+"×"+match.shipWidth+"×"+match.shipHeight+"in":""}</div>`:"";
   const html=`<div style="display:flex;gap:14px;">
       <div style="flex:0 0 90px;height:90px;border:1px solid var(--line,#dfe3ea);border-radius:8px;overflow:hidden;background:#f6f7f9;display:flex;align-items:center;justify-content:center;">
         ${match.image?`<img src="${esc(match.image)}" style="width:100%;height:100%;object-fit:cover;">`:'<span style="color:#aaa;font-size:11px;">No photo</span>'}
@@ -520,16 +521,22 @@ function showAddItemDupePopup(match, onProceed){
         <div style="font-weight:600;margin-bottom:2px;">${esc(match.desc)}</div>
         <div class="smallhint">Condition: ${esc(match.condition||"—")} &middot; Group: ${groupsTxt}</div>
         <div class="smallhint">${groupCount} already in inventory as this item.</div>
+        ${dims}
       </div>
     </div>
-    <div style="margin-top:12px;font-size:13px;">This looks like it might already be something you have — add this as another one of the same item, or continue if it's actually different.</div>`;
+    <div style="margin-top:12px;font-size:13px;">This looks like it might already be something you have — add this as another one of the same item, or continue if it's actually different.${match.shipWeight?" Confirming it's the same item will also carry over its recorded weight/dimensions, if this one doesn't already have its own.":""}</div>`;
   uiModal("Looks like a possible match", html, [
-    {label:"Yes, it's the same item", primary:true, onClick:onProceed},
-    {label:"No, it's different", onClick:onProceed},
+    {label:"Yes, it's the same item", primary:true, onClick:()=>onProceed(true)},
+    {label:"No, it's different", onClick:()=>onProceed(false)},
     {label:"Let me check first"}
   ]);
 }
 const CHANGELOG=[
+  ["3.3.2","Reframed Shipping Information as a real option alongside eBay.com, not a replacement for it -- new Check for eBay.com Shipments in Ready to Ship uses the exact same real order call already proven for pulling sales in the first place, and moves an item straight to Shipped with the real tracking eBay reports the moment someone ships it through eBay.com directly, or any means outside WIM entirely, not just through Shippo or EasyPost. Every tracking number shown in Shipped is now a real clickable link straight to that carrier own tracking page, whichever of the three paths it came from. Found and fixed a second real bug while building this, the same category as before -- the label-printing code from last update was opening the label with a method this codebase own comments explicitly warn does not reliably work from inside a Tauri window, exactly the kind of thing that would have silently failed for someone relying on it. Fixed to use the same real, working method every other outside link in WIM already goes through."],
+  ["3.3.1","Real Shippo and EasyPost integration -- the actual shipping workflow, not just rate comparison. New Ship button in Ready to Ship opens a new Shipping Information screen for that specific item, auto-filling the default ship-from address, the real ship-to and recipient from the actual order, and weight/dimensions if the item already has them, with a free-type option for a one-off different ship-from address. Fetches real, live rates from both Shippo and EasyPost side by side with what the buyer actually paid through eBay for reference, confirmed against each platform own current documentation rather than assumed. Found and used a real, important distinction while building this -- EasyPost own comparison endpoint used for the historical tool explicitly does not return anything purchasable, so buying a label needed a different, real EasyPost shipment call, not the same one used for quotes. Selecting a rate leads to a real choice: print a thermal label now, mark it shipped without printing, or cancel -- printing genuinely purchases the label first, then opens it for printing, and marks the real order shipped with its real tracking number pushed back to eBay either way. Found and fixed a real bug while wiring the auto-close after a successful purchase -- it was calling a close method that does not actually exist on how open windows are tracked, silently doing nothing; fixed to use the real close function this whole codebase already relies on elsewhere."],
+  ["3.2.38","Real fix for a genuine login problem reported directly after testing Local Profiles: switching to a profile other than Default and not switching back made a normal login attempt fail with a generic invalid-password message, with no indication that a different profile -- not a wrong password -- was the actual reason. The login screen now clearly shows which profile is currently active whenever it is not Default, with a direct way back to it right there. Also traced a more serious version of this that had not been hit yet but genuinely could have: confirmed a brand new profile is never actually empty of accounts the way it first appeared -- it starts with the same seeded Admin account any fresh install gets -- so this is fixed as a real clarity problem, not a true lockout, though the fix still gives a direct, no-login-required way back to Default either way."],
+  ["3.2.37","New Item, and if that same product has ever been added before -- same description, category, and condition -- weight and dimensions now auto-fill from that own, already-recorded measurement, not just from whatever eBay may or may not have on file. Built by extending the existing duplicate-item recommendation rather than a separate check, since it was already finding the exact right match: confirming an item as the same product now also carries over its recorded weight and dimensions, only into fields still empty, never overwriting a real measurement already entered for this specific unit. Found and fixed a real gap while wiring this in -- both Yes and No on that popup previously called the same handler, which would have carried weight and dimensions over even when confirming an item was different. Fixed so this only ever happens when the item is actually confirmed as the same product."],
+  ["3.2.36","Weight and dimensions can now auto-fill from eBay own data, confirmed directly against eBay documentation first rather than assumed -- and their own docs are upfront that a seller often only fills in weight, not dimensions, so this fills in whatever is genuinely there and leaves the rest for manual entry, never invents a number. Pulling in your own existing listings (Listed, no SKU) now carries real weight and dimensions over automatically when eBay has them on file, without ever overwriting a value already entered by hand. New listings pulled in for the first time carry the same real data through the moment they get accepted into WIM."],
   ["3.2.35","New Shipping Historical Comparison (Fulfillment) -- built around the decision to keep using eBay.com for actual shipping for now, not talk to carriers directly. A real record gets created automatically every time a sale comes in through Recently Sold, capturing the item real weight and dimensions (new fields on every item, right on Listing Details) and the real ship-to address from that actual order. From there it fetches genuine rate quotes from Shippo and EasyPost -- both confirmed directly against their own current API documentation, both using a simple static API key with no OAuth complexity at all, unlike the eBay or UPS/FedEx work -- and sits them next to a manual entry for what eBay actually charged. New Rate Comparison APIs and Ship-From Address section added to Shipping Data for the two API keys and your warehouse own address. Real Export to Excel button, producing an actual CSV that opens directly in Excel with every record. This is a comparison and evidence-gathering tool, deliberately not a label-buying one -- nothing here changes how an item actually gets shipped today."],
   ["3.2.34","New Local Profiles (Configuration, admin-only) -- genuinely separate local datasets on the same device, each with its own inventory, vendors, groups, and its own real eBay connection, completely independent of each other. Confirmed the real reason this needed building: cloud teams control shared staff logins and a shared eBay connection across devices, but they never actually reset or separate the local inventory data itself -- switching teams alone would not have given a genuinely blank slate the way this does. The original, existing profile deliberately keeps using the exact same storage locations WIM has always used -- confirmed directly, an existing install is never touched, moved, or put at any risk by this -- only a newly created profile ever gets its own separate storage, including its own separate eBay-credential vault entries, so two profiles genuinely cannot see or overwrite each other data. Create a blank profile, switch between profiles (reloads WIM to load the other one safely), and from that point on, connecting eBay under one profile only ever affects that profile own connection."],
   ["3.2.33","Reverted the direct UPS/FedEx groundwork from the last update -- a real problem came up while researching the actual economics of that approach: a plain UPS or FedEx developer account gets standard list rates, not the negotiated, discounted rates eBay own labels already use, confirmed directly from eBay own documentation. Talking to UPS and FedEx directly would very likely have meant paying more per label than just buying through eBay already does today, not less -- the opposite of the point. Carrier Accounts, the OAuth token commands, and the rate-quote commands are all fully removed, cleanly, with nothing left behind referencing them. A third-party rate aggregator -- one that already has negotiated rates across USPS, UPS, and FedEx together -- is the real path being evaluated next instead."],
@@ -2111,9 +2118,16 @@ function showLogin(msg){
   const wrap=document.createElement("div"); wrap.className="center-screen";
   const win=document.createElement("div"); win.className="window login"; win.style.position="static";
   const cloudConnected=!!(DB.cloud&&DB.cloud.teamCode);
+  // Real safeguard: being on any profile other than Default is worth surfacing clearly,
+  // since a fresh profile only ever has the newly-seeded default admin account (id "64",
+  // password 1234) — not whatever username someone normally logs in with. Without this,
+  // a failed login here just looks like an invalid password, not "you're somewhere else."
+  const strandedProfile = !!ACTIVE_PROFILE;
+  const profName = strandedProfile ? ((profilesList().find(p=>p.id===ACTIVE_PROFILE)||{}).name || "this profile") : "";
   win.innerHTML=`<div class="titlebar"><span class="appicon"></span><span class="ttl">User Login</span><div class="winbtns"><button class="winbtn close">&#10005;</button></div></div>
     <div class="body" style="position:relative;"><div class="help">?</div>
-      <div class="banner">${cloudConnected?("Connected to <b>"+esc(DB.cloud.teamName||"your team")+"</b> — signing in here syncs with your team."):"WIM runs entirely on this computer &mdash; offline, no account needed."}</div>
+      ${strandedProfile ? `<div class="banner" style="background:#fdf1d6;border-color:#e6c260;">You're on the "<b>${esc(profName)}</b>" profile, not Default — its accounts (including your usual login) may be different here. A brand new profile only has the seeded Admin account (id <b>64</b>, password <b>1234</b>) until you create others. <a href="#" id="lg-backtodefault" style="text-decoration:underline;">Switch back to Default</a> if that's not what you meant to be on.</div>`
+        : `<div class="banner">${cloudConnected?("Connected to <b>"+esc(DB.cloud.teamName||"your team")+"</b> — signing in here syncs with your team."):"WIM runs entirely on this computer &mdash; offline, no account needed."}</div>`}
       <div class="row"><label class="fld">User Name</label><input class="txt" id="lg-user" autocomplete="off"></div>
       <div class="row"><label class="fld">Password</label><input class="txt" id="lg-pass" type="password" autocomplete="off"></div>
       <div class="row"><label class="fld">Mode</label><select class="cmb" id="lg-mode" style="flex:1;"><option value="warehouse">Warehouse</option><option value="live">Live (eBay)</option></select></div>
@@ -2121,6 +2135,8 @@ function showLogin(msg){
       <div class="actions"><button class="btn primary" id="lg-ok">OK</button><button class="btn" id="lg-cancel">Cancel</button></div>
       <div id="lg-update" style="position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#888;font-size:11.5px;"></div></div>`;
   wrap.appendChild(win); screenEl.appendChild(wrap);
+  const backBtn=win.querySelector("#lg-backtodefault"); if(backBtn) backBtn.onclick=(e)=>{ e.preventDefault();
+    uiConfirm("Switch back to the Default profile? WIM will reload.", ()=>{ try{ localStorage.setItem("WIM_ACTIVE_PROFILE",""); }catch(err){} location.reload(); }); };
   runUpdateCheck(win.querySelector("#lg-update"));
   const u=win.querySelector("#lg-user"),p=win.querySelector("#lg-pass"),err=win.querySelector("#lg-err"); u.focus();
   const okBtn=win.querySelector("#lg-ok");
@@ -5202,7 +5218,21 @@ function openItemDetail(item,mode,nav,defaultTab){
     const condition=(body.querySelector("#d-condition")?body.querySelector("#d-condition").value.trim():(it.condition||""));
     if(isNew && !dupeAcknowledged){
       const match=findAddItemDupeCandidate(cat, it.subCategory, condition, desc, it.id);
-      if(match){ showAddItemDupePopup(match, ()=>{ dupeAcknowledged=true; doSave(keepOpen, sendToLive); }); return; }
+      if(match){ showAddItemDupePopup(match, (isSame)=>{
+        dupeAcknowledged=true;
+        if(isSame){
+          // WIM's own previously-recorded weight/dimensions for this same product are a more
+          // reliable source than whatever eBay's own data may or may not have — carry them
+          // over here, but only into fields that are still empty, never overwriting a real
+          // measurement someone already entered for this specific unit.
+          const wIn=body.querySelector("#l-weight"), lIn=body.querySelector("#l-length"), wdIn=body.querySelector("#l-width"), hIn=body.querySelector("#l-height");
+          if(match.shipWeight && wIn && !wIn.value){ wIn.value=match.shipWeight; it.shipWeight=match.shipWeight; }
+          if(match.shipLength && lIn && !lIn.value){ lIn.value=match.shipLength; it.shipLength=match.shipLength; }
+          if(match.shipWidth && wdIn && !wdIn.value){ wdIn.value=match.shipWidth; it.shipWidth=match.shipWidth; }
+          if(match.shipHeight && hIn && !hIn.value){ hIn.value=match.shipHeight; it.shipHeight=match.shipHeight; }
+        }
+        doSave(keepOpen, sendToLive);
+      }); return; }
       dupeAcknowledged=true;
     }
     const base={ upc, desc, condition, vendor:body.querySelector("#d-vendor").value, section:cat,
@@ -6895,6 +6925,20 @@ async function checkEbayDeletionRequests(){
   }catch(e){ /* not worth surfacing a transient network failure here — it'll retry next cycle */ }
   finally{ deletionCheckInFlight=false; }
 }
+// Builds a real, working tracking-status URL from a carrier code and tracking number — used
+// whenever a carrier's own API doesn't already hand back a ready-made tracking link
+// (Shippo and EasyPost both do; a shipment detected as done through eBay.com directly does
+// not, since eBay only reports the carrier code and number, not a URL).
+function buildTrackingUrl(carrierCode, trackingNumber){
+  if(!trackingNumber) return null;
+  const c=String(carrierCode||"").toUpperCase();
+  const n=encodeURIComponent(trackingNumber);
+  if(c.includes("USPS")) return "https://tools.usps.com/go/TrackConfirmAction?tLabels="+n;
+  if(c.includes("UPS")) return "https://www.ups.com/track?tracknum="+n;
+  if(c.includes("FEDEX")) return "https://www.fedex.com/fedextrack/?trknbr="+n;
+  if(c.includes("DHL")) return "https://www.dhl.com/en/express/tracking.html?AWB="+n;
+  return "https://www.google.com/search?q=track+package+"+n; // unrecognized carrier — still gives the person somewhere real to go
+}
 async function pullRecentlySold(daysBack){
   if(!EBAY.ready()) throw new Error("Not connected to eBay.");
   const data=await EBAY.getOrders(daysBack||30);
@@ -6918,6 +6962,7 @@ async function pullRecentlySold(daysBack){
       // bypass the shipping process entirely once detected.
       f.isPickup = !!(startInstr && startInstr.fulfillmentInstructionsType==="PREPARE_FOR_PICKUP");
       f.soldPrice=li.total&&li.total.value||null;
+      f.shipCostPaid=(li.deliveryCost&&li.deliveryCost.value)||null;
       f.soldAt=order.creationDate||new Date().toISOString();
       setItemStatus(localItem,"sold");
       DB.pulledOrderIds.push(orderLineKey);
@@ -6975,6 +7020,37 @@ function printPackingSlips(items){
   doc.write(`<html><head><title>WIM Packing Slips</title></head><body>${renderPackingSlipSheet(items)}</body></html>`); doc.close();
   setTimeout(()=>{ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },300);
 }
+// Checks whether an order eBay itself now shows as shipped, even though WIM never marked it
+// that way — meaning the seller genuinely shipped through eBay.com directly (or any other
+// means outside WIM entirely). Uses the exact same getOrder call already proven working for
+// pulling sales in the first place; eBay reports real tracking info on the order the moment
+// any fulfillment gets recorded against it, regardless of what recorded it.
+async function checkForDirectShipments(onProgress){
+  const candidates=fulfillmentItems("readyToShip").filter(it=>it.fulfillment&&it.fulfillment.orderId);
+  let found=0, checked=0;
+  for(const it of candidates){
+    checked++; onProgress&&onProgress(checked, candidates.length);
+    try{
+      const f=it.fulfillment;
+      const r=await EBAY.user("/sell/fulfillment/v1/order/"+encodeURIComponent(f.orderId));
+      if(!r.ok) continue;
+      const order=JSON.parse(r.body);
+      const li=(order.lineItems||[]).find(x=>x.lineItemId===f.lineItemId);
+      if(!li) continue;
+      const instr=(li.lineItemFulfillmentInstructions||[])[0] || li;
+      const trackingNumber=instr.shipmentTrackingNumber, carrierCode=instr.shippingCarrierCode;
+      if(trackingNumber && !f.trackingNumber){
+        f.trackingNumber=trackingNumber; f.trackingUrl=buildTrackingUrl(carrierCode,trackingNumber);
+        f.stage="shipped"; f.shippedAt=new Date().toISOString();
+        if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); shiftSlotDown(it.slot, it.placement); }
+        addHistory(it,"Detected as shipped on eBay.com directly — tracking "+trackingNumber+(carrierCode?" via "+carrierCode:""));
+        found++;
+      }
+    }catch(e){}
+  }
+  if(found){ save(); wimRefreshAll(); }
+  return { checked, found };
+}
 function openShipping(){
   if(openWindows["shipping"]){ focusWin(openWindows["shipping"].el); return; }
   checkAutoComplete();
@@ -7000,6 +7076,7 @@ function openShipping(){
         <button class="btn" id="sh-printlabel" ${!picked.size?"disabled":""}>Print Label${picked.size===1?"":"s"}${picked.size?" ("+picked.size+")":""}</button>
         <button class="btn primary" id="sh-picked" ${!picked.size?"disabled":""} style="background:#8a5cd6;border-color:#8a5cd6;" title="Confirms the item was physically taken off the shelf and moved to the shipping area — this is what actually frees up its slot position, not Mark Shipped">Mark Picked${picked.size?" ("+picked.size+")":""}</button>
         <button class="btn primary" id="sh-shipped" ${!picked.size?"disabled":""}>Mark Shipped${picked.size?" ("+picked.size+")":""}</button>
+        <button class="btn sm" id="sh-checkdirect" title="Checks whether any of these were shipped through eBay.com directly, or any other means outside WIM">Check for eBay.com Shipments</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${tab==="completed" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
@@ -7039,6 +7116,15 @@ function openShipping(){
         save(); wimRefreshAll(); picked.clear(); render();
       };
       body.querySelector("#sh-shipped").onclick=()=>openMarkShippedDialog(items.filter(i=>picked.has(i.id)), ()=>{ picked.clear(); render(); });
+      const checkDirectBtn=body.querySelector("#sh-checkdirect");
+      if(checkDirectBtn) checkDirectBtn.onclick=async ()=>{
+        if(!EBAY.ready()){ uiAlert("Not connected to eBay — connect via the mode badge first."); return; }
+        checkDirectBtn.disabled=true; const origText=checkDirectBtn.textContent;
+        const r=await checkForDirectShipments((done,total)=>{ checkDirectBtn.textContent="Checking "+done+"/"+total+"…"; });
+        checkDirectBtn.disabled=false; checkDirectBtn.textContent=origText;
+        uiAlert(r.found ? (r.found+" item(s) were shipped through eBay.com directly — moved to Shipped with real tracking.") : "Checked "+r.checked+" item(s) — none had been shipped outside WIM yet.");
+        render();
+      };
     }
     if(tab==="completed" && items.length){
       body.querySelector("#sh-selall").onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
@@ -7062,10 +7148,12 @@ function openShipping(){
         <td style="font-size:12px;">${esc(f.buyer||"—")}</td>
         <td style="font-size:12px;">${esc(shipToText)}</td>
         ${tab==="readyToShip"?`<td style="font-size:11.5px;font-weight:600;color:${f.pickedAt?'#8a5cd6':'#9aa3ad'};">${f.pickedAt?"Picked":"On shelf"}</td>`:""}
-        ${tab==="shipped"?`<td style="font-size:12px;">${esc(f.trackingNumber||"—")}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
+        ${tab==="shipped"?`<td style="font-size:12px;">${f.trackingNumber?`<a href="#" data-track="${esc(it.id)}" style="text-decoration:underline;color:#2f6fb3;">${esc(f.trackingNumber)}</a>`:"—"}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
         ${tab==="completed"?`<td style="font-size:12px;cursor:${fb?'pointer':'default'};" ${fb?`data-full="${esc(fb.commentText||"")}"`:""}>${fb?esc((fb.commentText||"").slice(0,25))+((fb.commentText||"").length>25?"…":""):"—"}</td><td style="font-size:12px;color:${fbColor};font-weight:600;">${fb?esc(fb.commentType):"—"}</td><td style="font-size:11px;">${f.isPickup?(f.pickedUpAt?fmtDate(f.pickedUpAt):"—"):(f.shippedAt?fmtDate(f.shippedAt):"—")}</td><td><span style="font-weight:700;font-size:11.5px;color:${f.isPickup?'#1f9d55':'#3b7dd8'};">${f.isPickup?"Pickup":"Shipping"}</span></td>`:""}
         <td style="text-align:center;">${envelopeCellHtml(f.buyer)}</td>
-        <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
+        <td>${tab==="readyToShip"?`<button class="btn sm" data-ship="${esc(it.id)}">Ship</button> `:""}<button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
+      if(tab==="readyToShip"){ const shipBtn=tr.querySelector(`[data-ship="${it.id}"]`); if(shipBtn) shipBtn.onclick=()=>openShippingInformation(it); }
+      const trackLink=tr.querySelector(`[data-track="${it.id}"]`); if(trackLink) trackLink.onclick=(e)=>{ e.preventDefault(); openExternal(f.trackingUrl||buildTrackingUrl("",f.trackingNumber)); };
       if(tab==="readyToShip"||tab==="completed"){ const chk=tr.querySelector(`[data-id="${it.id}"]`); if(chk) chk.onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); }; }
       tr.querySelector(`[data-open="${it.id}"]`).onclick=()=>openItemDetail(it,"edit");
       const envTd=Array.from(tr.children).find(td=>td.textContent.includes("✉"));
@@ -7167,6 +7255,136 @@ async function fetchOneComparisonRate(rec, onDone){
   rec.fetchedAt=new Date().toISOString();
   if(onDone) onDone();
 }
+// Shipping Information — opened from Ready to Ship. Auto-fills everything WIM already
+// knows about this specific shipment (ship-from default, real ship-to and recipient from
+// the actual order, weight/dimensions if the item has them), fetches real rates from
+// Shippo and EasyPost side by side with what the buyer actually paid through eBay, and
+// walks through actually buying and printing a label once a rate is chosen.
+function openShippingInformation(it){
+  const id="ship-info-"+it.id; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body,close}=buildWindow({id,title:"Shipping Information",width:900,height:680});
+  const f=it.fulfillment||{};
+  let useCustomFrom=false;
+  let shippoShipment=null, easypostShipment=null, selectedRate=null;
+  function render(){
+    const from=DB.shipFrom||{city:"",state:"",zip:"",country:"US"};
+    const shipTo=f.shipTo||{};
+    const recipient=shipTo.fullName||f.buyer||"—";
+    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;overflow:auto;">
+      <div class="col-title" style="text-align:left;">${esc(it.desc)}</div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin:10px 0;">
+        <fieldset class="gb" style="flex:1;min-width:260px;"><legend>Ship From</legend>
+          ${useCustomFrom ? `
+            <div class="ff sm"><label>City</label><input class="txt" id="sf-city" style="width:140px;"></div>
+            <div class="ff sm" style="margin-top:4px;"><label>State</label><input class="txt" id="sf-state" style="width:60px;"></div>
+            <div class="ff sm" style="margin-top:4px;"><label>Zip</label><input class="txt" id="sf-zip" style="width:80px;"></div>
+            <a href="#" id="sf-usedefault" style="font-size:12px;">Use Default instead</a>`
+          : `<div style="font-size:13px;">${esc(from.city)||"(not set)"}, ${esc(from.state)} ${esc(from.zip)}</div>
+            <a href="#" id="sf-custom" style="font-size:12px;">Free-type a different address for this shipment</a>`}
+        </fieldset>
+        <fieldset class="gb" style="flex:1;min-width:260px;"><legend>Ship To</legend>
+          <div style="font-size:13px;font-weight:600;">Recipient: ${esc(recipient)}</div>
+          <div style="font-size:13px;">${esc(shipTo.city||"—")}, ${esc(shipTo.stateOrProvince||"")} ${esc(shipTo.postalCode||"")}</div>
+        </fieldset>
+      </div>
+      <fieldset class="gb" style="margin-bottom:10px;"><legend>Weight &amp; Dimensions</legend>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <label class="fld" style="width:auto;">Weight (lb)</label><input class="txt" id="wt-weight" value="${esc(it.shipWeight)}" inputmode="decimal" style="width:70px;">
+          <label class="fld" style="width:auto;">L (in)</label><input class="txt" id="wt-length" value="${esc(it.shipLength)}" inputmode="decimal" style="width:60px;">
+          <label class="fld" style="width:auto;">W (in)</label><input class="txt" id="wt-width" value="${esc(it.shipWidth)}" inputmode="decimal" style="width:60px;">
+          <label class="fld" style="width:auto;">H (in)</label><input class="txt" id="wt-height" value="${esc(it.shipHeight)}" inputmode="decimal" style="width:60px;">
+          <button class="btn primary sm" id="si-getrates">Get Rates</button>
+        </div>
+        <div class="err" id="si-err" style="margin-top:6px;"></div>
+      </fieldset>
+      <div class="col-title" style="text-align:left;">Rates</div>
+      <div id="si-rates" style="flex:1;overflow:auto;"><div class="smallhint">Click Get Rates above.</div></div>
+    </div>`;
+    const custBtn=body.querySelector("#sf-custom"); if(custBtn) custBtn.onclick=(e)=>{ e.preventDefault(); useCustomFrom=true; render(); };
+    const defBtn=body.querySelector("#sf-usedefault"); if(defBtn) defBtn.onclick=(e)=>{ e.preventDefault(); useCustomFrom=false; render(); };
+    body.querySelector("#si-getrates").onclick=()=>fetchLiveRates();
+  }
+  async function fetchLiveRates(){
+    const err=body.querySelector("#si-err"); err.textContent="";
+    const weight=body.querySelector("#wt-weight").value.trim(), length=body.querySelector("#wt-length").value.trim()||"1", width=body.querySelector("#wt-width").value.trim()||"1", height=body.querySelector("#wt-height").value.trim()||"1";
+    if(!weight){ err.textContent="Enter a weight — a real rate quote needs one."; return; }
+    it.shipWeight=weight; it.shipLength=length; it.shipWidth=width; it.shipHeight=height; save();
+    const from = useCustomFrom
+      ? { city:body.querySelector("#sf-city").value.trim(), state:body.querySelector("#sf-state").value.trim(), zip:body.querySelector("#sf-zip").value.trim(), country:"US" }
+      : (DB.shipFrom||{city:"",state:"",zip:"",country:"US"});
+    const shipTo=f.shipTo||{};
+    const ratesEl=body.querySelector("#si-rates"); ratesEl.innerHTML=`<div class="smallhint">Fetching real rates…</div>`;
+    const rows=[];
+    if(f.shipCostPaid) rows.push({provider:"eBay.com",service:"Buyer paid this",amount:f.shipCostPaid,purchasable:false});
+    try{
+      const shippoTok=await carrierGetSecret2("shippo","token");
+      if(shippoTok){
+        const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok, fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
+          toCity:shipTo.city||"", toState:shipTo.stateOrProvince||"", toZip:shipTo.postalCode||"", toCountry:shipTo.countryCode||"US",
+          weightLb:weight, lengthIn:length, widthIn:width, heightIn:height });
+        if(r.ok){ shippoShipment=JSON.parse(r.body); (shippoShipment.rates||[]).forEach(rt=>{ rows.push({provider:"Shippo",service:(rt.provider||"")+" "+(rt.servicelevel&&rt.servicelevel.name||""),amount:rt.amount,purchasable:true,source:"shippo",rateId:rt.object_id}); }); }
+        else err.textContent="Shippo: "+(r.body||"").slice(0,150);
+      }
+    }catch(e){}
+    try{
+      const epKey=await carrierGetSecret2("easypost","key");
+      if(epKey){
+        const r=await wimDesktop.invoke("easypost_create_shipment",{ apiKey:epKey,
+          fromName:"Warehouse", fromStreet:from.street||from.city||"", fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
+          toName:(shipTo.fullName||f.buyer||"Customer"), toStreet:(shipTo.addressLine1||shipTo.city||""), toCity:shipTo.city||"", toState:shipTo.stateOrProvince||"", toZip:shipTo.postalCode||"", toCountry:shipTo.countryCode||"US",
+          weightLb:weight, lengthIn:length, widthIn:width, heightIn:height });
+        if(r.ok){ easypostShipment=JSON.parse(r.body); (easypostShipment.rates||[]).forEach(rt=>{ rows.push({provider:"EasyPost",service:(rt.carrier||"")+" "+(rt.service||""),amount:rt.rate,purchasable:true,source:"easypost",rateId:rt.id}); }); }
+        else err.textContent=(err.textContent?err.textContent+" — ":"")+"EasyPost: "+(r.body||"").slice(0,150);
+      }
+    }catch(e){}
+    rows.sort((a,b)=>(parseFloat(a.amount)||9e9)-(parseFloat(b.amount)||9e9));
+    if(!rows.length){ ratesEl.innerHTML=`<div class="note">No rates came back — check that Shippo/EasyPost keys are set in Configuration → Shipping Data, and that a ship-from address is set.</div>`; return; }
+    ratesEl.innerHTML=`<table class="res"><thead><tr><th>Provider</th><th>Service</th><th style="width:90px;">Price</th><th style="width:100px;"></th></tr></thead><tbody></tbody></table>`;
+    const tb=ratesEl.querySelector("tbody");
+    rows.forEach(row=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(row.provider)}</td><td style="font-size:12.5px;">${esc(row.service)}</td><td>$${esc(row.amount)}</td><td class="cc">${row.purchasable?`<button class="btn sm">Select</button>`:'<span class="smallhint">reference only</span>'}</td>`;
+      if(row.purchasable) tr.querySelector("button").onclick=()=>{ selectedRate=row; confirmRateChoice(); };
+      tb.appendChild(tr);
+    });
+  }
+  function confirmRateChoice(){
+    uiModal("Confirm shipping", `<div style="font-size:13px;">Selected <b>${esc(selectedRate.provider)} — ${esc(selectedRate.service)}</b> at <b>$${esc(selectedRate.amount)}</b>.</div>
+      <div style="margin-top:8px;font-size:13px;">Print a thermal label now, or just mark this shipped without printing?</div>`, [
+      {label:"Print Label", primary:true, onClick:()=>buyAndPrint(true)},
+      {label:"Continue — don't print", onClick:()=>buyAndPrint(false)},
+      {label:"Cancel"}
+    ]);
+  }
+  async function buyAndPrint(shouldPrint){
+    const err=body.querySelector("#si-err"); err.textContent="Purchasing label…"; err.style.color="#555";
+    try{
+      let labelUrl=null, trackingNumber=null, trackingUrl=null, carrierName="";
+      if(selectedRate.source==="shippo"){
+        const shippoTok=await carrierGetSecret2("shippo","token");
+        const r=await wimDesktop.invoke("shippo_buy_label",{ token:shippoTok, rateId:selectedRate.rateId });
+        if(!r.ok){ err.style.color="#c0392b"; err.textContent="Shippo purchase failed: "+(r.body||"").slice(0,200); return; }
+        const dj=JSON.parse(r.body); labelUrl=dj.label_url; trackingNumber=dj.tracking_number; trackingUrl=dj.tracking_url_provider||null;
+        carrierName=(dj.rate&&dj.rate.provider)||"";
+      } else {
+        const epKey=await carrierGetSecret2("easypost","key");
+        const r=await wimDesktop.invoke("easypost_buy_label",{ apiKey:epKey, shipmentId:easypostShipment.id, rateId:selectedRate.rateId });
+        if(!r.ok){ err.style.color="#c0392b"; err.textContent="EasyPost purchase failed: "+(r.body||"").slice(0,200); return; }
+        const dj=JSON.parse(r.body); labelUrl=dj.postage_label&&dj.postage_label.label_url; trackingNumber=dj.tracking_code;
+        carrierName=(dj.rate&&dj.rate.carrier)||"";
+        trackingUrl=buildTrackingUrl(carrierName, trackingNumber); // EasyPost's own tracker URL field isn't confirmed with the same certainty as Shippo's, so this uses the same reliable builder as an eBay-detected shipment would
+      }
+      f.trackingNumber=trackingNumber||f.trackingNumber; f.trackingUrl=trackingUrl; f.stage="shipped"; f.shippedAt=new Date().toISOString();
+      if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); shiftSlotDown(it.slot, it.placement); }
+      addHistory(it,"Shipped via "+selectedRate.provider+" ("+selectedRate.service+", $"+selectedRate.amount+")"+(trackingNumber?" — tracking "+trackingNumber:""));
+      try{ if(!it.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, trackingNumber||"", "OTHER"); }catch(e){}
+      save(); wimRefreshAll();
+      if(shouldPrint && labelUrl){ openExternal(labelUrl); }
+      err.style.color="#1f7244"; err.textContent="Shipped \u2713"+(labelUrl?" — label opened for printing.":"");
+      setTimeout(()=>{ close(); },1200);
+    }catch(e){ err.style.color="#c0392b"; err.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
+  }
+  render();
+}
 // Tracking number entry — this is the real, working step. Submitting it calls eBay's
 // actual createShippingFulfillment (part of the Fulfillment API we already have access
 // to), which marks the real order as shipped. Carrier is a simple text field for now
@@ -7194,7 +7412,7 @@ function openMarkShippedDialog(items,onDone){
       try{
         const f=it.fulfillment;
         if(!it.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, tracking, carrier.toUpperCase().replace(/\s+/g,"_")||"OTHER");
-        f.stage="shipped"; f.shippedAt=new Date().toISOString(); f.trackingNumber=tracking;
+        f.stage="shipped"; f.shippedAt=new Date().toISOString(); f.trackingNumber=tracking; f.trackingUrl=buildTrackingUrl(carrier, tracking);
         // Safety net only — the real shift should already have happened when this was
         // marked Picked. If that step got skipped for some reason, this still corrects
         // the slot now rather than leaving it stale indefinitely.
@@ -8390,7 +8608,9 @@ async function pullNewListings(after,silent){
       try{ const off=await EBAY.user("/sell/inventory/v1/offer?sku="+encodeURIComponent(sku), EBAY_SCOPE_INV);
         if(off.ok){ const o=((JSON.parse(off.body).offers)||[])[0]; if(o){ offerId=o.offerId; price=(o.pricingSummary&&o.pricingSummary.price&&o.pricingSummary.price.value)||""; qty=(o.availableQuantity!=null?String(o.availableQuantity):"1"); categoryId=o.categoryId||""; } } }catch(e){}
       const p=ei.product||{};
-      candidates.push({ ebaySku:sku, offerId, title:p.title||sku, condEnum:ei.condition||"", condLabel:ebayCondLabel(ei.condition), price, qty, categoryId, images:(p.imageUrls||[]).slice(), thumb:(p.imageUrls||[])[0]||"" });
+      const pw=ei.packageWeightAndSize||{};
+      candidates.push({ ebaySku:sku, offerId, title:p.title||sku, condEnum:ei.condition||"", condLabel:ebayCondLabel(ei.condition), price, qty, categoryId, images:(p.imageUrls||[]).slice(), thumb:(p.imageUrls||[])[0]||"",
+        shipWeight:(pw.weight&&pw.weight.value)?String(pw.weight.value):"", shipLength:(pw.dimensions&&pw.dimensions.length)?String(pw.dimensions.length):"", shipWidth:(pw.dimensions&&pw.dimensions.width)?String(pw.dimensions.width):"", shipHeight:(pw.dimensions&&pw.dimensions.height)?String(pw.dimensions.height):"" });
     }
     DB.pulledListings=candidates.concat((DB.pulledListings||[]).filter(p=>p.simulated)); DB.ebay.lastPullAt=new Date().toISOString(); save();
     if(!silent) closeAllModals();
@@ -8532,6 +8752,7 @@ function createItemFromListing(c, section, subCategory, manualSlotValue){
       slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), onHand:"1",
       unitCost:"0.000", retail:c.price||"0.00", vendor:"", manualSlot:!!manualSlotValue,
       image:c.images[0]||"", images:c.images.slice(), imageFeatured:0,
+      shipWeight:c.shipWeight||"", shipLength:c.shipLength||"", shipWidth:c.shipWidth||"", shipHeight:c.shipHeight||"",
       createdAt:now, sold:false, soldAt:null, soldBy:null,
       category:"FRUIT", caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0] };
     ni.upc=genItemNumber(section,_itnTaken);
@@ -8648,7 +8869,21 @@ async function pullActiveListings(after){
       const wim=DB.items.find(x=> (x.listing&&x.listing.ebaySku===sku) || x.sku===sku || x.upc===sku );
       if(wim){ if(!wim.listing) wim.listing={}; wim.listing.ebaySku=sku; if(offerId) wim.listing.ebayOfferId=offerId;
         wim.listing.title=(ei.product&&ei.product.title)||wim.listing.title||wim.desc; if(price) wim.listing.price=price; if(qty) wim.listing.qty=qty;
-        wim.listing.status=status; addHistory(wim,"Pulled from eBay (SKU "+sku+")"); updated++; }
+        wim.listing.status=status;
+        // Real weight/dimensions from eBay's own inventory record, when the seller ever
+        // filled them in — eBay's own docs are upfront that this is often only partially
+        // set (weight more often than dimensions), so this only fills in whatever WIM
+        // doesn't already have, never overwrites a value someone already entered.
+        const pw=ei.packageWeightAndSize;
+        if(pw){
+          if(!wim.shipWeight && pw.weight && pw.weight.value) wim.shipWeight=String(pw.weight.value);
+          if(pw.dimensions){
+            if(!wim.shipLength && pw.dimensions.length) wim.shipLength=String(pw.dimensions.length);
+            if(!wim.shipWidth && pw.dimensions.width) wim.shipWidth=String(pw.dimensions.width);
+            if(!wim.shipHeight && pw.dimensions.height) wim.shipHeight=String(pw.dimensions.height);
+          }
+        }
+        addHistory(wim,"Pulled from eBay (SKU "+sku+")"); updated++; }
       else unmatched.push(sku);
     }
     save(); if(typeof refreshSearchWindows==="function") refreshSearchWindows();
