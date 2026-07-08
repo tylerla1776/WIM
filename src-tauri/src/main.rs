@@ -561,6 +561,90 @@ async fn pick_photos_in_folder(app: tauri::AppHandle, default_dir: String) -> Re
     Ok(out)
 }
 
+// ---- InventoryIQ + photo-folder integration (WIM Import Scans) ----
+// Calls the InventoryIQ Cloudflare Worker to pull accepted scans. Bearer-token authed.
+#[tauri::command]
+async fn iq_fetch_scans(base_url: String, token: String) -> ApiResult {
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/pending-scans", base_url.trim_end_matches('/'));
+    match client.get(&url).header("Authorization", format!("Bearer {}", token)).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// Marks one scan imported so InventoryIQ stops returning it.
+#[tauri::command]
+async fn iq_mark_imported(base_url: String, token: String, scan_id: String) -> ApiResult {
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/scans/{}/imported", base_url.trim_end_matches('/'), scan_id);
+    match client.post(&url).header("Authorization", format!("Bearer {}", token)).header("Content-Type", "application/json").body("{}").send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// Creates a folder (and any parent folders) if it doesn't already exist. Returns the path.
+#[tauri::command]
+fn wim_ensure_folder(path: String) -> Result<String, String> {
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+// Reads every image in a folder, returning them as base64 data URLs (same format WIM stores
+// photos in) alongside their filenames. Returns an empty list if the folder doesn't exist yet.
+#[tauri::command]
+fn wim_read_folder_images(path: String) -> Result<Vec<serde_json::Value>, String> {
+    let mut out = Vec::new();
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.exists() { return Ok(out); }
+    let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        let mime = match ext.as_str() {
+            "png" => "image/png", "gif" => "image/gif", "webp" => "image/webp",
+            "bmp" => "image/bmp", "jpg" | "jpeg" => "image/jpeg", _ => continue,
+        };
+        let bytes = match std::fs::read(&p) { Ok(b) => b, Err(_) => continue };
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("photo").to_string();
+        out.push(serde_json::json!({
+            "name": name,
+            "dataUrl": format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes))
+        }));
+    }
+    Ok(out)
+}
+
+// Deletes a folder and everything in it — used to clean up an item's photo folder after the
+// listing publishes (EPS has the images by then). Guarded so it only ever deletes inside a
+// base folder the caller names, never anything above it.
+#[tauri::command]
+fn wim_delete_folder(path: String, must_be_under: String) -> Result<bool, String> {
+    let target = std::path::PathBuf::from(&path);
+    let base = std::path::PathBuf::from(&must_be_under);
+    // Safety: refuse to delete anything not genuinely inside the named base folder.
+    let target_abs = target.canonicalize().map_err(|e| e.to_string())?;
+    let base_abs = base.canonicalize().map_err(|e| e.to_string())?;
+    if !target_abs.starts_with(&base_abs) {
+        return Err("Refused: target is not inside the WIM photo base folder.".to_string());
+    }
+    if target_abs == base_abs {
+        return Err("Refused: won't delete the base folder itself.".to_string());
+    }
+    std::fs::remove_dir_all(&target_abs).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 #[tauri::command]
 async fn ebay_oauth_login(
     env: String,
@@ -1104,6 +1188,11 @@ fn main() {
             delete_secret,
             pick_photo_folder,
             pick_photos_in_folder,
+            iq_fetch_scans,
+            iq_mark_imported,
+            wim_ensure_folder,
+            wim_read_folder_images,
+            wim_delete_folder,
             open_url,
             supabase_rpc,
             shippo_get_rates,

@@ -483,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.21", BUILD_DATE="2026-10-14", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.22", BUILD_DATE="2026-10-15", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +589,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.22","InventoryIQ scan import -- the scan-to-photo-to-listing workflow is now wired end to end. New Import Scans screen under Manage Inventory: Import New Scans pulls items that were scanned and accepted in the InventoryIQ app (description and category only), creates a listing-in-progress for each, and tells InventoryIQ it was imported so nothing double-imports. For every imported item WIM creates a dated photo folder in your synced Google Drive (base path set in the new Configuration -> InventoryIQ screen), named by the item description plus its id so two same-named items never collide. A Photos? column shows a green Yes or red No per item; the photo person drops photos into that item folder, and Refresh Photos pulls them in, attaches them to the item, and flips the indicator. Clicking an item description opens its landing page to build and publish the listing as normal, with the photos already attached. Once the listing publishes, that item folder is auto-deleted (optional, on by default) since eBay EPS holds the photos by then -- the delete is safety-guarded on the backend to only ever remove folders inside your named WIM photo base, never anything above it. New Configuration -> InventoryIQ screen holds the Worker URL, API token, photo base path, and auto-delete toggle, with a Test Connection button. This adds real backend commands (calling the Worker, reading and writing the Drive folders), so it needs a genuine recompile."],
   ["3.3.21","Stale Listings can now act, not just report. Select any number of stale listings and either reprice them by a percentage or end them outright, right from the report -- turning the who-is-just-sitting-there list into a one-click decision. Reprice uses eBay bulkUpdatePriceQuantity, the call eBay built specifically for changing price on live listings (up to 25 at a time, sent in chunks automatically), and End uses the same withdraw-offer path WIM delist already uses -- both on the sell.inventory permission WIM already has, no new scope and no backend change. A checkbox column and select-all were added, and both actions confirm first and then report exactly how many succeeded, how many failed, and how many were skipped because they were not published through WIM (which have no offer for eBay to change). Ended items stay in your WIM inventory, just withdrawn from sale. Honest note: the live reprice and end calls could not be tested against a real active listing from here, so each item reports its own pass/fail rather than assuming success."],
   ["3.3.20","Feedback tracking and response -- the last of three from the eBay-API audit. WIM already pulled raw feedback into the Reviews screen; this turns it into real reputation management. A health header now sits at the top of Reviews showing your positive percent, how many negatives and neutrals you have, and a clear count of how many still need a response. A new Needs response filter surfaces exactly the negative and neutral feedback you have not replied to yet, so nothing damaging sits unanswered. And you can now Respond to a negative or neutral right from the row -- it posts a public reply straight to your eBay feedback profile via the Trading API RespondToFeedback call (verified against eBay docs), then marks that entry replied. All of it runs on the eBay connection and token WIM already has -- no new permission and no backend change. Honest note: the response posting could not be tested end-to-end without a real negative on a live account, so if a post fails it shows exactly why rather than failing silently."],
   ["3.3.19","New Listing Traffic report (Reports, both modes) -- the second of three from the eBay-API audit, and the answer to why is this not selling. Uses eBay Analytics API getTrafficReport (verified against eBay own current docs) to pull real per-listing impressions, click-through rate, and sales conversion rate over a 7, 30, or 90 day window, matched back to your items. Each row gets a plain-language read: barely being seen points at title/keywords, seen-but-not-clicked points at the main photo or price, clicked-but-not-bought points at price or condition -- turning raw numbers into an actual next step. This one needs a new permission (sell.analytics.readonly), so a one-time eBay reconnect is required to grant it, exactly like when finances was added -- the report says so plainly and, if the permission is missing, the error tells you to reconnect rather than failing silently. Scope added to the eBay connection request; needs a real recompile."],
@@ -814,6 +815,7 @@ function save(){ MEM=DB; const persistCopy=sanitizedForPersist(DB); idbPut(persi
 const POPOUT_APPS={
   itemsearch:{ title:"Item Maintenance", open:()=>openItemSearch() },
   bulkadd:{ title:"Bulk Add Inventory", open:()=>openBulkAdd() },
+  importscans:{ title:"Import Scans", open:()=>openImportScans() },
   managelistings:{ title:"Manage Listings", open:()=>openManageListings() },
   sendoffers:{ title:"Send Offers to Watchers", open:()=>openSendOffers() },
   liveinventory:{ title:"Live Inventory", open:()=>openLiveInventory() },
@@ -832,6 +834,7 @@ const POPOUT_APPS={
   itemrank:{ title:"Item Rank", open:()=>openItemRank() },
   listingeff:{ title:"Listing Efficiency", open:()=>openListingEfficiency() },
   ebaycfg:{ title:"eBay Connection", open:()=>openEbayConfig() },
+  iqcfg:{ title:"InventoryIQ", open:()=>openIqConfig() },
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
@@ -1205,6 +1208,8 @@ function migrate(d){
   // the pull doesn't create duplicate fulfillment records for the same sale.
   if(!Array.isArray(d.pulledOrderIds)) d.pulledOrderIds=[];
   if(!d.fulfillmentSettings) d.fulfillmentSettings={ autoCompleteDays:7 };
+  if(!d.iqSettings) d.iqSettings={ baseUrl:"https://inventoryiq.tylerla17.workers.dev", token:"", photoBasePath:"G:\\My Drive\\WIM", autoDeleteAfterPublish:true };
+  if(!Array.isArray(d.importedScans)) d.importedScans=[];
   if(!Array.isArray(d.deletionAuditLog)) d.deletionAuditLog=[];
   if(!d.cachedFeedback) d.cachedFeedback={};
   if(!Array.isArray(d.feedbackSeenIds)) d.feedbackSeenIds=[];
@@ -2368,7 +2373,7 @@ function isLive(){ return SESSION.mode==="live"; }
 // within-screen enforcement is a separate, further layer beyond this sweep).
 const TREE_LABEL_FEATURE={
   "Dashboard Widgets":"dashboard_widgets","Photo Default":"dashboard_widgets","Shipping Data":"shipping_data","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
-  "eBay Connection":"ebay_connection_admin","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
+  "eBay Connection":"ebay_connection_admin","InventoryIQ":"ebay_connection_admin","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
   "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Local Profiles":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
   "Warehouse Maintenance":"warehouse_maintenance_limited","Vendor Management":"vendor_maintenance","Condition Maintenance":"warehouse_maintenance_limited","Adjustment Configuration":"adjust_inventory",
   "Modify Users":"modify_users","Print Queue":"print_queue","Print Configuration":"print_configuration","Catalog Maintenance":"catalog_maintenance",
@@ -2376,7 +2381,7 @@ const TREE_LABEL_FEATURE={
   "Add Inventory":"add_inventory","Sell Inventory":"sell_inventory","Adjust Inventory":"adjust_inventory","Listed, no SKU":"listed_no_sku",
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Stale Listings":"stale_listings_report","Low Stock":"low_stock_report","Listing Traffic":"listing_traffic_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
-  "Records":"records","Manage Listings":"manage_listings","Send Offers to Watchers":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
+  "Records":"records","Manage Listings":"manage_listings","Send Offers to Watchers":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items","Import Scans":"bulk_add_items",
   "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
@@ -2392,20 +2397,20 @@ function nodeVisible(node){
 function nodeActions(node){ return filterActionsByAccess(nodeActionsRaw(node)); }
 function nodeActionsRaw(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Shipping Data","Description Manager","Category Maintenance","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Photo Default","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Shipping Data","Description Manager","Category Maintenance","eBay Connection","Listing Configuration","InventoryIQ"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    const a=["Dashboard Widgets","Photo Default","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration","InventoryIQ"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
-  if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory","Find by Photo"];
+  if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Import Scans","Adjust Inventory","Find by Photo"];
   if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
   if(node.key==="financials") return ["True Net Profit","Vendor ROI Report"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
   if(node.key==="reports") return ["Aging Inventory","Stale Listings","Low Stock","Listing Traffic","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","Send Offers to Watchers"];
-  if(node.key==="additems") return ["Add Item","Bulk Add Items","Find by Photo"];
+  if(node.key==="additems") return ["Add Item","Bulk Add Items","Import Scans","Find by Photo"];
   if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List","Cancelled Orders","Refunds","Missing Item"];
   if(node.key==="comm") return isLive() ? ["Communication","Reviews"] : ["Communication"];
   if(node.key==="livereports") return ["Fulfillment Accuracy","Stale Listings","Listing Traffic","Listing Report","Item Rank","Listing Efficiency"];
@@ -3317,6 +3322,7 @@ function handleAction(k,a){
   if(k==="print"&&a==="Print Configuration") return launchApp("printcfg");
   if(k==="print"&&a==="Print Queue") return launchApp("printqueue");
   if(k==="config"&&a==="eBay Connection") return launchApp("ebaycfg");
+  if(k==="config"&&a==="InventoryIQ") return launchApp("iqcfg");
   if(k==="config"&&a==="Listing Configuration") return launchApp("listingcfg");
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
   if(k==="config"&&a==="Cloud Sync Setup") return launchApp("cloudsetup");
@@ -3347,6 +3353,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Adjustment Configuration") return launchApp("adjustcfg");
   if(k==="addsell"&&a==="Add Inventory") return launchApp("additem");
   if(k==="addsell"&&a==="Bulk Add Inventory") return launchApp("bulkadd");
+  if((k==="addsell"||k==="additems")&&a==="Import Scans") return launchApp("importscans");
   if(k==="addsell"&&a==="Adjust Inventory") return launchApp("adjust");
   if(k==="addsell"&&a==="Find by Photo") return launchApp("findbyphoto");
   if(k==="whdiscrep"&&a==="Listed, no SKU") return launchApp("listednosku");
@@ -4279,6 +4286,18 @@ async function publishToEbay(it,onStep){
   if(!it.listing) it.listing={status:"none"};
   it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); it.listing.offerId=offerId; it.listing.ebayListingId=listingId; it.listing.publishMethod="api";
   addHistory(it,"Published to eBay (offer "+offerId+(listingId?(", listing "+listingId):"")+")"); save();
+  // If this item came from an InventoryIQ scan, close out that scan record and clean up its
+  // photo folder — eBay's EPS holds the images now, so the working folder is disposable.
+  try{
+    const scanRec=(DB.importedScans||[]).find(r=>r.itemId===it.id && !r.listed);
+    if(scanRec){ scanRec.listed=true; scanRec.listedAt=new Date().toISOString();
+      if(DB.iqSettings && DB.iqSettings.autoDeleteAfterPublish && WIM_IS_DESKTOP){
+        const folder=importScanFolderPath(scanRec); const base=(DB.iqSettings.photoBasePath||"").replace(/[\\/]+$/,"");
+        wimDesktop.invoke("wim_delete_folder",{ path:folder, mustBeUnder:base }).catch(()=>{}); // best-effort; safe-guarded on the Rust side
+      }
+      save();
+    }
+  }catch(e){}
   return { ok:true, offerId, listingId };
 }
 // Withdraws a real eBay offer that WIM itself published. Items listed manually outside
@@ -5626,6 +5645,150 @@ function reactivateItem(it, closeCatalog){
 function normSlot(v){ if(!v) return ""; v=v.toUpperCase().trim().replace(/\.+$/,""); const m=v.match(/^([A-Z]+)\.?(\d+)$/); return m?(m[1]+"."+m[2]):""; }
 
 /* ============================================================ BULK ADD ============================================================ */
+// Import Scans — the bridge from InventoryIQ to WIM. Pulls accepted scans (description +
+// category only), creates a listing-in-progress per item plus a dated photo folder in Google
+// Drive, and tracks whether photos have landed. The photo person drops images into the folder;
+// a refresh pulls them in and flips Photos? to Yes. Opening an item goes to the normal listing
+// flow. After the listing publishes, the folder can be auto-cleaned since EPS holds the images.
+function importScanFolderPath(rec){
+  const base=(DB.iqSettings.photoBasePath||"").replace(/[\\/]+$/,"");
+  const day=(rec.importedAt||new Date().toISOString()).slice(0,10);
+  const safeDesc=(rec.desc||"item").replace(/[\\/:*?"<>|]/g,"-").slice(0,60).trim();
+  return base+"\\"+day+"\\"+safeDesc+" #"+rec.scanId;
+}
+function openIqConfig(){
+  if(openWindows["iq-config"]){ focusWin(openWindows["iq-config"].el); return; }
+  const {body}=buildWindow({id:"iq-config",title:"InventoryIQ Connection",width:640,height:520});
+  const s=DB.iqSettings;
+  body.innerHTML=`<div style="padding:18px;max-width:580px;">
+    <div style="font-size:13px;color:#5b6470;margin-bottom:14px;">Connects WIM to your InventoryIQ scanning app so accepted scans can be imported under Manage Inventory → Import Scans.</div>
+    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:3px;">InventoryIQ Worker URL</label>
+    <input class="txt" id="iq-url" value="${esc(s.baseUrl||"")}" style="width:100%;box-sizing:border-box;margin-bottom:12px;" placeholder="https://inventoryiq.yourname.workers.dev">
+    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:3px;">API Token</label>
+    <input class="txt" id="iq-token" value="${esc(s.token||"")}" style="width:100%;box-sizing:border-box;margin-bottom:12px;" placeholder="Paste your WIM_API_TOKEN here" type="password">
+    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:3px;">Photo Folder Base Path (in your synced Google Drive)</label>
+    <input class="txt" id="iq-path" value="${esc(s.photoBasePath||"")}" style="width:100%;box-sizing:border-box;margin-bottom:6px;" placeholder="G:\\My Drive\\WIM">
+    <div class="smallhint" style="margin-bottom:12px;">WIM creates a dated folder per item here. The photo person drops photos into each item's folder; a refresh pulls them into WIM.</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:16px;cursor:pointer;"><input type="checkbox" id="iq-autodel" ${s.autoDeleteAfterPublish?"checked":""}> Auto-delete an item's photo folder after its listing publishes (EPS keeps the photos)</label>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn primary" id="iq-save">Save</button>
+      <button class="btn" id="iq-test">Test Connection</button>
+      <span class="smallhint" id="iq-msg"></span>
+    </div>
+  </div>`;
+  body.querySelector("#iq-save").onclick=()=>{
+    s.baseUrl=body.querySelector("#iq-url").value.trim().replace(/\/+$/,"");
+    s.token=body.querySelector("#iq-token").value.trim();
+    s.photoBasePath=body.querySelector("#iq-path").value.trim().replace(/[\\/]+$/,"");
+    s.autoDeleteAfterPublish=body.querySelector("#iq-autodel").checked;
+    save(); const m=body.querySelector("#iq-msg"); m.style.color="#1f7244"; m.textContent="Saved.";
+  };
+  body.querySelector("#iq-test").onclick=async ()=>{
+    const m=body.querySelector("#iq-msg");
+    if(!WIM_IS_DESKTOP){ m.style.color="#c0392b"; m.textContent="Test runs in the desktop app."; return; }
+    const url=body.querySelector("#iq-url").value.trim().replace(/\/+$/,""); const token=body.querySelector("#iq-token").value.trim();
+    if(!url||!token){ m.style.color="#c0392b"; m.textContent="Enter both the URL and token first."; return; }
+    m.style.color="#555"; m.textContent="Testing…";
+    try{
+      const r=await wimDesktop.invoke("iq_fetch_scans",{ baseUrl:url, token }); // pending-scans doubles as a live auth check
+      if(r.ok){ const dj=JSON.parse(r.body||"{}"); m.style.color="#1f7244"; m.textContent="Connected ✓ ("+((dj.scans||[]).length)+" scan(s) waiting)."; }
+      else if(r.status===401){ m.style.color="#c0392b"; m.textContent="Connected to the URL, but the token was rejected (401). Double-check the token."; }
+      else { m.style.color="#c0392b"; m.textContent="Couldn't connect (HTTP "+r.status+"): "+(r.body||"").slice(0,120); }
+    }catch(e){ m.style.color="#c0392b"; m.textContent="Failed: "+(e&&e.message?e.message:e); }
+  };
+}
+async function openImportScans(){
+  if(openWindows["import-scans"]){ focusWin(openWindows["import-scans"].el); return; }
+  const {body}=buildWindow({id:"import-scans",title:"Import Scans",width:1040,height:600,
+    toolbar:`<button class="btn sm primary" id="is-import">Import New Scans</button><button class="btn sm" id="is-refresh">Refresh Photos</button><span style="flex:1;"></span><span class="smallhint" id="is-msg"></span>`});
+  function render(){
+    const recs=DB.importedScans.filter(r=>!r.listed).sort((a,b)=>new Date(b.importedAt||0)-new Date(a.importedAt||0));
+    const list=body.querySelector("#is-list")||body;
+    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      ${!recs.length?`<div class="note">No imported scans waiting. Click <b>Import New Scans</b> to pull in items that were scanned and accepted in InventoryIQ. Each one gets a photo folder created in your shared drive; once the photos are taken, click <b>Refresh Photos</b> to pull them in, then open the item to build its listing.</div>`:``}
+      <div class="resultwrap" style="flex:1;overflow:auto;margin:0;"><table class="res"><thead><tr>
+        <th>Description</th><th style="width:150px;">Category</th><th style="width:90px;">Imported</th><th style="width:80px;text-align:center;">Photos?</th><th style="width:150px;">Photo Folder</th>
+      </tr></thead><tbody id="is-tb"></tbody></table></div>
+    </div>`;
+    const tb=body.querySelector("#is-tb");
+    recs.forEach(r=>{ const tr=document.createElement("tr");
+      const hasPhotos=(r.photoCount||0)>0;
+      tr.innerHTML=`<td style="font-size:12.5px;"><a href="#" data-open="${esc(r.scanId)}" style="color:#0f6cbd;text-decoration:none;">${esc(r.desc||"(no description)")}</a></td>
+        <td style="font-size:12px;">${esc(r.category||"—")}</td>
+        <td style="font-size:11px;">${r.importedAt?fmtDay(r.importedAt):"—"}</td>
+        <td style="text-align:center;"><span style="font-weight:700;font-size:11.5px;color:${hasPhotos?'#1f9d55':'#c0392b'};">${hasPhotos?"Yes":"No"}</span>${hasPhotos?`<div class="smallhint">${r.photoCount}</div>`:''}</td>
+        <td style="font-size:10.5px;color:#6b7280;cursor:pointer;" data-folder="${esc(r.scanId)}" title="Open this folder">📁 open folder</td>`;
+      tr.querySelector(`[data-open="${r.scanId}"]`).onclick=(e)=>{ e.preventDefault(); openScanForListing(r); };
+      tr.querySelector(`[data-folder="${r.scanId}"]`).onclick=()=>{ if(WIM_IS_DESKTOP) wimDesktop.invoke("open_url",{url:"file:///"+importScanFolderPath(r).replace(/\\/g,"/")}).catch(()=>{}); };
+      tb.appendChild(tr);
+    });
+    body.querySelector("#is-import").onclick=importNewScans;
+    body.querySelector("#is-refresh").onclick=refreshPhotos;
+  }
+  async function importNewScans(){
+    const msg=body.querySelector("#is-msg");
+    if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Import runs in the desktop app."; return; }
+    if(!DB.iqSettings.token){ msg.style.color="#c0392b"; msg.textContent="Add your InventoryIQ token first (Configuration → InventoryIQ)."; return; }
+    msg.style.color="#555"; msg.textContent="Pulling scans from InventoryIQ…";
+    try{
+      const r=await wimDesktop.invoke("iq_fetch_scans",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token });
+      if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="Couldn't reach InventoryIQ (HTTP "+r.status+"): "+(r.body||"").slice(0,160); return; }
+      const dj=JSON.parse(r.body); const scans=dj.scans||[];
+      if(!scans.length){ msg.style.color="#1f7244"; msg.textContent="No new accepted scans to import."; return; }
+      let added=0;
+      for(const s of scans){
+        const scanId=String(s.id);
+        if(DB.importedScans.some(x=>x.scanId===scanId)) continue; // never double-import
+        const rec={ scanId, desc:s.description||"", category:s.category||"", importedAt:new Date().toISOString(), photoCount:0, listed:false, itemId:null };
+        // Create the item shell now so opening it later goes straight to the listing flow.
+        // Matches the app's standard item shape (same as Bulk Add), minus slotting/pricing,
+        // which the user sets when they actually build the listing.
+        const cat=DB.sections.includes(rec.category)?rec.category:(DB.sections[1]||DB.sections[0]||"");
+        const it={ id:crypto.randomUUID(), upc:genItemNumber(cat), desc:rec.desc,
+          vendor:(DB.pinnedVendor||""), condition:"New", section:cat,
+          unitCost:"0.00", retail:"0.00", onHand:"1", groups:[],
+          category:"", subCategory:"", aspects:{},
+          listing:{status:"none",title:rec.desc,price:"",qty:"1"},
+          images:[], imageFeatured:0, image:"", slot:"", placement:null, sku:"", manualSlot:false,
+          sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null,
+          caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0],
+          fromScan:true, scanId:scanId };
+        it.history=[{at:it.createdAt,desc:"Imported from InventoryIQ scan",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
+        DB.items.push(it); rec.itemId=it.id;
+        // Create the photo folder in the shared drive.
+        try{ await wimDesktop.invoke("wim_ensure_folder",{ path:importScanFolderPath(rec) }); }catch(e){}
+        DB.importedScans.push(rec);
+        // Tell InventoryIQ this scan is imported so it stops returning it.
+        try{ await wimDesktop.invoke("iq_mark_imported",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, scanId }); }catch(e){}
+        added++;
+      }
+      save(); msg.style.color="#1f7244"; msg.textContent="Imported "+added+" scan(s), photo folder(s) created."; render();
+    }catch(e){ msg.style.color="#c0392b"; msg.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
+  }
+  async function refreshPhotos(){
+    const msg=body.querySelector("#is-msg");
+    if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Photo refresh runs in the desktop app."; return; }
+    const recs=DB.importedScans.filter(r=>!r.listed);
+    msg.style.color="#555"; msg.textContent="Checking folders for photos…";
+    let updated=0;
+    for(const r of recs){
+      try{
+        const imgs=await wimDesktop.invoke("wim_read_folder_images",{ path:importScanFolderPath(r) });
+        const count=(imgs||[]).length;
+        if(count!==r.photoCount){ r.photoCount=count; updated++; }
+        // Attach the actual images onto the item so they're ready at listing time.
+        if(count>0 && r.itemId){ const it=DB.items.find(x=>x.id===r.itemId); if(it){ it.photos=(imgs||[]).map(im=>im.dataUrl); } }
+      }catch(e){}
+    }
+    save(); msg.style.color="#1f7244"; msg.textContent="Refreshed. "+updated+" item(s) updated."; render();
+  }
+  function openScanForListing(r){
+    const it=DB.items.find(x=>x.id===r.itemId);
+    if(!it){ uiAlert("This scan's item record couldn't be found — it may have been deleted."); return; }
+    openItemDetail(it,"edit");
+  }
+  render();
+}
 function openBulkAdd(){
   if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
   const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:1180,height:600,popoutKey:"bulkadd",
