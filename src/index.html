@@ -327,10 +327,67 @@
   .dw-avail.drag-over{border-color:#c7cfdb;background:#f6f8fb;}
   .dw-chip{background:#fff;border:1px solid #e3e7ee;border-radius:10px;padding:8px 10px;cursor:grab;user-select:none;}
   .dw-chip:hover{border-color:#b9c4d4;}
-  .dw-ghost{position:fixed;pointer-events:none;z-index:99999;background:#fff;border:1px solid #4f7cf7;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:#28313f;box-shadow:0 4px 14px rgba(31,45,71,.18);}
+  /* ============================================================
+     CLASSIC OUTLOOK THEME (v3.3.12) — appended last so it wins the
+     cascade without needing to rewrite the existing rules above.
+     Squares corners, tightens spacing into defined borders, and
+     applies the Outlook Blue accent across the whole app.
+     ============================================================ */
+  :root{
+    --accent:#0f6cbd; --accent-d:#0c5aa0; --link:#0f6cbd;
+    --line:#d5dae2; --muted:#6b7280;
+    --field-border:#c5ccd6;
+  }
+  body{background:#e4e8ee;}
+  #desktop{background:#e4e8ee;}
+  #desktop::before{background:none;}
+  /* Windows: square, defined, flatter */
+  .window{border:1px solid #c2c9d4;border-radius:4px;box-shadow:0 6px 20px rgba(26,35,50,.18);}
+  .titlebar{height:38px;background:#3a4556;border-bottom:1px solid #2d3646;border-radius:4px 4px 0 0;}
+  .titlebar .ttl{color:#ffffff;font-weight:600;}
+  .winbtn{border-radius:3px;color:#cdd3dc;}
+  .winbtn:hover{background:rgba(255,255,255,.14);color:#fff;}
+  .winbtn.close:hover{background:#e2535a;color:#fff;}
+  /* Toolbars / header strips */
+  .toolbar{background:#f4f6f9;border-bottom:1px solid var(--line);}
+  /* Buttons: square, bordered, business-like */
+  .btn{border-radius:4px;border:1px solid #c5ccd6;background:#ffffff;color:#2d3748;box-shadow:none;}
+  .btn:hover{background:#eef2f7;border-color:#aab3c0;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:hover{background:var(--accent-d);border-color:var(--accent-d);}
+  .tbtn{border-radius:4px;}
+  /* Cards / panels: flatten the soft rounded look into defined rectangles */
+  .searchform,.imd-top,.dw-chip,.gb,.card,.resultwrap{border-radius:4px !important;box-shadow:none !important;border:1px solid var(--line) !important;}
+  .body,.pane-tabbody,.statusbar{background:#eef1f5;}
+  /* Inputs: square + defined */
+  .txt,.cmb,.field,input[type=text],input[type=password],select,textarea{border-radius:4px !important;border:1px solid var(--field-border) !important;}
+  .txt:focus,.cmb:focus,select:focus,textarea:focus{border-color:var(--accent) !important;outline:none;box-shadow:0 0 0 2px rgba(15,108,189,.15) !important;}
+  /* Tables: tighter, defined grid lines */
+  table.res{border:1px solid var(--line);}
+  table.res th{background:#eef1f5;border-bottom:1px solid #cbd2dc;color:#3b434f;font-weight:700;}
+  table.res td{border-bottom:1px solid #edf0f4;}
+  table.res tr:hover td{background:#f2f6fb;}
+  /* Tree / launcher accents */
+  .badge{border-radius:3px;}
+  /* Tabs (used in item detail + communication) */
+  .tab{border-radius:0;}
+  /* Modal dialogs */
+  .modal,.uimodal,.dialog{border-radius:4px !important;}
+  /* Simulation banner: a real top strip that pushes everything down instead of covering it */
+  #sim-banner{position:fixed;top:0;left:0;right:0;height:26px;line-height:26px;z-index:100000;background:#c0392b;color:#fff;text-align:center;font-weight:700;font-size:13px;letter-spacing:.5px;}
+  #sim-banner.hidden{display:none;}
+  body.sim-active #desktop{top:26px;height:calc(100% - 26px);}
+  body.sim-active #sim-banner{display:block;}
+  /* Communication Outlook-style folder list */
+  .cm-folder-item{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:13px;color:#3b434f;border-left:3px solid transparent;}
+  .cm-folder-item svg{width:15px;height:15px;flex:0 0 auto;}
+  .cm-folder-item:hover{background:#e8edf3;}
+  .cm-folder-item.active{background:#e1ecf7;border-left-color:#0f6cbd;font-weight:600;color:#0f4c8a;}
+  .cm-folder-item .cm-fcount{margin-left:auto;font-size:11px;font-weight:700;color:#0f6cbd;}
 </style>
 </head>
 <body>
+<div id="sim-banner" class="hidden">SIMULATION MODE</div>
 <div id="desktop">
   <div id="screen"></div>
   <div id="modals"></div>
@@ -426,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.2", BUILD_DATE="2026-09-25", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.21", BUILD_DATE="2026-10-14", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -532,6 +589,25 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.21","Stale Listings can now act, not just report. Select any number of stale listings and either reprice them by a percentage or end them outright, right from the report -- turning the who-is-just-sitting-there list into a one-click decision. Reprice uses eBay bulkUpdatePriceQuantity, the call eBay built specifically for changing price on live listings (up to 25 at a time, sent in chunks automatically), and End uses the same withdraw-offer path WIM delist already uses -- both on the sell.inventory permission WIM already has, no new scope and no backend change. A checkbox column and select-all were added, and both actions confirm first and then report exactly how many succeeded, how many failed, and how many were skipped because they were not published through WIM (which have no offer for eBay to change). Ended items stay in your WIM inventory, just withdrawn from sale. Honest note: the live reprice and end calls could not be tested against a real active listing from here, so each item reports its own pass/fail rather than assuming success."],
+  ["3.3.20","Feedback tracking and response -- the last of three from the eBay-API audit. WIM already pulled raw feedback into the Reviews screen; this turns it into real reputation management. A health header now sits at the top of Reviews showing your positive percent, how many negatives and neutrals you have, and a clear count of how many still need a response. A new Needs response filter surfaces exactly the negative and neutral feedback you have not replied to yet, so nothing damaging sits unanswered. And you can now Respond to a negative or neutral right from the row -- it posts a public reply straight to your eBay feedback profile via the Trading API RespondToFeedback call (verified against eBay docs), then marks that entry replied. All of it runs on the eBay connection and token WIM already has -- no new permission and no backend change. Honest note: the response posting could not be tested end-to-end without a real negative on a live account, so if a post fails it shows exactly why rather than failing silently."],
+  ["3.3.19","New Listing Traffic report (Reports, both modes) -- the second of three from the eBay-API audit, and the answer to why is this not selling. Uses eBay Analytics API getTrafficReport (verified against eBay own current docs) to pull real per-listing impressions, click-through rate, and sales conversion rate over a 7, 30, or 90 day window, matched back to your items. Each row gets a plain-language read: barely being seen points at title/keywords, seen-but-not-clicked points at the main photo or price, clicked-but-not-bought points at price or condition -- turning raw numbers into an actual next step. This one needs a new permission (sell.analytics.readonly), so a one-time eBay reconnect is required to grant it, exactly like when finances was added -- the report says so plainly and, if the permission is missing, the error tells you to reconnect rather than failing silently. Scope added to the eBay connection request; needs a real recompile."],
+  ["3.3.18","Shipping Historical Comparison now declares a winner and tracks it for real business decisions. Every sale record now compares the three real costs -- what eBay actually charged, the Shippo quote, and the EasyPost quote -- and declares the cheapest as the Winner, showing how much it saved over the next-best. A summary bar across the top tallies who wins most often across all your sales and totals up how much you could have saved versus eBay own charges, so the who-should-I-ship-through question is answered with your own real data instead of a guess. Also added Pull Sold eBay Listings: it pulls sold orders straight from eBay, including listings sold on your eBay that were never in WIM inventory, and creates comparison records for them too -- non-inventoried ones come in with eBay actual cost and ship-to already filled, just needing a weight entered to fetch the third-party quotes. Winner and inventoried/not are both included in the Excel export. All of this rides on the eBay and Shippo/EasyPost connections WIM already has -- no backend change."],
+  ["3.3.17","Send Offers to Watchers -- the first of three from the eBay-API audit, and pure upside. eBay already knows which of your listings have interested buyers (someone watching the item, or who added it to cart then left); this now surfaces them and lets you send those buyers a discount offer to help close the sale. New Send Offers to Watchers screen under Manage Listings: it asks eBay which listings have interested buyers, matches them back to your items, and you pick any number, set a percent discount, and send. Verified against eBay own current docs before building -- it uses the Negotiation API (findEligibleItems and sendOfferToInterestedBuyers), which runs on the sell.inventory permission WIM already has and the same connection, so no reconnect and no backend change were needed. One honest note: the send itself could not be end-to-end tested without real interested buyers on a live listing, so if a send fails it shows exactly why (most often a listing being multi-variation or on an unsupported marketplace, which eBay does not allow offers on)."],
+  ["3.3.16","Automatic eBay returns detection -- the piece flagged as a future integration in 3.3.14 is now real. Researched and confirmed against eBay own current docs first: eBay Post-Order return search endpoint returns every open return with its reason, buyer, refund amount, and the item it is against, and because it is a traditional API on the same api.ebay.com root WIM already calls, using the same user token and marketplace header, it needed no backend change at all -- a genuinely clean addition. The Returns tab now has a real Check for Returns button that pulls open returns straight from eBay, matches each back to its WIM item, and fills in the reason automatically (mapping eBay own reason codes onto WIM existing reason list). The manual log option stays as a fallback. One honest caveat kept visible right on the screen: the match-back relies on eBay listing ID and could not be tested against a live account with a real open return, so if a pulled return does not attach to the right item, it can be logged manually -- flagged plainly rather than hidden."],
+  ["3.3.15","Communication made more Outlook-like, plus the right tree icon. The Communication node in the tree now uses a proper two-overlapping-speech-bubbles icon (matching the one provided) instead of the old money icon that was there by mistake. Inside Communication, the old row of Inbox/Outbox/Drafts buttons is replaced with a real Outlook-style vertical folder list down the left -- Inbox, Sent, and Drafts as proper folders with their own icons, a live unread count on Inbox and a draft count on Drafts, and the selected folder highlighted with an accent bar exactly like Outlook. The layout is now the same three-pane arrangement a real mail client uses: folders on the left, the message list in the middle, and the reading pane on the right. All the existing behavior -- loading, reading, replying, templates, date grouping, read/unread, compose -- carries over unchanged."],
+  ["3.3.14","New unified Cancellations, Refunds, Returns application under Fulfillment, with a live count badge showing how many across all three need attention. One screen with three tabs replacing the need to check separate places. Cancellations and Refunds reuse the exact same real eBay detection that already worked -- nothing lost. Improved cancellation handling to match the request: a confirmed cancellation is now caught whether the item was still in Ready to Ship or had already moved to Shipped, and it genuinely pulls the item out of the Shipping flow into this screen so it cannot ship by mistake -- previously it only looked at Ready to Ship. Returns is a real trackable tab -- log a return against any shipped/completed order, pick a reason, then Restock or Resolve it. Honest scope note: eBay handles returns through a separate Returns system than orders, so automatically pulling those in is its own integration flagged for a future update rather than faked -- for now returns are logged here and worked through manually, while cancellations and refunds stay fully automatic. Every row has the envelope icon to open that buyer messages. The original separate Cancelled Orders and Refunds screens under Discrepancies are left in place, so nothing that pointed at them breaks."],
+  ["3.3.13","Simulation banner fix plus a full Recently Sold overhaul. The red Simulation Mode banner now sits as a real strip above everything and pushes the whole app down by its exact height, instead of floating over and blocking the window title bars -- so the header underneath stays fully visible and clickable. Recently Sold rebuilt as the genuine last warehouse step before shipping: a select-all checkbox now sits at the top of the checkbox column itself, the description is a clickable link that opens the item (in its own separate window, as item pages already do), and the redundant Open button column is gone. The old Mark Picked Up button is replaced with the same Mark Picked flow from Shipping -- select any number of items, mark them Picked, and a new Status column (placed right after Fulfillment) flips them to a purple Picked status. Marking Picked frees the item slot position so the shelf reads correctly, while the warehouse SKU stays on the item own record as a historical snapshot, exactly as asked. Move to Shipping then sends everything marked Picked straight to Ready to Ship under Shipping, making Recently Sold the real handoff point where the warehouse hands off to the shipping team. The envelope icon still opens buyer communication."],
+  ["3.3.12","New Classic Outlook visual theme across the whole app. Squared-off corners in place of the soft rounded look, tighter spacing, clearly defined borders instead of soft shadows, a dark professional title bar, and the Outlook Blue accent throughout -- the dense, business-tool feel. Built as a single theme layer applied last, cleanly overriding the old styling everywhere at once rather than rewriting hundreds of individual rules, so nothing functional changed -- every screen works exactly as before, it just looks the part now."],
+  ["3.3.11","Communication overhaul, part two -- the three parts flagged as next. Date grouping: the inbox now organizes conversations under Today, Yesterday, Last 7 days, Last 30 days, and Earlier headers, the way a real mail client does, instead of one flat list. Read/unread management: every conversation has a real toggle to mark it read or unread yourself, opening one marks it read automatically, and unread ones now show in bold -- all of it feeding the same tree unread badge live, so the count updates the moment you clear something. eBay own unread flag is still the starting truth; this just lets you manage it yourself on top, the way any inbox does. Compose: a new Compose button built honestly around eBay real constraint -- you genuinely cannot message an arbitrary stranger on eBay, only someone you have had an order with -- so it lists your actual recent buyers, whom WIM already knows from real orders, and opens that buyer real conversation to write to. Where a thread does not exist yet, it says so plainly rather than pretending to send into a void."],
+  ["3.3.10","Communication overhaul, part one -- the pieces that change daily use most. Message templates: a set of genuinely common seller replies (thanks for your order, shipped, slight delay, return policy, condition question, combined shipping) seeded ready to use, fully editable through a new Templates manager, with {buyer} and {item} placeholders that fill in automatically from the actual conversation. An Insert template dropdown now sits right in the reply box, so a canned reply is one click at the exact moment of replying, appended cleanly to anything already typed rather than wiping it. The inbox now loads automatically the moment Communication opens when connected, instead of making you click Load Inbox every single time, the way a real mailbox behaves. And the Communication item in the tree now shows a live unread count badge, using the same badge system Ready to Ship and Refunds already use, so unread buyer messages are visible at a glance without opening anything. Compose New, read/unread management, and date grouping are the natural next parts."],
+  ["3.3.9","Two more from the same list. First, a real Restock action added directly to the Refunds screen -- reactivating a refunded item already worked (the existing Reactivate button on any sold item genuinely already handled slot conflicts and reassignment correctly), the real gap was that reaching it meant navigating into the item first. Restock now does this directly from the Refunds table itself, with a clear warning attached that it should only be used once the item has actually, physically come back. Second, new Low Stock report (Reports) -- deliberately not \"any item with 1 left\", since a genuine one-off item having 1 left proves nothing. Only flags a product that has real, proven sold history and is now down to a low remaining count, an actual signal worth considering a restock from the vendor over, not just an incidental true statement about inventory."],
+  ["3.3.8","New Stale Listings report (Reports, both warehouse and live mode) -- built directly alongside the existing Aging Inventory report, same style, same real data already tracked. The real difference between the two: Aging Inventory measures days since an item was added to WIM, this measures days since it was actually listed and still has not sold -- a genuinely different, and arguably more actionable, signal for deciding what to reprice or end. Same 30/60/90 day breakdown, same adjustable threshold, same real printing."],
+  ["3.3.7","Real return reason tracking on Refunds -- a Reason column with 9 common, genuine reasons to pick from (not as described, arrived damaged, defective, wrong item, missing parts, changed mind, found a better price, ordered by mistake) plus Other with a free-text field for anything else. This has to be a manual pick, not something auto-detected -- eBay own refund data does not reliably report why a return happened, only that one did. Saves the moment a reason is picked, no separate save step needed. This is the real foundation for spotting patterns over time -- a vendor with recurring damage returns, or a category with recurring description disputes -- once enough real reasons have been recorded to actually see one."],
+  ["3.3.6","New Vendor ROI Report under Financials -- which vendor own inventory actually makes real money, and how fast it sells. Built entirely from real data WIM already tracks -- real vendor, real unit cost per item, real sold price, real or assumed ship cost -- with no new API calls needed, so it works instantly rather than depending on a live eBay pull. Shows units sold, revenue, item cost, ship cost, gross profit, ROI percent, and average real days from added to sold, per vendor, sorted by gross profit. Deliberately labeled as gross profit, before eBay fees -- attributing real per-sale eBay fees to a specific vendor would mean re-pulling the same transaction data True Net Profit already pulls separately, and this report is meant to be fast and always available rather than tied to that pull."],
+  ["3.3.5","True Net Profit now uses the real, actual shipping cost whenever one exists, not an estimate. Every time a real label actually gets purchased through Shipping Information, the genuine amount paid now gets written directly onto that sale. Found and fixed a real inconsistency while connecting this: True Net Profit was previously falling back to a stray quote from the separate Shipping Historical Comparison tool when no real cost was known, which was never actually the right fallback for a real profit figure -- corrected to fall back to the same considered, category-level assumption Shipping Data already provides for exactly this situation. Every row now honestly marks itself (est.) whenever it is still using that assumption, so it is never unclear which numbers are real and which are a reasonable guess."],
+  ["3.3.4","Real end-to-end sale simulation. In Simulation Mode, a new Sell (Simulate) button appears on any real, not-yet-sold item in Item Maintenance -- selling it to a randomly picked buyer from a new pool of 20 invented names paired with real US addresses across different states, not placeholder data, so a genuine Shippo/EasyPost rate lookup against one actually returns a real quote. The simulated sale is a real, trackable fulfillment record carrying its own simulated tag, sent straight into the same real Ready to Ship pipeline as a genuine sale -- real shipping rates can be checked against it, and it can be pushed through to Shipped. Found and fixed a real gap while wiring this in: the existing Continue, do not print option in Shipping Information still genuinely purchased a real label regardless, it only skipped opening it -- for a simulated sale specifically, no real purchase happens at all now, a fake tracking number stands in instead, while the real rate quotes shown beforehand stay genuine. New red Simulation Mode banner across the top of the whole app whenever it is active, kept in sync automatically anywhere the app already refreshes."],
+  ["3.3.3","New Financials section (Supervisor and up) with True Net Profit -- real profit, not the Assumed GM% estimate used elsewhere. Pulls actual sale transactions directly from eBay own Finances API, with eBay own real fees actually deducted on each sale, matches them back to WIM own sold items, and computes real profit: sold price plus buyer-paid shipping, minus eBay own actual fees, minus real item cost, minus actual shipping cost where already known. Researched this carefully before building -- confirmed getTransactions uses the same standard, per-account authorization scope every other real eBay feature in WIM already uses, not a restricted, whitelist-only door the way the Logistics API was. Added the Finances scope to what WIM requests when connecting eBay -- same as previous scope additions, reconnecting eBay is required once to actually grant it, since a token only ever carries what was requested at the moment it was approved. One honest note: eBay own exact transaction fee structure could not be fully verified without a live connected account to test against, so real-world testing of this is the genuine next step, not assumed working."],
   ["3.3.2","Reframed Shipping Information as a real option alongside eBay.com, not a replacement for it -- new Check for eBay.com Shipments in Ready to Ship uses the exact same real order call already proven for pulling sales in the first place, and moves an item straight to Shipped with the real tracking eBay reports the moment someone ships it through eBay.com directly, or any means outside WIM entirely, not just through Shippo or EasyPost. Every tracking number shown in Shipped is now a real clickable link straight to that carrier own tracking page, whichever of the three paths it came from. Found and fixed a second real bug while building this, the same category as before -- the label-printing code from last update was opening the label with a method this codebase own comments explicitly warn does not reliably work from inside a Tauri window, exactly the kind of thing that would have silently failed for someone relying on it. Fixed to use the same real, working method every other outside link in WIM already goes through."],
   ["3.3.1","Real Shippo and EasyPost integration -- the actual shipping workflow, not just rate comparison. New Ship button in Ready to Ship opens a new Shipping Information screen for that specific item, auto-filling the default ship-from address, the real ship-to and recipient from the actual order, and weight/dimensions if the item already has them, with a free-type option for a one-off different ship-from address. Fetches real, live rates from both Shippo and EasyPost side by side with what the buyer actually paid through eBay for reference, confirmed against each platform own current documentation rather than assumed. Found and used a real, important distinction while building this -- EasyPost own comparison endpoint used for the historical tool explicitly does not return anything purchasable, so buying a label needed a different, real EasyPost shipment call, not the same one used for quotes. Selecting a rate leads to a real choice: print a thermal label now, mark it shipped without printing, or cancel -- printing genuinely purchases the label first, then opens it for printing, and marks the real order shipped with its real tracking number pushed back to eBay either way. Found and fixed a real bug while wiring the auto-close after a successful purchase -- it was calling a close method that does not actually exist on how open windows are tracked, silently doing nothing; fixed to use the real close function this whole codebase already relies on elsewhere."],
   ["3.2.38","Real fix for a genuine login problem reported directly after testing Local Profiles: switching to a profile other than Default and not switching back made a normal login attempt fail with a generic invalid-password message, with no indication that a different profile -- not a wrong password -- was the actual reason. The login screen now clearly shows which profile is currently active whenever it is not Default, with a direct way back to it right there. Also traced a more serious version of this that had not been hit yet but genuinely could have: confirmed a brand new profile is never actually empty of accounts the way it first appeared -- it starts with the same seeded Admin account any fresh install gets -- so this is fixed as a real clarity problem, not a true lockout, though the fix still gives a direct, no-login-required way back to Default either way."],
@@ -739,6 +815,7 @@ const POPOUT_APPS={
   itemsearch:{ title:"Item Maintenance", open:()=>openItemSearch() },
   bulkadd:{ title:"Bulk Add Inventory", open:()=>openBulkAdd() },
   managelistings:{ title:"Manage Listings", open:()=>openManageListings() },
+  sendoffers:{ title:"Send Offers to Watchers", open:()=>openSendOffers() },
   liveinventory:{ title:"Live Inventory", open:()=>openLiveInventory() },
   additem:{ title:"Add Inventory", open:()=>openItemDetail(null,"new") },
   sell:{ title:"Sell Inventory", open:()=>openSell() },
@@ -760,6 +837,7 @@ const POPOUT_APPS={
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
   listingreview:{ title:"Listing Review", open:()=>openListingReview() },
   cancelledorders:{ title:"Cancelled Orders", open:()=>openCancelledOrders() },
+  crr:{ title:"Cancellations, Refunds, Returns", open:()=>openCancellationsRefundsReturns() },
   refunds:{ title:"Refunds", open:()=>openRefunds() },
   missingitem:{ title:"Missing Item", open:()=>openMissingItem() },
   recentlysold:{ title:"Recently Sold", open:()=>openRecentlySold() },
@@ -767,6 +845,8 @@ const POPOUT_APPS={
   fulfillmentaccuracy:{ title:"Fulfillment Accuracy", open:()=>openFulfillmentAccuracy() },
   shipping:{ title:"Shipping", open:()=>openShipping() },
   shipcompare:{ title:"Shipping Historical Comparison", open:()=>openShippingComparison() },
+  netprofit:{ title:"True Net Profit", open:()=>openTrueNetProfit() },
+  vendorroi:{ title:"Vendor ROI Report", open:()=>openVendorROI() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
   localprofiles:{ title:"Local Profiles", open:()=>openLocalProfiles() },
   managedevices:{ title:"Manage Devices", open:()=>openManageDevices() },
@@ -788,6 +868,9 @@ const POPOUT_APPS={
   forcelogout:{ title:"Force Log Out", open:()=>openForceLogout() },
   catalog:{ title:"Catalog Maintenance", open:()=>openCatalog() },
   aging:{ title:"Aging Inventory", open:()=>openAgingReport() },
+  stalelistings:{ title:"Stale Listings", open:()=>openStaleListings() },
+  listingtraffic:{ title:"Listing Traffic", open:()=>openListingTraffic() },
+  lowstock:{ title:"Low Stock", open:()=>openLowStock() },
   movement:{ title:"Movement Report", open:()=>openMovementReport() },
   itemreport:{ title:"Item Report", open:()=>openItemReport() },
   activesummary:{ title:"Active Summary", open:()=>openActiveSummary() },
@@ -940,6 +1023,7 @@ function popOutItem(item, mode, nav){
   }catch(e){ console.warn("popOutItem failed",e); return false; }
 }
 function wimRefreshAll(){ try{ if(typeof refreshSearchWindows==="function") refreshSearchWindows(); }catch(e){}
+  try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const banner=document.getElementById("sim-banner"); if(banner) banner.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
   try{ document.querySelectorAll(".body").forEach(b=>{ if(b._refresh) b._refresh(); }); }catch(e){}
   try{ if(typeof renderTree==="function" && document.getElementById("tree-pane")) renderTree(); }catch(e){}
   try{ if(typeof renderDashboard==="function" && document.getElementById("detail-pane")) renderDashboard(); }catch(e){} }
@@ -1033,14 +1117,14 @@ function migrate(d){
       { id:"basic", name:"Basic", rank:0, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access"] },
       { id:"warehouse", name:"Warehouse", rank:1, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
-        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","item_report","movement_report","item_rank"] },
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","stale_listings_report","low_stock_report","listing_traffic_report","item_report","movement_report","item_rank"] },
       { id:"product_lister", name:"Product Lister", rank:2, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
-        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","item_report","movement_report","item_rank",
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","stale_listings_report","low_stock_report","listing_traffic_report","item_report","movement_report","item_rank",
         "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","cancelled_orders","refunds","listing_functions","communication"] },
       { id:"supervisor", name:"Supervisor", rank:3, features:["item_maintenance_view","find_by_photo_view","change_password","warehouse_only_mode","print_queue","cloud_sync_access",
         "dashboard_widgets","warehouse_maintenance_limited","vendor_maintenance","item_maintenance_full","category_maintenance","group_maintenance",
-        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","item_report","movement_report","item_rank",
+        "add_inventory","bulk_add_inventory","adjust_inventory","listed_no_sku","missing_item","print_configuration","aging_inventory_report","stale_listings_report","low_stock_report","listing_traffic_report","item_report","movement_report","item_rank",
         "live_mode","view_live_inventory","manage_listings","switch_warehouse_live","list_items","bulk_list_items","sku_not_listed","ready_to_list","cancelled_orders","refunds","listing_functions","communication",
         "modify_users","create_new_users","financials","productivity_widgets","listing_review","fulfillment_accuracy","unit_costing","shipping_data"] },
       { id:"admin", name:"Admin", rank:4, features:["*"] }
@@ -1074,6 +1158,9 @@ function migrate(d){
       { key:"shipping", label:"Shipping", category:"Warehouse" },
       { key:"print_configuration", label:"Print Configuration", category:"Warehouse" },
       { key:"aging_inventory_report", label:"Aging Inventory Report", category:"Warehouse" },
+      { key:"stale_listings_report", label:"Stale Listings Report", category:"Warehouse" },
+      { key:"low_stock_report", label:"Low Stock Report", category:"Warehouse" },
+      { key:"listing_traffic_report", label:"Listing Traffic Report", category:"Warehouse" },
       { key:"item_report", label:"Item Report", category:"Warehouse" },
       { key:"movement_report", label:"Movement Report", category:"Warehouse" },
       { key:"item_rank", label:"Item Rank", category:"Warehouse" },
@@ -1143,7 +1230,20 @@ function migrate(d){
   // collapsed/expanded preference.
   if(!Array.isArray(d.agendaMessagesCache)) d.agendaMessagesCache=[];
   if(!Array.isArray(d.sentMessages)) d.sentMessages=[];
+  if(!d.msgReadState || typeof d.msgReadState!=="object") d.msgReadState={};
   if(!d.messageDrafts || typeof d.messageDrafts!=="object") d.messageDrafts={};
+  if(!Array.isArray(d.messageTemplates)){
+    // Seeded once with genuinely common seller replies. {buyer} and {item} fill in
+    // automatically from the conversation when a template is used. Fully editable.
+    d.messageTemplates=[
+      { id:"tpl_thanks", name:"Thanks for your order", body:"Hi {buyer}, thanks so much for your order! It's being prepared and will ship shortly. I'll send tracking as soon as it's on its way." },
+      { id:"tpl_shipped", name:"Shipped + tracking", body:"Hi {buyer}, good news — your item has shipped! You'll find the tracking number in your eBay order details. Thanks again, and please reach out with any questions." },
+      { id:"tpl_delay", name:"Slight shipping delay", body:"Hi {buyer}, just a quick heads up that your order will ship within the next day or two. Thanks for your patience — I want to make sure it's packed well." },
+      { id:"tpl_returns", name:"Return policy", body:"Hi {buyer}, thanks for reaching out. Returns are accepted within 30 days of delivery — just let me know and I'll walk you through it. I want you to be happy with your purchase." },
+      { id:"tpl_condition", name:"Condition question", body:"Hi {buyer}, thanks for your interest in {item}. Happy to answer any questions about its condition — just let me know what you'd like to know and I'll take a closer look for you." },
+      { id:"tpl_combine", name:"Combined shipping", body:"Hi {buyer}, I'm glad to combine shipping on multiple items to save you on postage. Add what you'd like to your cart and request a total, and I'll send an updated invoice." }
+    ];
+  }
   if(!d.vendorCosting || typeof d.vendorCosting!=="object") d.vendorCosting={};
   if(!d.shippingData || typeof d.shippingData!=="object") d.shippingData={ byCategory:{}, packagingCost:"0.00" };
   if(!d.shipFrom || typeof d.shipFrom!=="object") d.shipFrom={ city:"", state:"", zip:"", country:"US" };
@@ -1191,7 +1291,7 @@ function migrate(d){
     // visibility into something that was always meant to be there.
     const warehouseDefaults=["catalog_maintenance","sell_inventory","add_item","bulk_add_items","active_summary","recently_sold","recently_listed","shipping"];
     const listerDefaults=["listing_efficiency","listing_report","reviews"];
-    const supervisorDefaults=["records","fulfillment_accuracy"];
+    const supervisorDefaults=["records","fulfillment_accuracy","financials"];
     const basicDefaults=["cloud_sync_access"]; // on for everyone by default, at every level — individually revocable via Supervisory Maintenance if ever needed
     (d.supervisoryLevels||[]).forEach(lvl=>{
       if(lvl.features.includes("*")) return;
@@ -1639,6 +1739,7 @@ async function boot(){
     try{ await idbPut(sanitizedForPersist(DB)); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(sanitizedForPersist(DB))); }catch(_){} }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
     try{ localStorage.setItem("WIM_EBAY_ONLINE","0"); }catch(e){} EBAY_ONLINE=false; // a genuine app launch always starts offline
+    try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const banner=document.getElementById("sim-banner"); if(banner) banner.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
     showLogin();
   }catch(fatal){
     console.error("WIM boot failed:", fatal);
@@ -2029,6 +2130,10 @@ const I={
   book:`<svg viewBox="0 0 16 16" fill="#6a8caf"><path d="M2 2h5a2 2 0 012 2v10a2 2 0 00-2-2H2z"/><path d="M14 2H9a2 2 0 00-2 2v10a2 2 0 012-2h5z" opacity=".7"/></svg>`,
   stop:`<svg viewBox="0 0 16 16"><polygon points="5,1 11,1 15,5 15,11 11,15 5,15 1,11 1,5" fill="#c0392b" stroke="#8f261d" stroke-width="0.6"/><text x="8" y="10.6" font-size="4.6" font-family="Arial,sans-serif" font-weight="bold" fill="#fff" text-anchor="middle">STOP</text></svg>`,
   cash:`<svg viewBox="0 0 16 16" fill="none" stroke="#3a7d4f" stroke-width="1.1"><rect x="2" y="3" width="12" height="10" rx="1" fill="#e7f6ec"/><circle cx="8" cy="8" r="2.2" fill="#bfe6cc" stroke="#3a7d4f"/></svg>`,
+  chat:`<svg viewBox="0 0 16 16" fill="none" stroke="#0f6cbd" stroke-width="1.1"><path d="M1.5 5.2c0-1.5 1.9-2.7 4.2-2.7s4.2 1.2 4.2 2.7-1.9 2.7-4.2 2.7c-.5 0-1-.05-1.4-.15L2.2 9l.35-1.7C1.9 6.85 1.5 6.07 1.5 5.2Z" fill="#eaf3fb"/><path d="M6.6 9.35c.35 1.15 1.95 2.05 3.85 2.05.45 0 .9-.05 1.3-.15L13.8 12.6l-.35-1.55c.6-.45.95-1.05.95-1.7 0-1.25-1.35-2.3-3.15-2.55" fill="#f7fbfe"/><line x1="3.6" y1="4.7" x2="7.9" y2="4.7"/><line x1="3.6" y1="6.1" x2="6.6" y2="6.1"/></svg>`,
+  tree_inbox:`<svg viewBox="0 0 16 16" fill="none" stroke="#5a6472" stroke-width="1.2"><path d="M2 9.5 3.6 3.5h8.8L14 9.5v3H2v-3Z" fill="#eef1f5"/><path d="M2 9.5h3.2l.9 1.5h3.8l.9-1.5H14"/></svg>`,
+  tree_sent:`<svg viewBox="0 0 16 16" fill="none" stroke="#5a6472" stroke-width="1.2"><path d="M14 2 2 7l4.2 1.6L14 2Z" fill="#eef1f5"/><path d="M14 2 6.2 8.6 6.6 13l2.2-3.2L14 2Z" fill="#f7fbfe"/></svg>`,
+  tree_draft:`<svg viewBox="0 0 16 16" fill="none" stroke="#5a6472" stroke-width="1.2"><path d="M4 2h5l3 3v9H4V2Z" fill="#eef1f5"/><path d="M9 2v3h3"/><line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="10.2" x2="10" y2="10.2"/></svg>`,
   warn:`<svg viewBox="0 0 16 16"><path d="M8 1.5l6.5 12H1.5z" fill="#f4c542" stroke="#c89a1e" stroke-width=".7" stroke-linejoin="round"/><path d="M8 6v3.5" stroke="#7a5b00" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.4" r=".9" fill="#7a5b00"/></svg>`,
   fulfill:`<svg viewBox="0 0 16 16" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l6-3 6 3v6l-6 3-6-3z" fill="#d9a86a" stroke="#9a6c34" stroke-width="1"/><path d="M2 5l6 3 6-3M8 8v6" stroke="#9a6c34" stroke-width="1"/><circle cx="12.5" cy="11.5" r="3.3" fill="#3a7d4f" stroke="#2a5c38" stroke-width=".6"/><path d="M11 11.5l1.1 1.1 2-2.1" stroke="#fff" stroke-width="1.1"/></svg>`,
   modify:`<svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="#5b6470" stroke-width="1.3"/><path d="M9.3 5.2l1.5-1.5a1 1 0 0 1 1.4 0l.6.6a1 1 0 0 1 0 1.4l-1.5 1.5M9.3 5.2L6 8.5V10h1.5l3.3-3.3M9.3 5.2l1.5 1.5" stroke="#3a78c2" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
@@ -2210,7 +2315,8 @@ const TREE_WAREHOUSE=[
   {key:"fulfillment",icon:I.fulfill,label:"Fulfillment"},
   {key:"whdiscrep",icon:I.warn,label:"Discrepancies"},
   {key:"print",icon:I.printer,label:"Print"},
-  {key:"comm",icon:I.cash,label:"Communication"},
+  {key:"comm",icon:I.chat,label:"Communication"},
+  {key:"financials",icon:I.cash,label:"Financials"},
   {key:"reports",icon:I.clipboard,label:"Reports"},
   {key:"invoices",icon:I.cabinet,label:"Records"}
 ];
@@ -2221,7 +2327,8 @@ const TREE_LIVE=[
   {key:"additems",icon:I.plus,label:"Manage Inventory"},
   {key:"discrepancies",icon:I.warn,label:"Discrepancies"},
   {key:"print",icon:I.printer,label:"Print"},
-  {key:"comm",icon:I.cash,label:"Communication"},
+  {key:"comm",icon:I.chat,label:"Communication"},
+  {key:"financials",icon:I.cash,label:"Financials"},
   {key:"livereports",icon:I.clipboard,label:"Reports"}
 ];
 function TREE(){ return SESSION.mode==="live"?TREE_LIVE:TREE_WAREHOUSE; }
@@ -2268,9 +2375,9 @@ const TREE_LABEL_FEATURE={
   "Item Maintenance":"item_maintenance_view","Group Maintenance":"group_maintenance","Unit Costing":"unit_costing","Find by Photo":"find_by_photo_view",
   "Add Inventory":"add_inventory","Sell Inventory":"sell_inventory","Adjust Inventory":"adjust_inventory","Listed, no SKU":"listed_no_sku",
   "Change Password":"change_password","Force Log Out":"force_logout",
-  "Aging Inventory":"aging_inventory_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
-  "Records":"records","Manage Listings":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
+  "Aging Inventory":"aging_inventory_report","Stale Listings":"stale_listings_report","Low Stock":"low_stock_report","Listing Traffic":"listing_traffic_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
+  "Records":"records","Manage Listings":"manage_listings","Send Offers to Watchers":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -2292,15 +2399,16 @@ function nodeActionsRaw(node){
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
   if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory","Find by Photo"];
-  if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping","Shipping Historical Comparison"];
+  if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
+  if(node.key==="financials") return ["True Net Profit","Vendor ROI Report"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
-  if(node.key==="reports") return ["Aging Inventory","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
+  if(node.key==="reports") return ["Aging Inventory","Stale Listings","Low Stock","Listing Traffic","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
-  if(node.key==="listings") return ["Manage Listings"];
+  if(node.key==="listings") return ["Manage Listings","Send Offers to Watchers"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items","Find by Photo"];
   if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List","Cancelled Orders","Refunds","Missing Item"];
   if(node.key==="comm") return isLive() ? ["Communication","Reviews"] : ["Communication"];
-  if(node.key==="livereports") return ["Fulfillment Accuracy","Listing Report","Item Rank","Listing Efficiency"];
+  if(node.key==="livereports") return ["Fulfillment Accuracy","Stale Listings","Listing Traffic","Listing Report","Item Rank","Listing Efficiency"];
   return [];
 }
 function showLauncher(){
@@ -3193,7 +3301,9 @@ function actionCountBadge(label){
   else if(label==="Cancelled Orders") n=cancelledOrderItems().length;
   else if(label==="Missing Item") n=pendingStorageItems().length;
   else if(label==="Refunds") n=refundedOrderItems().length;
+  else if(label==="Cancellations, Refunds, Returns") n=cancelledOrderItems().length+refundedOrderItems().length+returnedOrderItems().length;
   else if(label==="SKU not Listed") n=unlistedActive().length;
+  else if(label==="Communication") n=(parseInt(DB.lastInboxUnread,10)||0);
   if(!n) return "";
   return ` (${n})`;
 }
@@ -3241,11 +3351,15 @@ function handleAction(k,a){
   if(k==="addsell"&&a==="Find by Photo") return launchApp("findbyphoto");
   if(k==="whdiscrep"&&a==="Listed, no SKU") return launchApp("listednosku");
   if(k==="reports"&&a==="Aging Inventory") return launchApp("aging");
+  if((k==="reports"||k==="livereports")&&a==="Stale Listings") return launchApp("stalelistings");
+  if((k==="reports"||k==="livereports")&&a==="Listing Traffic") return launchApp("listingtraffic");
+  if(k==="reports"&&a==="Low Stock") return launchApp("lowstock");
   if(k==="reports"&&a==="Movement Report") return launchApp("movement");
   if(k==="reports"&&a==="Item Report") return launchApp("itemreport");
   if(k==="reports"&&a==="Active Summary") return launchApp("activesummary");
   if(k==="invoices"&&a==="Records") return launchApp("invoices");
   if(k==="listings"&&a==="Manage Listings") return launchApp("managelistings");
+  if(k==="listings"&&a==="Send Offers to Watchers") return launchApp("sendoffers");
   if(k==="additems"&&a==="Add Item") return launchApp("additem");
   if(k==="additems"&&a==="Bulk Add Items") return launchApp("bulkadd");
   if(k==="additems"&&a==="Find by Photo") return launchApp("findbyphoto");
@@ -3260,6 +3374,9 @@ function handleAction(k,a){
   if(k==="fulfillment"&&a==="Recently Listed") return launchApp("recentlylisted");
   if(k==="fulfillment"&&a==="Shipping") return launchApp("shipping");
   if(k==="fulfillment"&&a==="Shipping Historical Comparison") return launchApp("shipcompare");
+  if(k==="fulfillment"&&a==="Cancellations, Refunds, Returns") return launchApp("crr");
+  if(k==="financials"&&a==="True Net Profit") return launchApp("netprofit");
+  if(k==="financials"&&a==="Vendor ROI Report") return launchApp("vendorroi");
   if(k==="comm"&&a==="Communication") return launchApp("comm");
   if(k==="comm"&&a==="Reviews") return launchApp("reviews");
   if(k==="livereports"&&a==="Fulfillment Accuracy") return launchApp("fulfillmentaccuracy");
@@ -4167,6 +4284,39 @@ async function publishToEbay(it,onStep){
 // Withdraws a real eBay offer that WIM itself published. Items listed manually outside
 // WIM (no offerId on record) have nothing for this to withdraw — those use the plain
 // local status toggle instead.
+// Bulk reprice published eBay offers. Uses bulkUpdatePriceQuantity — the call eBay designed
+// specifically for changing price/quantity on live listings, up to 25 at a time, on the
+// sell.inventory scope WIM already has. Each item needs its SKU and offerId (both already on
+// record for anything WIM published). Returns a per-item result so the caller reports honestly
+// rather than claiming a blanket success.
+async function bulkRepriceOffers(items, computeNewPrice, onStep){
+  if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to the mode badge." };
+  const usable=items.filter(it=>it.listing && it.listing.offerId && it.sku);
+  const results=[];
+  // eBay caps this call at 25 records, so send in chunks of 25.
+  for(let i=0;i<usable.length;i+=25){
+    const chunk=usable.slice(i,i+25);
+    onStep&&onStep("Repricing "+(i+1)+"–"+Math.min(i+25,usable.length)+" of "+usable.length+"…");
+    const requests=chunk.map(it=>{
+      const newPrice=computeNewPrice(it);
+      return { sku:it.sku, offers:[{ offerId:it.listing.offerId, availableQuantity:(it.listing.availableQuantity!=null?it.listing.availableQuantity:1), price:{ value:String(newPrice), currency:"USD" } }] };
+    });
+    try{
+      const r=await EBAY.postUser("/sell/inventory/v1/bulk_update_price_quantity", JSON.stringify({ requests }), EBAY_SCOPE_INV);
+      let body={}; try{ body=JSON.parse(r.body||"{}"); }catch(e){}
+      const responses=body.responses||[];
+      chunk.forEach(it=>{
+        const resp=responses.find(x=>x.sku===it.sku || (x.offers||[]).some(o=>o.offerId===it.listing.offerId));
+        const okOne = r.ok && (!resp || resp.statusCode===200 || resp.statusCode==null);
+        if(okOne){ const np=computeNewPrice(it); it.listing.price=String(np); addHistory(it,"Repriced on eBay to $"+np); results.push({it,ok:true}); }
+        else results.push({it,ok:false,error:(resp&&resp.errors&&resp.errors[0]&&resp.errors[0].message)||("HTTP "+r.status)});
+      });
+    }catch(e){ chunk.forEach(it=>results.push({it,ok:false,error:(e&&e.message?e.message:String(e))})); }
+  }
+  const skipped=items.length-usable.length;
+  if(results.some(x=>x.ok)) save();
+  return { ok:true, results, skipped };
+}
 async function delistFromEbay(it,onStep){
   if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to the mode badge." };
   if(!it.listing || !it.listing.offerId) return { ok:false, error:"This item wasn't published through WIM's eBay integration (no offer on record), so there's nothing on eBay for WIM to withdraw. If it's listed manually, use the local status toggle below instead." };
@@ -4546,8 +4696,9 @@ function openItemDetail(item,mode,nav,defaultTab){
     hasAccess("listing_functions") ? tbtn(I.cash,"List on eBay") :
     hasAccess("list_items") ? tbtn(I.bolt,"Send Listing") : ""
   ) : "";
+  const simSellBtn = (DB.simulationMode && !isNew && !isCat && !it.sold) ? `<span class="tbar-sep"></span>${tbtn(I.cash,'Sell (Simulate)','simsell')}` : "";
   const tbar= (ro? `${tbtn(I.plus,'Reactivate','plus')}<span style="font-size:12px;color:#1f7244;align-self:center;padding-right:6px;">Reactivate</span><span class="tbar-sep"></span>${tbtn(I.print,'Print')}`
-    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${listBtn}`)
+    : `${tbtn(I.trash,'Delete','del')}<span class="tbar-sep"></span>${tbtn(I.print,'Print')}${tbtn(I.save,'Save')}${listBtn}${simSellBtn}`)
     + `<span class="tbar-sep"></span>${pendingStorageBadgeHtml("d-waiting")}`
     + navHtml;
   const {body,close:_closeWin}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48,zoomGroup:"itemdetail"});
@@ -4561,7 +4712,7 @@ function openItemDetail(item,mode,nav,defaultTab){
   const dis=ro?'disabled':'';
   body.innerHTML=`
     <div class="d-scrollwrap">
-    <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':`<span style="color:${itemStatusColor(it)};font-weight:600;">${itemStatusLabel(it)}</span>`)}${it.simulated?' <span style="background:#fff7e0;color:#6b5400;border:1px solid #e6c200;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px;">SIMULATED</span>':''}</div></div>
+    <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':`<span style="color:${itemStatusColor(it)};font-weight:600;">${itemStatusLabel(it)}</span>`)}${(it.simulated||(it.fulfillment&&it.fulfillment.simulated))?' <span style="background:#fff7e0;color:#6b5400;border:1px solid #e6c200;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px;">SIMULATED</span>':''}</div></div>
     ${dl}
     <div class="imd-top">
       <div class="imgcell"><div class="imgbox" id="d-imgbox" style="position:relative;">${it.image?`<img src="${it.image}">`:'<span class="ph">📦</span>'}</div>
@@ -5388,6 +5539,20 @@ function openItemDetail(item,mode,nav,defaultTab){
   }
   const db=openWindows[wid].el.querySelector('[data-act="Delete"]'); if(db) db.onclick=()=>{ if(isNew){ _closeWin(); return; }
     openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); _closeWin(); }); };
+  const simSellBtn2=openWindows[wid].el.querySelector('[data-act="Sell (Simulate)"]'); if(simSellBtn2) simSellBtn2.onclick=()=>{
+    const buyer=DEMO_BUYERS[Math.floor(Math.random()*DEMO_BUYERS.length)];
+    uiConfirm("Simulate a sale of this item to \""+buyer.name+"\" ("+buyer.city+", "+buyer.state+")? This creates a real, trackable fulfillment record — tagged as simulated so it's distinguishable from real sales — and sends it straight to Ready to Ship, same as a genuine sale.", ()=>{
+      it.sold=true; it.soldAt=new Date().toISOString(); it.soldBy=SESSION.userId;
+      it.fulfillment={
+        orderId:"SIM-"+crypto.randomUUID().slice(0,8), lineItemId:"SIM-LI-"+crypto.randomUUID().slice(0,8),
+        buyer:buyer.name, soldPrice:it.listing&&it.listing.price||it.retail||"0.00", shipCostPaid:null,
+        shipTo:{ fullName:buyer.name, addressLine1:buyer.street, city:buyer.city, stateOrProvince:buyer.state, postalCode:buyer.zip, countryCode:"US" },
+        stage:"readyToShip", soldAt:new Date().toISOString(), isPickup:false, simulated:true
+      };
+      addHistory(it,"Sold (SIMULATED) to "+buyer.name+" — sent to Ready to Ship for testing"); save(); wimRefreshAll();
+      uiAlert("Simulated sale created. Find it in Fulfillment → Recently Sold / Ready to Ship — it'll carry a SIMULATED tag throughout."); _closeWin();
+    });
+  };
   const pbtn=openWindows[wid].el.querySelector('[data-act="Print"]'); if(pbtn) pbtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first — labels print once a Warehouse SKU is assigned."); return; } openPrintMenu(it); };
   const ebtn=openWindows[wid].el.querySelector('[data-act="List on eBay"]'); if(ebtn) ebtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first, then list it on eBay."); return; } openEbayList(it); };
   // "Send Listing" (Warehouse level) — marks the item Created and queues it for supervisor review
@@ -5898,6 +6063,183 @@ function openAgingReport(){
     const pb=openWindows["rpt-aging"].el.querySelector('[data-act="Print"]'); if(pb) pb.onclick=()=>printTable("WIM Aging Inventory — over "+th+" days",["Warehouse SKU","Item Number","Description","Condition","Category","Added","Age (days)"], list.map(it=>[it.sku,it.upc,it.desc,it.condition,it.section,fmtDay(it.createdAt),ageDays(it.createdAt)])); }
   body.querySelector("#ag-th").onchange=render; render();
 }
+function openStaleListings(){
+  if(openWindows["rpt-stale"]){ focusWin(openWindows["rpt-stale"].el); return; }
+  const {body}=buildWindow({id:"rpt-stale",title:"Report — Stale Listings",width:900,height:620,
+    toolbar:`${tbtn(I.print,'Print')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Currently-listed items by time since actually listed, not sold yet</span>`});
+  const act=DB.items.filter(i=>i.listing && i.listing.status==="listed" && i.listing.listedAt && !i.sold);
+  const b30=act.filter(i=>ageDays(i.listing.listedAt)>30), b60=act.filter(i=>ageDays(i.listing.listedAt)>60), b90=act.filter(i=>ageDays(i.listing.listedAt)>90);
+  body.innerHTML=`
+    <div style="display:flex;gap:12px;padding:14px;flex-wrap:wrap;">
+      <fieldset class="gb" style="flex:1;min-width:150px;text-align:center;"><legend>Listed over 30 days</legend><div style="font-size:30px;font-weight:700;color:#1b4f86;">${b30.length}</div><div class="smallhint">items</div></fieldset>
+      <fieldset class="gb" style="flex:1;min-width:150px;text-align:center;"><legend>Listed over 60 days</legend><div style="font-size:30px;font-weight:700;color:#a16207;">${b60.length}</div><div class="smallhint">items</div></fieldset>
+      <fieldset class="gb" style="flex:1;min-width:150px;text-align:center;"><legend>Listed over 90 days</legend><div style="font-size:30px;font-weight:700;color:#b1342a;">${b90.length}</div><div class="smallhint">items</div></fieldset>
+    </div>
+    <div style="padding:0 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><span style="font-size:12.5px;">Show items listed longer than</span>
+      <select class="cmb" id="st-th"><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option></select>
+      <span style="flex:1;"></span>
+      <span style="font-size:12.5px;">Reprice selected</span>
+      <input class="txt" id="st-pct" value="10" style="width:52px;text-align:right;"><span style="font-size:12.5px;">% off</span>
+      <button class="btn sm primary" id="st-reprice" disabled>Reprice</button>
+      <button class="btn sm" id="st-end" disabled style="border-color:#c0392b;color:#c0392b;">End Listing</button>
+    </div>
+    <div style="padding:2px 14px 0;"><span class="smallhint" id="st-note"></span> <span class="smallhint" id="st-actmsg" style="margin-left:8px;"></span></div>
+    <div class="resultwrap" style="margin:8px 14px 14px;"><table class="res"><thead><tr><th style="width:30px;text-align:center;"><span class="chk" id="st-selall"></span></th><th>Warehouse SKU</th><th>Item Number</th><th>Description</th><th>Price</th><th>Category</th><th>Listed</th><th>Days Listed</th></tr></thead><tbody id="st-tb"></tbody></table></div>`;
+  const stPicked=new Set();
+  function rowsFor(th){ return act.filter(i=>ageDays(i.listing.listedAt)>th).sort((a,b)=>ageDays(b.listing.listedAt)-ageDays(a.listing.listedAt)); }
+  function render(){ const th=parseInt(body.querySelector("#st-th").value,10); const list=rowsFor(th); const tb=body.querySelector("#st-tb"); tb.innerHTML="";
+    // Drop any selections no longer in the visible list (threshold changed).
+    Array.from(stPicked).forEach(id=>{ if(!list.some(i=>i.id===id)) stPicked.delete(id); });
+    list.forEach(it=>{ const tr=document.createElement("tr");
+      const cb=document.createElement("td"); cb.style.textAlign="center"; cb.innerHTML=`<span class="chk ${stPicked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span>`; tr.appendChild(cb);
+      [it.sku,it.upc,it.desc,"$"+(it.listing.price||"0.00"),it.section,fmtDay(it.listing.listedAt),ageDays(it.listing.listedAt)].forEach((v,idx)=>{ const td=document.createElement("td"); if(idx===6)td.className="cc"; td.textContent=v; tr.appendChild(td); });
+      tr.ondblclick=()=>openItemDetail(it,"edit");
+      cb.querySelector("[data-id]").onclick=(e)=>{ e.stopPropagation(); if(stPicked.has(it.id)) stPicked.delete(it.id); else stPicked.add(it.id); syncActionButtons(); render(); };
+      tb.appendChild(tr); });
+    body.querySelector("#st-note").textContent=list.length+" item(s) listed longer than "+th+" days without selling — worth a reprice or an end, if these aren't intended to just sit.";
+    const sa=body.querySelector("#st-selall"); sa.classList.toggle("on", list.length>0 && stPicked.size===list.length);
+    sa.onclick=()=>{ if(stPicked.size===list.length){ stPicked.clear(); } else { list.forEach(i=>stPicked.add(i.id)); } syncActionButtons(); render(); };
+    syncActionButtons();
+    const pb=openWindows["rpt-stale"].el.querySelector('[data-act="Print"]'); if(pb) pb.onclick=()=>printTable("WIM Stale Listings — over "+th+" days",["Warehouse SKU","Item Number","Description","Price","Category","Listed","Days Listed"], list.map(it=>[it.sku,it.upc,it.desc,"$"+(it.listing.price||"0.00"),it.section,fmtDay(it.listing.listedAt),ageDays(it.listing.listedAt)])); }
+  function syncActionButtons(){ const has=stPicked.size>0; body.querySelector("#st-reprice").disabled=!has; body.querySelector("#st-end").disabled=!has; }
+  function selectedItems(){ return act.filter(i=>stPicked.has(i.id)); }
+  body.querySelector("#st-reprice").onclick=async ()=>{
+    const pct=parseFloat(body.querySelector("#st-pct").value);
+    const msg=body.querySelector("#st-actmsg");
+    if(!(pct>0 && pct<90)){ msg.style.color="#c0392b"; msg.textContent="Enter a discount between 1 and 89 percent."; return; }
+    const sel=selectedItems(); if(!sel.length) return;
+    uiConfirm("Reprice "+sel.length+" listing(s) by "+pct+"% off their current price, live on eBay?", async ()=>{
+      msg.style.color="#555"; msg.textContent="Repricing on eBay…";
+      const res=await bulkRepriceOffers(sel, (it)=>{ const cur=parseFloat(it.listing.price)||0; return Math.max(0.01, Math.round(cur*(1-pct/100)*100)/100); }, (s)=>{ msg.textContent=s; });
+      if(!res.ok){ msg.style.color="#c0392b"; msg.textContent=res.error; return; }
+      const okN=res.results.filter(x=>x.ok).length, failN=res.results.filter(x=>!x.ok).length;
+      msg.style.color=failN?"#c0392b":"#1f7244"; msg.textContent="Repriced "+okN+" listing(s)"+(failN?", "+failN+" failed":"")+(res.skipped?" · "+res.skipped+" skipped (not published through WIM)":"")+".";
+      stPicked.clear(); render();
+    });
+  };
+  body.querySelector("#st-end").onclick=async ()=>{
+    const sel=selectedItems(); if(!sel.length) return; const msg=body.querySelector("#st-actmsg");
+    uiConfirm("End "+sel.length+" listing(s) on eBay? This withdraws them from sale. The items stay in your WIM inventory.", async ()=>{
+      msg.style.color="#555"; let okN=0, failN=0;
+      for(let i=0;i<sel.length;i++){ msg.textContent="Ending "+(i+1)+" of "+sel.length+"…"; const r=await delistFromEbay(sel[i]); if(r.ok) okN++; else failN++; }
+      // Ended items are no longer "listed", so refresh the source list from live data.
+      act.length=0; DB.items.filter(i=>i.listing && i.listing.status==="listed" && i.listing.listedAt && !i.sold).forEach(i=>act.push(i));
+      msg.style.color=failN?"#c0392b":"#1f7244"; msg.textContent="Ended "+okN+" listing(s)"+(failN?", "+failN+" failed":"")+".";
+      stPicked.clear(); wimRefreshAll(); render();
+    });
+  };
+  body.querySelector("#st-th").onchange=render; render();
+}
+// Low Stock — a proven-selling product that's about to run out. Deliberately not just "any
+// item with 1 left", since a genuine one-off item having 1 left is not a signal of
+// anything — this only flags a group that has real sold history (proof it actually moves)
+// and is now down to a low remaining count.
+function openLowStock(){
+  if(openWindows["rpt-lowstock"]){ focusWin(openWindows["rpt-lowstock"].el); return; }
+  const {body}=buildWindow({id:"rpt-lowstock",title:"Report — Low Stock",width:820,height:580,
+    toolbar:`${tbtn(I.print,'Print')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Products that have actually sold before, now running low</span>`});
+  const soldGroupKeys=new Set(DB.items.filter(i=>i.sold).map(groupKey));
+  const seen=new Set(); const groups=[];
+  activeItems().forEach(it=>{ const gk=groupKey(it); if(seen.has(gk)) return; seen.add(gk);
+    if(!soldGroupKeys.has(gk)) return; // never sold before — not a restock signal, just how many were ever added
+    groups.push({ key:gk, desc:it.desc, section:it.section, condition:it.condition, qty:groupQty(it), sample:it }); });
+  body.innerHTML=`
+    <div style="padding:0 14px;display:flex;gap:8px;align-items:center;margin-top:12px;"><span style="font-size:12.5px;">Show groups with</span>
+      <select class="cmb" id="ls-th"><option value="1">1 or fewer remaining</option><option value="2">2 or fewer remaining</option><option value="3">3 or fewer remaining</option></select></div>
+    <div class="resultwrap" style="margin:10px 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Category</th><th>Condition</th><th style="width:100px;">Remaining</th></tr></thead><tbody id="ls-tb"></tbody></table></div>
+    <div class="smallhint" style="padding:0 14px 14px;" id="ls-note"></div>`;
+  function render(){ const th=parseInt(body.querySelector("#ls-th").value,10);
+    const list=groups.filter(g=>g.qty<=th).sort((a,b)=>a.qty-b.qty);
+    const tb=body.querySelector("#ls-tb"); tb.innerHTML="";
+    list.forEach(g=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(g.desc)}</td><td>${esc(g.section)}</td><td>${esc(g.condition)}</td><td class="cc" style="font-weight:600;color:${g.qty<=0?'#c0392b':'#a16207'};">${g.qty}</td>`;
+      tr.ondblclick=()=>openItemDetail(g.sample,"edit"); tb.appendChild(tr); });
+    body.querySelector("#ls-note").textContent=list.length+" proven-selling product(s) at "+th+" or fewer remaining — worth considering a restock from the vendor.";
+    const pb=openWindows["rpt-lowstock"].el.querySelector('[data-act="Print"]'); if(pb) pb.onclick=()=>printTable("WIM Low Stock — "+th+" or fewer remaining",["Description","Category","Condition","Remaining"], list.map(g=>[g.desc,g.section,g.condition,g.qty]));
+  }
+  body.querySelector("#ls-th").onchange=render; render();
+}
+// Listing Traffic report — the "why isn't this selling?" answer. Uses eBay's Analytics API
+// getTrafficReport (verified against eBay's current docs) to pull real per-listing impressions,
+// click-through rate, and sales conversion rate. Needs the sell.analytics.readonly scope, which
+// is new — so a one-time eBay reconnect is required to grant it, same as when finances was added.
+async function openListingTraffic(){
+  if(openWindows["rpt-traffic"]){ focusWin(openWindows["rpt-traffic"].el); return; }
+  const {body}=buildWindow({id:"rpt-traffic",title:"Report — Listing Traffic",width:1080,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real eBay traffic per listing — impressions, click-through, and conversion. Needs an eBay reconnect the first time (new permission).</span>`});
+  let rows=[]; let days=30;
+  function ymd(d){ return d.getFullYear().toString()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0"); }
+  function render(){
+    body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <button class="btn primary sm" id="tr-pull">Pull Traffic Report</button>
+        <span style="font-size:12.5px;">Window</span>
+        <select class="cmb sm" id="tr-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select>
+        <span class="smallhint" id="tr-msg"></span>
+      </div>
+      ${!rows.length?`<div class="note">Pull the report to see how each listing is actually performing on eBay. <b>Impressions</b> = how often it showed up. <b>Click-through</b> = of those, how many clicked in. <b>Conversion</b> = of those who looked, how many bought. Low impressions usually means a title/keyword problem; lots of clicks but low conversion usually means price or photos.</div>`:``}
+      <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th>Listing</th><th style="width:110px;">Warehouse SKU</th><th style="width:100px;">Impressions</th><th style="width:100px;">Click-Through</th><th style="width:100px;">Conversion</th><th style="width:180px;">Read</th>
+      </tr></thead><tbody id="tr-tb"></tbody></table></div>
+    </div>`;
+    body.querySelector("#tr-days").value=String(days);
+    body.querySelector("#tr-days").onchange=(e)=>{ days=parseInt(e.target.value,10); };
+    body.querySelector("#tr-pull").onclick=pull;
+    const tb=body.querySelector("#tr-tb");
+    rows.forEach(r=>{ const tr=document.createElement("tr");
+      // Simple, honest diagnosis based on the two failure modes.
+      let read="—", color="#6b7280";
+      if(r.impressions!=null){
+        if(r.impressions<50){ read="Barely being seen — check title/keywords"; color="#c0392b"; }
+        else if(r.ctr!=null && r.ctr<1){ read="Seen but not clicked — check main photo/price"; color="#a16207"; }
+        else if(r.cvr!=null && r.cvr<1){ read="Clicked but not bought — check price/condition"; color="#a16207"; }
+        else { read="Performing normally"; color="#1f7244"; }
+      }
+      tr.innerHTML=`<td style="font-size:12px;">${esc(r.title)}</td><td style="font-size:12px;">${esc(r.sku)}</td>
+        <td style="font-size:12px;">${r.impressions!=null?r.impressions.toLocaleString():"—"}</td>
+        <td style="font-size:12px;">${r.ctr!=null?r.ctr.toFixed(1)+"%":"—"}</td>
+        <td style="font-size:12px;">${r.cvr!=null?r.cvr.toFixed(1)+"%":"—"}</td>
+        <td style="font-size:11.5px;color:${color};font-weight:600;">${read}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+  async function pull(){
+    const msg=body.querySelector("#tr-msg");
+    if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Connect to eBay first (via the mode badge)."; return; }
+    msg.style.color="#555"; msg.textContent="Pulling traffic from eBay…";
+    const end=new Date(); const start=new Date(Date.now()-days*86400000);
+    const mkt=(EBAY.mkt&&EBAY.mkt())||"EBAY_US";
+    const metrics="LISTING_IMPRESSION_TOTAL,CLICK_THROUGH_RATE,SALES_CONVERSION_RATE";
+    const filter="marketplace_ids:{"+mkt+"},date_range:["+ymd(start)+".."+ymd(end)+"]";
+    const path="/sell/analytics/v1/traffic_report?dimension=LISTING&metric="+encodeURIComponent(metrics)+"&filter="+encodeURIComponent(filter);
+    try{
+      const r=await EBAY.user(path, EBAY_SCOPE_ANALYTICS);
+      if(!r.ok){
+        let hint="";
+        if(r.status===403||/scope|insufficient/i.test(r.body||"")) hint=" — this usually means the new analytics permission hasn't been granted yet: reconnect eBay (Configuration → eBay Connection) and try again.";
+        msg.style.color="#c0392b"; msg.textContent="Traffic pull failed (HTTP "+r.status+")"+hint; return;
+      }
+      const dj=JSON.parse(r.body);
+      // Figure out which column index each metric sits in from the header.
+      const keys=(dj.header&&dj.header.metrics||[]).map(m=>m.key);
+      const idxImp=keys.indexOf("LISTING_IMPRESSION_TOTAL"), idxCtr=keys.indexOf("CLICK_THROUGH_RATE"), idxCvr=keys.indexOf("SALES_CONVERSION_RATE");
+      // Listing titles come back in the metadata records, keyed by listing id.
+      const titleById={};
+      (dj.dimensionMetadata||[]).forEach(dm=>{ (dm.metadataRecords||[]).forEach(mr=>{ const lid=mr.value; const tv=(mr.metadataValues||[])[0]; if(lid&&tv) titleById[lid]=tv.value; }); });
+      rows=(dj.records||[]).map(rec=>{
+        const lid=(rec.dimensionValues&&rec.dimensionValues[0]&&rec.dimensionValues[0].value)||"";
+        const mv=rec.metricValues||[];
+        const num=(i)=>{ const v=i>=0&&mv[i]?mv[i].value:null; return v==null?null:parseFloat(v); };
+        const match=DB.items.find(x=>x.listing && String(x.listing.ebayListingId)===String(lid));
+        return { listingId:lid, title:(match&&((match.listing&&match.listing.title)||match.desc))||titleById[lid]||("Listing "+lid), sku:(match&&match.sku)||"—",
+          impressions:num(idxImp), ctr:num(idxCtr), cvr:num(idxCvr) };
+      }).sort((a,b)=>(b.impressions||0)-(a.impressions||0));
+      msg.style.color="#1f7244"; msg.textContent="Pulled traffic for "+rows.length+" listing(s).";
+      render();
+    }catch(e){ msg.style.color="#c0392b"; msg.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
+  }
+  render();
+}
 function openItemReport(){
   if(openWindows["rpt-items"]){ focusWin(openWindows["rpt-items"].el); return; }
   const {body}=buildWindow({id:"rpt-items",title:"Report — Item Report",width:1020,height:660,
@@ -6306,6 +6648,31 @@ function openCloudDataMigration(){
 }
 const DEMO_ITEM_POOL=["Vintage Polaroid Camera","Nike Air Max Sneakers","Cast Iron Skillet 12in","Leather Messenger Bag","Bluetooth Wireless Earbuds","Antique Brass Compass","Wool Peacoat","Yeti Tumbler 20oz","LEGO Star Wars Set","Ceramic Plant Pot Set","Vintage Vinyl Record - Jazz","Kids Board Game Bundle","Stainless Steel Cookware Set","Canon DSLR Camera Body","North Face Backpack","Wooden Chess Set","Fitness Tracker Watch","Vintage Comic Book Lot","Denim Jacket","Instant Pot 6qt","Mechanical Keyboard","Ceramic Coffee Mug Set","Hiking Boots","Vintage Typewriter","Wireless Charging Pad","Cotton Throw Blanket","Skateboard Complete","Bluetooth Speaker","Leather Wallet","Enamel Dutch Oven"];
 const DEMO_CONDITIONS=["New","New other","Used - Like New","Used - Good","Used - Acceptable"];
+// Real addresses (city/state/zip), not placeholders — so a real Shippo/EasyPost rate lookup
+// against one of these actually returns a genuine, realistic quote rather than an error or a
+// meaningless default. Names are invented; the locations are real.
+const DEMO_BUYERS=[
+  {name:"Megan Carter", street:"482 Birchwood Ln", city:"Austin", state:"TX", zip:"78704"},
+  {name:"Daniel Ruiz", street:"117 Ocean Ave", city:"Long Beach", state:"CA", zip:"90802"},
+  {name:"Ashley Kim", street:"2200 N Halsted St", city:"Chicago", state:"IL", zip:"60614"},
+  {name:"Brandon Walsh", street:"55 Boylston St", city:"Boston", state:"MA", zip:"02116"},
+  {name:"Jasmine Patel", street:"900 Peachtree St NE", city:"Atlanta", state:"GA", zip:"30309"},
+  {name:"Tyler Novak", street:"310 SW 4th Ave", city:"Portland", state:"OR", zip:"97204"},
+  {name:"Courtney Hayes", street:"1420 5th Ave", city:"Seattle", state:"WA", zip:"98101"},
+  {name:"Marcus Bell", street:"620 Congress Ave", city:"Austin", state:"TX", zip:"78701"},
+  {name:"Rachel Ortiz", street:"88 Kearny St", city:"San Francisco", state:"CA", zip:"94108"},
+  {name:"Kevin Zhang", street:"1600 Pennsylvania Ave", city:"Denver", state:"CO", zip:"80203"},
+  {name:"Nicole Foster", street:"200 E Las Olas Blvd", city:"Fort Lauderdale", state:"FL", zip:"33301"},
+  {name:"Justin Meyer", street:"401 N Michigan Ave", city:"Chicago", state:"IL", zip:"60611"},
+  {name:"Sydney Coleman", street:"1100 Walnut St", city:"Kansas City", state:"MO", zip:"64106"},
+  {name:"Andre Simmons", street:"700 12th St NW", city:"Washington", state:"DC", zip:"20005"},
+  {name:"Paige Sullivan", street:"333 W Camden St", city:"Baltimore", state:"MD", zip:"21201"},
+  {name:"Ethan Brooks", street:"215 Riverside Ave", city:"Jacksonville", state:"FL", zip:"32202"},
+  {name:"Lauren Whitfield", street:"1300 Main St", city:"Columbia", state:"SC", zip:"29201"},
+  {name:"Ryan Delgado", street:"501 N Broadway", city:"St. Louis", state:"MO", zip:"63102"},
+  {name:"Hannah Reyes", street:"777 3rd Ave", city:"New York", state:"NY", zip:"10017"},
+  {name:"Cameron Wolfe", street:"440 Louisiana St", city:"Houston", state:"TX", zip:"77002"}
+];
 const DEMO_CITIES=[["Springfield","KS"],["Riverton","MO"],["Fairview","TX"],["Georgetown","OH"],["Madison","CA"],["Bristol","IN"],["Clayton","GA"],["Ashland","OR"]];
 const DEMO_PRESALE_MSGS=["Hi, is this still available?","Would you consider $X for this?","Can you ship to Canada?","Does this come with the original box?","Is there any damage not shown in the photos?","What's the fastest shipping option you offer?","Can I get a few more photos of the item?"];
 const DEMO_POSTSALE_MSGS=["Thanks so much, it arrived in perfect condition!","When do you expect this to ship?","Can I get the tracking number?","Great transaction, thank you!","Just wanted to say the item looks even better in person."];
@@ -6827,7 +7194,7 @@ function envelopeCellHtml(buyerUsername){
 // before that's actually final would be premature.
 async function checkOrderCancellations(onProgress){
   if(!EBAY.ready()) throw new Error("Not connected to eBay — click Connect next to the mode badge.");
-  const candidates=visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage==="readyToShip" && i.fulfillment.orderId && !i.fulfillment.cancelled);
+  const candidates=visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && (i.fulfillment.stage==="readyToShip"||i.fulfillment.stage==="shipped") && i.fulfillment.orderId && !i.fulfillment.cancelled);
   let found=0, checked=0;
   for(const it of candidates){
     checked++; if(onProgress) onProgress(checked, candidates.length);
@@ -6841,7 +7208,10 @@ async function checkOrderCancellations(onProgress){
         const req=(cs.cancelRequests||[])[0];
         it.fulfillment.cancelReason=req?req.cancelReason:""; it.fulfillment.cancelInitiator=req?req.cancelInitiator:"";
         it.fulfillment.restocked=false;
-        addHistory(it,"Order cancelled on eBay"+(it.fulfillment.cancelReason?" ("+it.fulfillment.cancelReason+")":"")+" — moved to Cancelled Orders");
+        // Actually pull it out of the Shipping flow, wherever it was, so it can't get shipped
+        // by mistake — it now lives in Cancellations, Refunds, Returns until restocked.
+        it.fulfillment.stage="cancelled";
+        addHistory(it,"Order cancelled on eBay"+(it.fulfillment.cancelReason?" ("+it.fulfillment.cancelReason+")":"")+" — pulled from Shipping into Cancellations, Refunds, Returns");
         found++;
       }
     }catch(e){ /* one order failing to check shouldn't stop checking the rest */ }
@@ -6878,6 +7248,54 @@ async function checkOrderRefunds(onProgress){
   }
   if(found) save();
   return { checked, found };
+}
+// Real automatic return detection. Uses eBay's Post-Order API return search endpoint,
+// verified against eBay's own current docs: GET /post-order/v2/return/search returns every
+// return with its reason, buyer, refund amount, and the item/transaction it's against. This
+// is a traditional API on the same api.ebay.com root WIM already calls, using the same user
+// token and marketplace header — so no backend change was needed. One honest caveat: the
+// exact match-back (eBay's return itemId is the legacy listing ID) couldn't be tested against
+// a live account with a real return, so if matching misses, that's the first thing to check.
+async function checkOrderReturns(onProgress){
+  if(!EBAY.ready()) throw new Error("Not connected to eBay — click Connect next to the mode badge.");
+  if(onProgress) onProgress(0,1);
+  let found=0;
+  // RETURN_STARTED is the state a newly-opened return sits in — the ones needing attention.
+  const r=await EBAY.user("/post-order/v2/return/search?return_state=RETURN_STARTED&limit=100", EBAY_SCOPE_FULFILL);
+  if(!r.ok) throw new Error("eBay returns lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200));
+  let dj; try{ dj=JSON.parse(r.body); }catch(e){ throw new Error("Couldn't read the returns response from eBay."); }
+  const members=dj.members||dj.returns||[];
+  for(const ret of members){
+    const ci=ret.creationInfo||{};
+    const item=ci.item||{};
+    const legacyItemId=String(item.itemId||"");
+    const txnId=String(item.transactionId||"");
+    // Match back to a WIM item: prefer the eBay listing id we already store, fall back to order.
+    const match=DB.items.find(x=>x.fulfillment && !x.fulfillment.returned && (
+      (legacyItemId && (String(x.listing&&x.listing.ebayListingId)===legacyItemId || String(x.upc)===legacyItemId)) ||
+      (txnId && String(x.fulfillment.lineItemId)===txnId)
+    ));
+    if(!match) continue;
+    const f=match.fulfillment;
+    f.returned=true; f.returnedAt=(ci.creationDate&&ci.creationDate.value)||new Date().toISOString();
+    f.returnId=ret.returnId||null;
+    f.returnReason=mapReturnReason(ci.reason)||f.returnReason||"";
+    const refundAmt=ret.buyerTotalRefund&&ret.buyerTotalRefund.estimatedRefundAmount&&ret.buyerTotalRefund.estimatedRefundAmount.value;
+    if(refundAmt!=null) f.returnRefundAmount=String(refundAmt);
+    addHistory(match,"Return opened on eBay"+(f.returnReason?" ("+f.returnReason+")":"")+" — pulled into Cancellations, Refunds, Returns");
+    found++;
+  }
+  if(found) save();
+  return { checked: members.length, found };
+}
+// eBay's return reasons are their own enum (ARRIVED_DAMAGED, NOT_AS_DESCRIBED, etc.) — map the
+// common ones onto WIM's existing reason list so the dropdown shows something familiar.
+function mapReturnReason(code){
+  const m={ ARRIVED_DAMAGED:"Item arrived damaged", NOT_AS_DESCRIBED:"Item not as described",
+    DEFECTIVE:"Item defective / doesn't work", WRONG_ITEM:"Wrong item received",
+    MISSING_PARTS:"Missing parts or accessories", ORDERED_ACCIDENTALLY:"Ordered by mistake",
+    NO_LONGER_NEEDED:"No longer wanted / changed mind", FOUND_BETTER_PRICE:"Found a better price elsewhere" };
+  return m[code]||"";
 }
 function checkAutoComplete(){
   const days=(DB.fulfillmentSettings&&DB.fulfillmentSettings.autoCompleteDays)||7;
@@ -6972,7 +7390,7 @@ async function pullRecentlySold(daysBack){
       // is detected, using the item's own weight/dimensions if they were ever entered, and
       // the real ship-to address from this actual order, not a guess.
       DB.shippingComparisons.push({
-        id:crypto.randomUUID(), itemId:localItem.id, desc:localItem.desc, soldAt:f.soldAt,
+        id:crypto.randomUUID(), itemId:localItem.id, orderLineKey:(order.orderId+"::"+(li.lineItemId||li.legacyItemId||"")), desc:localItem.desc, soldAt:f.soldAt, notInInventory:false,
         weight:localItem.shipWeight||"", length:localItem.shipLength||"", width:localItem.shipWidth||"", height:localItem.shipHeight||"",
         shipToCity:(f.shipTo&&f.shipTo.city)||"", shipToState:(f.shipTo&&f.shipTo.stateOrProvince)||"", shipToZip:(f.shipTo&&f.shipTo.postalCode)||"", shipToCountry:(f.shipTo&&f.shipTo.countryCode)||"US",
         shippoRate:null, shippoService:"", easypostRate:null, easypostService:"", ebayActualCost:"", fetchedAt:null
@@ -7143,7 +7561,7 @@ function openShipping(){
       const tr=document.createElement("tr"); if(isOld) tr.style.color="#c0392b";
       tr.innerHTML=`<td>${(tab==="readyToShip"||tab==="completed")?`<span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span>`:""}</td>
         <td>${it.image?`<img src="${it.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`:'<span style="font-size:20px;">📦</span>'}</td>
-        <td style="font-size:12.5px;">${esc(it.desc||it.upc)}</td>
+        <td style="font-size:12.5px;">${esc(it.desc||it.upc)}${f.simulated?' <span style="background:#fff7e0;color:#6b5400;border:1px solid #e6c200;border-radius:6px;padding:0 5px;font-size:10px;font-weight:600;">SIM</span>':''}</td>
         <td style="font-size:12px;">${esc(it.sku||"—")}</td>
         <td style="font-size:12px;">${esc(f.buyer||"—")}</td>
         <td style="font-size:12px;">${esc(shipToText)}</td>
@@ -7171,23 +7589,214 @@ function openShipping(){
 // label-buying tool — per the decision behind this, eBay.com stays the actual shipping
 // method for now; this is purely for building real evidence toward the right long-term
 // carrier decision.
+// True Net Profit — the real financial picture, not the Assumed GM% estimate used
+// elsewhere. Pulls actual SALE transactions from eBay's own Finances API (real fees
+// eBay actually deducted, not a guess), matches them back to WIM's own sold items by
+// order ID, and computes real profit: sold price + buyer-paid shipping, minus eBay's own
+// actual fees, minus the item's real cost, minus actual shipping cost where WIM knows it.
+async function openTrueNetProfit(){
+  const id="true-net-profit"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"True Net Profit",width:1180,height:660,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real eBay fees and real sale data — not an estimate</span>`});
+  let rows=[];
+  function render(){
+    const totalRevenue=rows.reduce((s,r)=>s+r.soldPrice+r.shipPaid,0);
+    const totalFees=rows.reduce((s,r)=>s+r.fees,0);
+    const totalCost=rows.reduce((s,r)=>s+r.itemCost,0);
+    const totalShipCost=rows.reduce((s,r)=>s+r.shipCost,0);
+    const totalNet=rows.reduce((s,r)=>s+r.net,0);
+    body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <button class="btn primary sm" id="np-pull">Pull Real Transactions</button>
+        <span class="smallhint" id="np-msg"></span>
+        <span style="flex:1;"></span>
+        ${rows.length?`<div style="display:flex;gap:14px;font-size:12.5px;">
+          <div>Revenue: <b>$${totalRevenue.toFixed(2)}</b></div>
+          <div>eBay Fees: <b style="color:#c0392b;">-$${totalFees.toFixed(2)}</b></div>
+          <div>Item Cost: <b style="color:#c0392b;">-$${totalCost.toFixed(2)}</b></div>
+          <div>Ship Cost: <b style="color:#c0392b;">-$${totalShipCost.toFixed(2)}</b></div>
+          <div>Net: <b style="color:${totalNet>=0?'#1f7244':'#c0392b'};">$${totalNet.toFixed(2)}</b></div>
+        </div>`:``}
+      </div>
+      ${!rows.length?`<div class="note">Click Pull Real Transactions to fetch real sales and their actual eBay fees. This requires the eBay connection to include the Finances scope — if this is the first time using this tool, you may need to reconnect eBay (Configuration → eBay Connection) to grant it.</div>`:``}
+      <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th>Item</th><th style="width:80px;">Sold</th><th style="width:80px;">Price</th><th style="width:80px;">Ship Paid</th>
+        <th style="width:80px;">eBay Fees</th><th style="width:80px;">Item Cost</th><th style="width:80px;">Ship Cost</th><th style="width:90px;">Net Profit</th>
+      </tr></thead><tbody id="np-tb"></tbody></table></div>
+    </div>`;
+    const tb=body.querySelector("#np-tb");
+    rows.forEach(r=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
+        <td>$${r.soldPrice.toFixed(2)}</td><td>$${r.shipPaid.toFixed(2)}</td>
+        <td style="color:#c0392b;">-$${r.fees.toFixed(2)}</td><td style="color:#c0392b;">-$${r.itemCost.toFixed(2)}</td><td style="color:#c0392b;">-$${r.shipCost.toFixed(2)}${r.shipCostReal?'':' <span class="smallhint" title="No real shipping cost recorded for this sale yet — using the category-level assumption from Shipping Data instead.">(est.)</span>'}</td>
+        <td style="font-weight:600;color:${r.net>=0?'#1f7244':'#c0392b'};">$${r.net.toFixed(2)}</td>`;
+      tb.appendChild(tr);
+    });
+    body.querySelector("#np-pull").onclick=pullRealTransactions;
+  }
+  async function pullRealTransactions(){
+    const msg=body.querySelector("#np-msg"); msg.style.color="#555"; msg.textContent="Pulling real transactions…";
+    try{
+      const r=await EBAY.user("/sell/finances/v1/transaction?filter=transactionType:{SALE}&limit=200", EBAY_SCOPE_FIN);
+      if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="Couldn't pull transactions (HTTP "+r.status+"): "+(r.body||"").slice(0,200); return; }
+      const dj=JSON.parse(r.body);
+      const txns=dj.transactions||[];
+      rows=[];
+      for(const t of txns){
+        const orderId=t.orderId;
+        if(!orderId) continue;
+        const match=DB.items.find(x=>x.fulfillment&&x.fulfillment.orderId===orderId);
+        const fees=(t.orderLineItems||[]).reduce((sum,li)=>sum+(li.marketplaceFees||[]).reduce((s,f)=>s+(parseFloat(f.amount&&f.amount.value)||0),0),0);
+        const soldPrice=match?(parseFloat(match.fulfillment.soldPrice)||0):(parseFloat(t.amount&&t.amount.value)||0);
+        const shipPaid=match?(parseFloat(match.fulfillment.shipCostPaid)||0):0;
+        const itemCost=match?(parseFloat(match.unitCost)||0):0;
+        const shipCostReal=!!(match && match.fulfillment.actualShipCost);
+        const shipCost=match?(parseFloat(match.fulfillment.actualShipCost)||assumedShipCost(match.section)):0;
+        rows.push({ desc:match?match.desc:("Order "+orderId), soldAt:match?match.fulfillment.soldAt:t.transactionDate,
+          soldPrice, shipPaid, fees, itemCost, shipCost, shipCostReal, net: soldPrice+shipPaid-fees-itemCost-shipCost });
+      }
+      msg.style.color="#1f7244"; msg.textContent="Pulled "+rows.length+" real transaction(s).";
+    }catch(e){ msg.style.color="#c0392b"; msg.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
+    render();
+  }
+  render();
+}
+// Vendor ROI Report — which vendor's inventory actually makes real money, and how fast it
+// moves. Built entirely from data WIM already has (real vendor, real unit cost, real sold
+// price, real or assumed ship cost) — no new API calls needed. Deliberately labeled as gross
+// profit, before eBay fees: attributing real per-sale eBay fees to a specific vendor would
+// mean re-pulling the same transaction data True Net Profit already pulls separately, and
+// this report is meant to be fast and always available, not dependent on that pull.
+function openVendorROI(){
+  const id="vendor-roi"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Vendor ROI Report",width:1020,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real revenue and real cost per vendor — gross profit, before eBay fees</span>`});
+  function render(){
+    const byVendor={};
+    DB.items.filter(it=>it.sold && it.vendor && it.fulfillment).forEach(it=>{
+      const v=it.vendor;
+      if(!byVendor[v]) byVendor[v]={ vendor:v, units:0, revenue:0, itemCost:0, shipCost:0, daysSum:0, daysCount:0 };
+      const row=byVendor[v];
+      row.units++;
+      row.revenue += (parseFloat(it.fulfillment.soldPrice)||0) + (parseFloat(it.fulfillment.shipCostPaid)||0);
+      row.itemCost += parseFloat(it.unitCost)||0;
+      row.shipCost += parseFloat(it.fulfillment.actualShipCost)||assumedShipCost(it.section);
+      if(it.createdAt && it.fulfillment.soldAt){
+        const days=(new Date(it.fulfillment.soldAt)-new Date(it.createdAt))/86400000;
+        if(days>=0){ row.daysSum+=days; row.daysCount++; }
+      }
+    });
+    const rows=Object.values(byVendor).map(r=>{
+      const grossProfit=r.revenue-r.itemCost-r.shipCost;
+      const roiPct=r.itemCost>0 ? (grossProfit/r.itemCost*100) : null;
+      const avgDays=r.daysCount ? (r.daysSum/r.daysCount) : null;
+      return Object.assign(r,{grossProfit,roiPct,avgDays});
+    }).sort((a,b)=>b.grossProfit-a.grossProfit);
+    body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      ${!rows.length?`<div class="note">No sold items with a vendor recorded yet — this fills in automatically as sales come in for items with a vendor set.</div>`:``}
+      <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th>Vendor</th><th style="width:70px;">Units Sold</th><th style="width:90px;">Revenue</th><th style="width:90px;">Item Cost</th>
+        <th style="width:90px;">Ship Cost</th><th style="width:100px;">Gross Profit</th><th style="width:80px;">ROI %</th><th style="width:100px;">Avg. Days to Sell</th>
+      </tr></thead><tbody id="vr-tb"></tbody></table></div>
+    </div>`;
+    const tb=body.querySelector("#vr-tb");
+    rows.forEach(r=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(r.vendor)}</td><td>${r.units}</td><td>$${r.revenue.toFixed(2)}</td><td>$${r.itemCost.toFixed(2)}</td>
+        <td>$${r.shipCost.toFixed(2)}</td><td style="font-weight:600;color:${r.grossProfit>=0?'#1f7244':'#c0392b'};">$${r.grossProfit.toFixed(2)}</td>
+        <td>${r.roiPct!=null?r.roiPct.toFixed(0)+"%":"—"}</td><td>${r.avgDays!=null?r.avgDays.toFixed(0)+" days":"—"}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+  render();
+}
+// Declares the cheapest of the three real costs for one sale — eBay actual, Shippo, EasyPost.
+// Only declares a winner when at least two are present, so it's a real comparison, not a
+// default. Returns {winner, amount} or null when there isn't enough to compare yet.
+function comparisonWinner(r){
+  const opts=[];
+  const ebay=parseFloat(r.ebayActualCost); if(!isNaN(ebay)&&ebay>0) opts.push({who:"eBay",amt:ebay});
+  const shippo=parseFloat(r.shippoRate); if(!isNaN(shippo)&&shippo>0) opts.push({who:"Shippo",amt:shippo});
+  const ep=parseFloat(r.easypostRate); if(!isNaN(ep)&&ep>0) opts.push({who:"EasyPost",amt:ep});
+  if(opts.length<2) return null; // need at least two real numbers to declare a winner
+  opts.sort((a,b)=>a.amt-b.amt);
+  const runnerUp=opts[1].amt;
+  return { winner:opts[0].who, amount:opts[0].amt, saves:(runnerUp-opts[0].amt) };
+}
+// Pulls recent sold eBay orders and creates a shipping-comparison record for every line item
+// not already tracked — including listings sold on the seller's eBay that were never in WIM's
+// inventory. For inventoried items it uses the item's own weight/dims; for non-inventoried
+// ones it uses whatever eBay provides, leaving weight blank for the user to fill so a rate can
+// be fetched. Either way the real ship-to address and what eBay actually charged come from the
+// order itself.
+async function pullSoldListingsForComparison(){
+  if(!EBAY.ready()) throw new Error("Not connected to eBay.");
+  const trackedOrderLines=new Set(DB.shippingComparisons.map(c=>c.orderLineKey).filter(Boolean));
+  const since=new Date(Date.now()-90*86400000).toISOString();
+  const r=await EBAY.user("/sell/fulfillment/v1/order?filter=creationdate:%5B"+encodeURIComponent(since)+"..%5D&limit=200", EBAY_SCOPE_FULFILL);
+  if(!r.ok) throw new Error("eBay orders lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,160));
+  const dj=JSON.parse(r.body); const orders=dj.orders||[];
+  let added=0, skipped=0;
+  for(const order of orders){
+    const shipTo=(order.fulfillmentStartInstructions&&order.fulfillmentStartInstructions[0]&&order.fulfillmentStartInstructions[0].shippingStep&&order.fulfillmentStartInstructions[0].shippingStep.shipTo)||{};
+    const addr=shipTo.contactAddress||{};
+    for(const li of (order.lineItems||[])){
+      const orderLineKey=order.orderId+"::"+(li.lineItemId||li.legacyItemId||"");
+      if(trackedOrderLines.has(orderLineKey)){ skipped++; continue; }
+      // Is this line item already tracked via the normal inventoried-sale path? Match on the
+      // eBay listing id — if a comparison record for the same item+soldAt exists, skip it.
+      const legacyId=String(li.legacyItemId||"");
+      const invItem=DB.items.find(x=>x.listing && String(x.listing.ebayListingId)===legacyId);
+      const alreadyByItem = invItem && DB.shippingComparisons.some(c=>c.itemId===invItem.id && !c.orderLineKey);
+      if(alreadyByItem){ skipped++; continue; }
+      DB.shippingComparisons.push({
+        id:crypto.randomUUID(), orderLineKey, itemId:invItem?invItem.id:null,
+        desc:invItem?invItem.desc:(li.title||"eBay listing "+legacyId),
+        notInInventory:!invItem,
+        soldAt:order.creationDate||new Date().toISOString(),
+        weight:invItem?(invItem.shipWeight||""):"", length:invItem?(invItem.shipLength||""):"", width:invItem?(invItem.shipWidth||""):"", height:invItem?(invItem.shipHeight||""):"",
+        shipToCity:addr.city||"", shipToState:addr.stateOrProvince||"", shipToZip:addr.postalCode||"", shipToCountry:addr.countryCode||"US",
+        shippoRate:null, shippoService:"", easypostRate:null, easypostService:"",
+        ebayActualCost:(li.deliveryCost&&li.deliveryCost.value)||"", fetchedAt:null
+      });
+      added++;
+    }
+  }
+  if(added) save();
+  return { added, skipped };
+}
 function openShippingComparison(){
   const id="ship-compare"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Shipping Historical Comparison",width:1180,height:640,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real per-sale shipping cost comparison — Shippo and EasyPost quotes vs. what eBay actually charged</span>`});
   function render(){
     const rows=DB.shippingComparisons.slice().sort((a,b)=>new Date(b.soldAt||0)-new Date(a.soldAt||0));
+    // Tally winners across every record that has enough data to compare — this is the real
+    // business-decision signal: who actually comes out cheapest most often, and by how much.
+    const tally={eBay:0,Shippo:0,EasyPost:0}; let compared=0, ebaySavingsMissed=0;
+    rows.forEach(r=>{ const w=comparisonWinner(r); if(w){ tally[w.winner]++; compared++;
+      const ebay=parseFloat(r.ebayActualCost); if(!isNaN(ebay)&&ebay>0 && w.winner!=="eBay") ebaySavingsMissed+=(ebay-w.amount);
+    }});
+    const leader=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
+    const summaryHtml = compared ? `<div style="display:flex;gap:16px;align-items:center;padding:8px 12px;background:#eef3fb;border:1px solid #d5e0f0;border-radius:6px;margin-bottom:10px;font-size:12.5px;">
+        <div><b>${compared}</b> compared</div>
+        <div>eBay won <b>${tally.eBay}</b></div><div>Shippo won <b>${tally.Shippo}</b></div><div>EasyPost won <b>${tally.EasyPost}</b></div>
+        <div style="flex:1;"></div>
+        <div>Cheapest most often: <b style="color:#0f6cbd;">${tally[leader]?leader:"—"}</b></div>
+        ${ebaySavingsMissed>0.005?`<div title="Total you'd have saved on the sales where eBay's own charge was not the cheapest">Potential savings vs eBay: <b style="color:#1f7244;">$${ebaySavingsMissed.toFixed(2)}</b></div>`:``}
+      </div>` : ``;
     body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
         <button class="btn primary sm" id="sc-fetchall">Fetch Missing Rates</button>
+        <button class="btn sm" id="sc-pull">Pull Sold eBay Listings</button>
         <span class="smallhint" id="sc-msg"></span>
         <span style="flex:1;"></span>
         <button class="btn sm" id="sc-export">Export to Excel</button>
       </div>
-      ${!rows.length?`<div class="note">Nothing here yet — a record is created automatically every time a sale is pulled in through Recently Sold.</div>`:``}
+      ${summaryHtml}
+      ${!rows.length?`<div class="note">Nothing here yet — a record is created automatically every time a sale is pulled in through Recently Sold. You can also pull sold eBay listings that aren't in your inventory using the button above.</div>`:``}
       <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
-        <th>Description</th><th style="width:90px;">Sold</th><th style="width:110px;">Wt / Dims</th><th style="width:120px;">Ship To</th>
-        <th style="width:110px;">Shippo</th><th style="width:110px;">EasyPost</th><th style="width:100px;">eBay Actual</th><th style="width:70px;"></th>
+        <th>Description</th><th style="width:82px;">Sold</th><th style="width:100px;">Wt / Dims</th><th style="width:110px;">Ship To</th>
+        <th style="width:100px;">Shippo</th><th style="width:100px;">EasyPost</th><th style="width:92px;">eBay Actual</th><th style="width:96px;">Winner</th><th style="width:60px;"></th>
       </tr></thead><tbody id="sc-tb"></tbody></table></div>
     </div>`;
     const tb=body.querySelector("#sc-tb");
@@ -7195,17 +7804,28 @@ function openShippingComparison(){
       const dims=(r.length&&r.width&&r.height)?(r.length+"×"+r.width+"×"+r.height+"in"):"—";
       const wt=r.weight?r.weight+"lb":"—";
       const shipTo=[r.shipToCity,r.shipToState].filter(Boolean).join(", ")||"—";
-      tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
+      const w=comparisonWinner(r);
+      const winColor={eBay:"#c0392b",Shippo:"#0f6cbd",EasyPost:"#1f7244"};
+      const winCell = w ? `<span style="font-weight:700;font-size:11.5px;color:${winColor[w.winner]};">${w.winner}</span><div class="smallhint">$${w.amount.toFixed(2)}${w.saves>0.005?" · saves $"+w.saves.toFixed(2):""}</div>` : `<span class="smallhint">needs 2+ rates</span>`;
+      tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}${r.notInInventory?' <span class="badge" style="font-size:9px;background:#8a6d3b;">not inventoried</span>':''}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
         <td style="font-size:11px;">${esc(wt)}<div class="smallhint">${esc(dims)}</div></td>
         <td style="font-size:11px;">${esc(shipTo)}</td>
         <td style="font-size:12px;">${r.shippoRate?"$"+esc(r.shippoRate)+"<div class=\"smallhint\">"+esc(r.shippoService||"")+"</div>":'<span class="smallhint">—</span>'}</td>
         <td style="font-size:12px;">${r.easypostRate?"$"+esc(r.easypostRate)+"<div class=\"smallhint\">"+esc(r.easypostService||"")+"</div>":'<span class="smallhint">—</span>'}</td>
         <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost||"")}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;"></td>
+        <td class="cc">${winCell}</td>
         <td class="cc"><button class="btn sm" data-fetch="${esc(r.id)}">Fetch</button></td>`;
       tb.appendChild(tr);
     });
-    body.querySelectorAll("[data-actual]").forEach(inp=>{ inp.oninput=()=>{ const rec=DB.shippingComparisons.find(x=>x.id===inp.dataset.actual); if(rec){ rec.ebayActualCost=inp.value; save(); } }; });
+    body.querySelectorAll("[data-actual]").forEach(inp=>{ inp.oninput=()=>{ const rec=DB.shippingComparisons.find(x=>x.id===inp.dataset.actual); if(rec){ rec.ebayActualCost=inp.value; save(); } }; inp.onblur=()=>render(); });
     body.querySelectorAll("[data-fetch]").forEach(btn=>{ btn.onclick=async ()=>{ const rec=DB.shippingComparisons.find(x=>x.id===btn.dataset.fetch); if(rec) await fetchOneComparisonRate(rec, ()=>{ save(); render(); }); }; });
+    body.querySelector("#sc-pull").onclick=async ()=>{
+      const msg=body.querySelector("#sc-msg");
+      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Connect to eBay first (via the mode badge)."; return; }
+      msg.style.color="#555"; msg.textContent="Pulling sold eBay listings…";
+      try{ const res=await pullSoldListingsForComparison(); msg.style.color="#1f7244"; msg.textContent="Added "+res.added+" sold listing(s) not already tracked ("+res.skipped+" already had records)."; render(); }
+      catch(e){ msg.style.color="#c0392b"; msg.textContent="Couldn't pull: "+(e&&e.message?e.message:e); }
+    };
     body.querySelector("#sc-fetchall").onclick=async ()=>{
       const msg=body.querySelector("#sc-msg"); const missing=rows.filter(r=>!r.fetchedAt && r.weight);
       if(!missing.length){ msg.textContent="Nothing to fetch — every record either already has rates, or is missing a weight."; return; }
@@ -7213,9 +7833,9 @@ function openShippingComparison(){
       save(); msg.textContent="Done."; render();
     };
     body.querySelector("#sc-export").onclick=()=>{
-      const headers=["Description","Sold Date","Weight (lb)","Length","Width","Height","Ship To City","Ship To State","Shippo Rate","Shippo Service","EasyPost Rate","EasyPost Service","eBay Actual Cost"];
+      const headers=["Description","In Inventory","Sold Date","Weight (lb)","Length","Width","Height","Ship To City","Ship To State","Shippo Rate","Shippo Service","EasyPost Rate","EasyPost Service","eBay Actual Cost","Winner","Winner Cost"];
       const csvRows=[headers.join(",")];
-      rows.forEach(r=>{ const line=[r.desc,r.soldAt?fmtDay(r.soldAt):"",r.weight,r.length,r.width,r.height,r.shipToCity,r.shipToState,r.shippoRate||"",r.shippoService||"",r.easypostRate||"",r.easypostService||"",r.ebayActualCost||""]
+      rows.forEach(r=>{ const w=comparisonWinner(r); const line=[r.desc,r.notInInventory?"No":"Yes",r.soldAt?fmtDay(r.soldAt):"",r.weight,r.length,r.width,r.height,r.shipToCity,r.shipToState,r.shippoRate||"",r.shippoService||"",r.easypostRate||"",r.easypostService||"",r.ebayActualCost||"",w?w.winner:"",w?w.amount.toFixed(2):""]
         .map(v=>`"${String(v||"").replace(/"/g,'""')}"`).join(",");
         csvRows.push(line); });
       const blob=new Blob([csvRows.join("\n")],{type:"text/csv"});
@@ -7357,29 +7977,37 @@ function openShippingInformation(it){
   }
   async function buyAndPrint(shouldPrint){
     const err=body.querySelector("#si-err"); err.textContent="Purchasing label…"; err.style.color="#555";
+    const isSim = it.simulated || f.simulated;
     try{
-      let labelUrl=null, trackingNumber=null, trackingUrl=null, carrierName="";
-      if(selectedRate.source==="shippo"){
+      let labelUrl=null, trackingNumber=null, trackingUrl=null;
+      if(isSim){
+        // Never actually spend real money on a simulated test sale — the real rates above
+        // were still genuinely fetched and shown, but nothing gets purchased here. A fake
+        // tracking number stands in so the rest of the pipeline (Shipped tab, tracking
+        // display) can still be genuinely exercised end to end.
+        trackingNumber="SIM-"+Math.random().toString(36).slice(2,11).toUpperCase();
+        trackingUrl=null;
+      } else if(selectedRate.source==="shippo"){
         const shippoTok=await carrierGetSecret2("shippo","token");
         const r=await wimDesktop.invoke("shippo_buy_label",{ token:shippoTok, rateId:selectedRate.rateId });
         if(!r.ok){ err.style.color="#c0392b"; err.textContent="Shippo purchase failed: "+(r.body||"").slice(0,200); return; }
         const dj=JSON.parse(r.body); labelUrl=dj.label_url; trackingNumber=dj.tracking_number; trackingUrl=dj.tracking_url_provider||null;
-        carrierName=(dj.rate&&dj.rate.provider)||"";
       } else {
         const epKey=await carrierGetSecret2("easypost","key");
         const r=await wimDesktop.invoke("easypost_buy_label",{ apiKey:epKey, shipmentId:easypostShipment.id, rateId:selectedRate.rateId });
         if(!r.ok){ err.style.color="#c0392b"; err.textContent="EasyPost purchase failed: "+(r.body||"").slice(0,200); return; }
         const dj=JSON.parse(r.body); labelUrl=dj.postage_label&&dj.postage_label.label_url; trackingNumber=dj.tracking_code;
-        carrierName=(dj.rate&&dj.rate.carrier)||"";
+        const carrierName=(dj.rate&&dj.rate.carrier)||"";
         trackingUrl=buildTrackingUrl(carrierName, trackingNumber); // EasyPost's own tracker URL field isn't confirmed with the same certainty as Shippo's, so this uses the same reliable builder as an eBay-detected shipment would
       }
       f.trackingNumber=trackingNumber||f.trackingNumber; f.trackingUrl=trackingUrl; f.stage="shipped"; f.shippedAt=new Date().toISOString();
+      if(!isSim){ f.actualShipCost=selectedRate.amount; f.actualShipCarrier=selectedRate.provider; } // the real amount actually paid, not an estimate — this is what True Net Profit should use
       if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); shiftSlotDown(it.slot, it.placement); }
-      addHistory(it,"Shipped via "+selectedRate.provider+" ("+selectedRate.service+", $"+selectedRate.amount+")"+(trackingNumber?" — tracking "+trackingNumber:""));
-      try{ if(!it.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, trackingNumber||"", "OTHER"); }catch(e){}
+      addHistory(it,(isSim?"Shipped (SIMULATED, no real label purchased) via ":"Shipped via ")+selectedRate.provider+" ("+selectedRate.service+", $"+selectedRate.amount+")"+(trackingNumber?" — tracking "+trackingNumber:""));
+      try{ if(!it.simulated && !f.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, trackingNumber||"", "OTHER"); }catch(e){}
       save(); wimRefreshAll();
       if(shouldPrint && labelUrl){ openExternal(labelUrl); }
-      err.style.color="#1f7244"; err.textContent="Shipped \u2713"+(labelUrl?" — label opened for printing.":"");
+      err.style.color="#1f7244"; err.textContent="Shipped \u2713"+(labelUrl?" — label opened for printing.":(isSim?" (simulated — no real label purchased)":""));
       setTimeout(()=>{ close(); },1200);
     }catch(e){ err.style.color="#c0392b"; err.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
   }
@@ -7411,7 +8039,7 @@ function openMarkShippedDialog(items,onDone){
     for(const it of items){
       try{
         const f=it.fulfillment;
-        if(!it.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, tracking, carrier.toUpperCase().replace(/\s+/g,"_")||"OTHER");
+        if(!it.simulated && !f.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, tracking, carrier.toUpperCase().replace(/\s+/g,"_")||"OTHER");
         f.stage="shipped"; f.shippedAt=new Date().toISOString(); f.trackingNumber=tracking; f.trackingUrl=buildTrackingUrl(carrier, tracking);
         // Safety net only — the real shift should already have happened when this was
         // marked Picked. If that step got skipped for some reason, this still corrects
@@ -7527,28 +8155,27 @@ function openRecentlyListed(){
 }
 function openRecentlySold(){
   if(openWindows["recently-sold"]){ focusWin(openWindows["recently-sold"].el); return; }
-  const {body}=buildWindow({id:"recently-sold",title:"Recently Sold",width:1040,height:600,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sold on eBay — pull updates this list, then move shipping items to Shipping, or mark pickup items picked up directly</span>`});
+  const {body}=buildWindow({id:"recently-sold",title:"Recently Sold",width:1080,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">The last warehouse step before shipping — mark items Picked off the shelf, then move them to Shipping</span>`});
   let picked=new Set();
   let rsSort={key:"sold",dir:-1};
-  const RS_COLS=[{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"cond",label:"Condition",get:it=>it.condition,t:"text"},{k:"sku",label:"Warehouse SKU",get:it=>it.sku,t:"mixed"},{k:"price",label:"Sold Price",get:it=>parseFloat(it.fulfillment.soldPrice)||0,t:"mixed"},{k:"sold",label:"Sold Date",get:it=>it.fulfillment.soldAt||"",t:"text"},{k:"pickup",label:"Fulfillment",get:it=>it.fulfillment.isPickup?"Pickup":"Shipping",t:"text"}];
+  const RS_COLS=[{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"cond",label:"Condition",get:it=>it.condition,t:"text"},{k:"sku",label:"Warehouse SKU",get:it=>it.sku,t:"mixed"},{k:"price",label:"Sold Price",get:it=>parseFloat(it.fulfillment.soldPrice)||0,t:"mixed"},{k:"sold",label:"Sold Date",get:it=>it.fulfillment.soldAt||"",t:"text"},{k:"pickup",label:"Fulfillment",get:it=>it.fulfillment.isPickup?"Pickup":"Shipping",t:"text"},{k:"status",label:"Status",get:it=>it.fulfillment.pickedAt?"Picked":"On shelf",t:"text"}];
   function render(){
     const col=RS_COLS.find(c=>c.k===rsSort.key);
     const items=fulfillmentItems("recentlySold").sort((a,b)=>cmpVal(col.get(a),col.get(b),col.t)*rsSort.dir);
     const th=(c)=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${rsSort.key===c.k?` <span class="arr">${rsSort.dir>0?'▲':'▼'}</span>`:""}</th>`;
-    const pickedItems=items.filter(i=>picked.has(i.id));
-    const anyShipping=pickedItems.some(i=>!i.fulfillment.isPickup), anyPickup=pickedItems.some(i=>i.fulfillment.isPickup);
+    const anyPicked=items.some(i=>i.fulfillment.pickedAt);
     body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
         <button class="btn" id="rs-pull">Pull Recently Sold</button>
         <span class="smallhint" id="rs-pullmsg"></span>
-        ${items.length?`<span style="flex:1;"></span><label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="rs-selall"></span> Select All</label>
-        <button class="btn primary" id="rs-move" ${!picked.size||anyPickup?"disabled":""} title='${anyPickup?"Deselect pickup items first — they skip Shipping entirely":""}'>Move to Shipping${picked.size?" ("+picked.size+")":""}</button>
-        <button class="btn primary" id="rs-pickup" ${!picked.size||anyShipping?"disabled":""} style="background:#1f9d55;border-color:#1f9d55;" title='${anyShipping?"Deselect shipping items first":""}'>Mark Picked Up${picked.size?" ("+picked.size+")":""}</button>`:``}
+        ${items.length?`<span style="flex:1;"></span>
+        <button class="btn primary" id="rs-picked" ${!picked.size?"disabled":""} style="background:#8a5cd6;border-color:#8a5cd6;" title="Confirms the item was physically taken off the shelf — this frees up its slot position while keeping the SKU on the item's record">Mark Picked${picked.size?" ("+picked.size+")":""}</button>
+        <button class="btn primary" id="rs-move" ${!anyPicked?"disabled":""} title="Moves every item marked Picked over to Ready to Ship">Move to Shipping${anyPicked?" ("+items.filter(i=>i.fulfillment.pickedAt).length+")":""}</button>`:``}
       </div>
       ${!items.length?`<div class="note">Nothing here yet. Click "Pull Recently Sold" to check eBay for new sales.</div>`:``}
       <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
-        <th style="width:30px;"></th><th style="width:54px;">Photo</th>${RS_COLS.map(th).join("")}<th style="width:34px;">&#9993;</th><th></th>
+        <th style="width:30px;text-align:center;"><span class="chk ${items.length&&picked.size===items.length?'on':''}" id="rs-selall" title="Select all"></span></th><th style="width:54px;">Photo</th>${RS_COLS.map(th).join("")}<th style="width:34px;">&#9993;</th>
       </tr></thead><tbody id="rs-tb"></tbody></table></div></div>`;
     body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(rsSort.key===k) rsSort.dir*=-1; else rsSort={key:k,dir:1}; render(); });
     const tb=body.querySelector("#rs-tb");
@@ -7564,37 +8191,43 @@ function openRecentlySold(){
     };
     if(items.length){
       body.querySelector("#rs-selall").onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
-      body.querySelector("#rs-move").onclick=()=>{
-        const targets=items.filter(i=>picked.has(i.id)&&!i.fulfillment.isPickup); if(!targets.length) return;
-        targets.forEach(it=>{ it.fulfillment.stage="readyToShip"; it.fulfillment.movedToShippingAt=new Date().toISOString(); addHistory(it,"Moved to Shipping (Ready to Ship)"); });
+      // Mark Picked — the real "physically taken off the shelf" moment. Frees the slot
+      // position (others shift up) while the item keeps its own SKU on record as a snapshot.
+      body.querySelector("#rs-picked").onclick=()=>{
+        const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
+        targets.forEach(it=>{ const f=it.fulfillment;
+          if(!f.pickedAt){ f.pickedAt=new Date().toISOString(); if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement); addHistory(it,"Marked Picked (off the shelf) — SKU "+it.sku+" retained on record, slot position freed"); }
+        });
         picked.clear(); save(); wimRefreshAll(); render();
       };
-      // Bypasses the whole shipping process, per the request — a pickup order never touches
-      // Ready to Ship or Shipping at all, it goes straight to Completed.
-      body.querySelector("#rs-pickup").onclick=()=>{
-        const targets=items.filter(i=>picked.has(i.id)&&i.fulfillment.isPickup); if(!targets.length) return;
-        targets.forEach(it=>{ it.fulfillment.stage="completed"; it.fulfillment.pickedUpAt=new Date().toISOString(); it.fulfillment.completedAt=new Date().toISOString(); it.fulfillment.pickedAt=new Date().toISOString();
-          if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement);
-          addHistory(it,"Marked picked up (local pickup / Click and Collect — bypassed shipping)"); });
+      // Move to Shipping — sends every Picked item to Ready to Ship. Pickup orders are the
+      // one exception: they never touch shipping, so a picked pickup order goes to Completed.
+      body.querySelector("#rs-move").onclick=()=>{
+        const targets=items.filter(i=>i.fulfillment.pickedAt); if(!targets.length) return;
+        targets.forEach(it=>{ const f=it.fulfillment;
+          if(f.isPickup){ f.stage="completed"; f.pickedUpAt=f.pickedUpAt||new Date().toISOString(); f.completedAt=new Date().toISOString(); addHistory(it,"Picked-up pickup order — completed (bypassed shipping)"); }
+          else { f.stage="readyToShip"; f.movedToShippingAt=new Date().toISOString(); addHistory(it,"Moved to Shipping (Ready to Ship)"); }
+        });
         picked.clear(); save(); wimRefreshAll(); render();
       };
     }
     items.forEach(it=>{
       const sold=it.fulfillment.soldAt?new Date(it.fulfillment.soldAt):null;
       const isPickup=it.fulfillment.isPickup;
+      const isPicked=!!it.fulfillment.pickedAt;
       const tr=document.createElement("tr");
-      tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td>
+      tr.innerHTML=`<td style="text-align:center;"><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td>
         <td>${it.image?`<img src="${it.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`:'<span style="font-size:20px;">📦</span>'}</td>
-        <td style="font-size:12.5px;">${esc(it.desc||it.upc)}</td>
+        <td style="font-size:12.5px;"><a href="#" data-open="${esc(it.id)}" style="color:#0f6cbd;text-decoration:none;">${esc(it.desc||it.upc)}</a></td>
         <td style="font-size:12px;">${esc(it.condition||"—")}</td>
         <td style="font-size:12px;">${esc(it.sku||"—")}</td>
         <td style="font-size:12px;">${it.fulfillment.soldPrice?"$"+esc(it.fulfillment.soldPrice):"—"}</td>
         <td style="font-size:11px;">${sold&&!isNaN(sold)?sold.toLocaleString():"—"}</td>
         <td><span style="font-weight:700;font-size:11.5px;color:${isPickup?'#1f9d55':'#3b7dd8'};">${isPickup?"Pickup":"Shipping"}</span></td>
-        <td style="text-align:center;">${envelopeCellHtml(it.fulfillment.buyer)}</td>
-        <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
+        <td><span style="font-weight:700;font-size:11.5px;color:${isPicked?'#8a5cd6':'#9aa3ad'};">${isPicked?"Picked":"On shelf"}</span></td>
+        <td style="text-align:center;">${envelopeCellHtml(it.fulfillment.buyer)}</td>`;
       tr.querySelector(`[data-id="${it.id}"]`).onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
-      tr.querySelector(`[data-open="${it.id}"]`).onclick=()=>openItemDetail(it,"edit");
+      tr.querySelector(`[data-open="${it.id}"]`).onclick=(e)=>{ e.preventDefault(); openItemDetail(it,"edit"); };
       const envTd=Array.from(tr.children).find(td=>td.querySelector('[data-buyer]'));
       if(it.fulfillment.buyer && envTd){ const span=envTd.querySelector('[data-buyer]'); if(span) span.onclick=()=>openCommunication(it.fulfillment.buyer); }
       tb.appendChild(tr);
@@ -8020,6 +8653,7 @@ function openDiscrepancies(){
 }
 function cancelledOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.cancelled && !i.fulfillment.restocked); }
 function refundedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.refunded); }
+function returnedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.returned && !i.fulfillment.returnResolved); }
 function openCancelledOrders(){
   if(openWindows["cancelled-orders"]){ focusWin(openWindows["cancelled-orders"].el); return; }
   const {body}=buildWindow({id:"cancelled-orders",title:"Cancelled Orders",width:1000,height:600,
@@ -8060,6 +8694,7 @@ function openCancelledOrders(){
   }
   render();
 }
+const REFUND_REASONS=["Item not as described","Item arrived damaged","Item defective / doesn't work","Wrong item received","Missing parts or accessories","No longer wanted / changed mind","Found a better price elsewhere","Ordered by mistake","Other"];
 function openRefunds(){
   if(openWindows["refunds"]){ focusWin(openWindows["refunds"].el); return; }
   const {body}=buildWindow({id:"refunds",title:"Refunds",width:1000,height:600,
@@ -8069,7 +8704,7 @@ function openRefunds(){
     body.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
         <button class="btn" id="rf-check">Check for Refunds</button><span class="smallhint" id="rf-msg"></span>
         <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} refunded order(s).</span></div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Refunded</th><th>Type</th><th>Amount</th></tr></thead><tbody id="rf-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Refunded</th><th>Type</th><th>Amount</th><th style="width:220px;">Reason</th><th style="width:90px;"></th></tr></thead><tbody id="rf-tb"></tbody></table></div>`;
     const msg=body.querySelector("#rf-msg"), tb=body.querySelector("#rf-tb");
     body.querySelector("#rf-check").onclick=async ()=>{
       msg.style.color="#555"; msg.textContent="Checking…";
@@ -8077,10 +8712,145 @@ function openRefunds(){
         msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly refunded."; render();
       }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
     };
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">No refunds on record.</td></tr>`; return; }
-    rows.forEach(it=>{ const tr=document.createElement("tr");
-      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${it.fulfillment.refundedAt?fmtDay(it.fulfillment.refundedAt):""}</td><td>${it.fulfillment.refundFull?"Full":"Partial"}</td><td>$${esc(it.fulfillment.refundAmount||"0.00")}</td>`;
-      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No refunds on record.</td></tr>`; return; }
+    rows.forEach(it=>{ const tr=document.createElement("tr"); const f=it.fulfillment;
+      const reasonSel=`<select class="cmb sm" data-reason="${esc(it.id)}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${f.refundReason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
+      const otherInput = f.refundReason==="Other" ? `<input class="txt sm" data-reasonother="${esc(it.id)}" value="${esc(f.refundReasonOther||"")}" placeholder="Briefly describe why…" style="width:100%;margin-top:4px;">` : "";
+      const restockBtn = it.sold ? `<button class="btn sm" data-restock="${esc(it.id)}" title="Only if the item physically came back — puts it in a real slot and reactivates it as available inventory">Restock</button>` : `<span class="smallhint" style="color:#1f7244;">Back in stock</span>`;
+      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${f.refundedAt?fmtDay(f.refundedAt):""}</td><td>${f.refundFull?"Full":"Partial"}</td><td>$${esc(f.refundAmount||"0.00")}</td><td>${reasonSel}${otherInput}</td><td class="cc">${restockBtn}</td>`;
+      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr);
+      tr.querySelector("[data-reason]").onchange=(e)=>{ f.refundReason=e.target.value; if(f.refundReason!=="Other") f.refundReasonOther=""; save(); render(); };
+      const oi=tr.querySelector("[data-reasonother]"); if(oi) oi.oninput=(e)=>{ f.refundReasonOther=e.target.value; save(); };
+      const rb=tr.querySelector("[data-restock]"); if(rb) rb.onclick=()=>{
+        uiConfirm("Restock \""+esc(it.desc)+"\"? Only do this once the item has actually, physically come back — this puts it in a real slot and makes it available to sell again.", ()=>{
+          reactivateItem(it, ()=>{}); render();
+        });
+      };
+    });
+  }
+  render();
+}
+
+// Unified Cancellations, Refunds, Returns — one place for all three post-sale exceptions,
+// replacing the need to check separate screens. Cancellations and refunds reuse the exact
+// same real eBay detection that already worked; returns are tracked as a real state here,
+// with automatic eBay Return-API detection flagged honestly as a separate future piece
+// rather than faked. Each row's envelope opens that buyer's messages.
+function openCancellationsRefundsReturns(){
+  const id="crr"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Cancellations, Refunds, Returns",width:1060,height:620,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">All post-sale exceptions in one place — a cancelled sold item is automatically pulled out of Shipping so nothing ships by mistake</span>`});
+  let tab="cancellations";
+  function render(){
+    const cCount=cancelledOrderItems().length, rCount=refundedOrderItems().length, tCount=returnedOrderItems().length;
+    const tabBtn=(k,label,n)=>`<div class="tab ${tab===k?'active':''}" data-tab="${k}" style="padding:9px 18px;cursor:pointer;font-weight:600;font-size:13px;${tab===k?'background:#0f6cbd;color:#fff;':'color:#5a6472;'}">${label}${n?" ("+n+")":""}</div>`;
+    body.innerHTML=`<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div class="tabs" style="display:flex;border-bottom:1px solid var(--line);">
+        ${tabBtn("cancellations","Cancellations",cCount)}${tabBtn("refunds","Refunds",rCount)}${tabBtn("returns","Returns",tCount)}
+      </div>
+      <div id="crr-panel" style="flex:1;overflow:auto;"></div>
+    </div>`;
+    body.querySelectorAll("[data-tab]").forEach(t=>t.onclick=()=>{ tab=t.dataset.tab; render(); });
+    const panel=body.querySelector("#crr-panel");
+    if(tab==="cancellations") renderCancellations(panel);
+    else if(tab==="refunds") renderRefunds(panel);
+    else renderReturns(panel);
+  }
+  function envCell(buyer){ return buyer?`<span data-buyer="${esc(buyer)}" title="Open messages with this buyer" style="cursor:pointer;font-size:15px;">&#9993;</span>`:`<span style="color:#c9ced6;font-size:15px;">&#9993;</span>`; }
+  function wireEnvelopes(scope){ scope.querySelectorAll("[data-buyer]").forEach(s=>s.onclick=()=>openCommunication(s.dataset.buyer)); }
+
+  function renderCancellations(panel){
+    const rows=cancelledOrderItems().sort((a,b)=>new Date(b.fulfillment.cancelledAt||0)-new Date(a.fulfillment.cancelledAt||0));
+    panel.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+        <button class="btn" id="cc-check">Check for Cancellations</button><span class="smallhint" id="cc-msg"></span>
+        <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} cancelled order(s) awaiting restock.</span></div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Cancelled</th><th>Reason</th><th>Requested By</th><th style="width:34px;">&#9993;</th><th></th></tr></thead><tbody id="cc-tb"></tbody></table></div>`;
+    const msg=panel.querySelector("#cc-msg"), tb=panel.querySelector("#cc-tb");
+    panel.querySelector("#cc-check").onclick=async ()=>{
+      msg.style.color="#555"; msg.textContent="Checking…";
+      try{ const r=await checkOrderCancellations((i,n)=>{ msg.textContent="Checking "+i+" of "+n+"…"; });
+        msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly cancelled."; render();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
+    };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No cancelled orders waiting on restock.</td></tr>`; return; }
+    rows.forEach(it=>{ const f=it.fulfillment; const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${f.cancelledAt?fmtDay(f.cancelledAt):""}</td><td>${esc(f.cancelReason||"—")}</td><td>${esc(f.cancelInitiator||"—")}</td><td class="cc">${envCell(f.buyer)}</td>`;
+      const td=document.createElement("td"); td.className="cc"; const b=document.createElement("button"); b.className="btn sm primary"; b.textContent="Restock";
+      b.title="Puts this item back into active inventory and reposts the listing on eBay";
+      b.onclick=async ()=>{ b.disabled=true; b.textContent="Restocking…";
+        try{ it.sold=false; it.soldAt=null; it.soldBy=null; f.restocked=true; f.restockedAt=new Date().toISOString();
+          it.listing.status="none"; it.listing.offerId=null; it.listing.ebayListingId=null;
+          addHistory(it,"Restocked after cancelled order — reposting to eBay"); save();
+          const res=await publishToEbay(it);
+          addHistory(it, res&&res.ok?"Repost to eBay succeeded after restock":"Restocked, but repost to eBay needs attention — open the item to try again");
+          save(); render();
+        }catch(e){ uiAlert("Restock failed: "+(e&&e.message?e.message:e)); b.disabled=false; b.textContent="Restock"; }
+      };
+      td.appendChild(b); tr.appendChild(td); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+    wireEnvelopes(panel);
+  }
+
+  function renderRefunds(panel){
+    const rows=refundedOrderItems().sort((a,b)=>new Date(b.fulfillment.refundedAt||0)-new Date(a.fulfillment.refundedAt||0));
+    panel.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+        <button class="btn" id="rf-check">Check for Refunds</button><span class="smallhint" id="rf-msg"></span>
+        <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} refund(s) on record.</span></div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Refunded</th><th>Type</th><th>Amount</th><th style="width:200px;">Reason</th><th style="width:34px;">&#9993;</th><th style="width:90px;"></th></tr></thead><tbody id="rf-tb"></tbody></table></div>`;
+    const msg=panel.querySelector("#rf-msg"), tb=panel.querySelector("#rf-tb");
+    panel.querySelector("#rf-check").onclick=async ()=>{
+      msg.style.color="#555"; msg.textContent="Checking…";
+      try{ const r=await checkOrderRefunds((i,n)=>{ msg.textContent="Checking "+i+" of "+n+"…"; });
+        msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly refunded."; render();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
+    };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No refunds on record.</td></tr>`; return; }
+    rows.forEach(it=>{ const f=it.fulfillment; const tr=document.createElement("tr");
+      const reasonSel=`<select class="cmb sm" data-reason="${esc(it.id)}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${f.refundReason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
+      const otherInput = f.refundReason==="Other" ? `<input class="txt sm" data-reasonother="${esc(it.id)}" value="${esc(f.refundReasonOther||"")}" placeholder="Briefly describe…" style="width:100%;margin-top:4px;">` : "";
+      const restockBtn = it.sold ? `<button class="btn sm" data-restock="${esc(it.id)}" title="Only if the item physically came back — puts it in a real slot and reactivates it">Restock</button>` : `<span class="smallhint" style="color:#1f7244;">Back in stock</span>`;
+      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${f.refundedAt?fmtDay(f.refundedAt):""}</td><td>${f.refundFull?"Full":"Partial"}</td><td>$${esc(f.refundAmount||"0.00")}</td><td>${reasonSel}${otherInput}</td><td class="cc">${envCell(f.buyer)}</td><td class="cc">${restockBtn}</td>`;
+      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr);
+      tr.querySelector("[data-reason]").onchange=(e)=>{ f.refundReason=e.target.value; if(f.refundReason!=="Other") f.refundReasonOther=""; save(); render(); };
+      const oi=tr.querySelector("[data-reasonother]"); if(oi) oi.oninput=(e)=>{ f.refundReasonOther=e.target.value; save(); };
+      const rb=tr.querySelector("[data-restock]"); if(rb) rb.onclick=()=>{ uiConfirm("Restock \""+esc(it.desc)+"\"? Only do this once the item has physically come back — this puts it in a real slot and makes it available again.", ()=>{ reactivateItem(it, ()=>{}); render(); }); };
+    });
+    wireEnvelopes(panel);
+  }
+
+  function renderReturns(panel){
+    const rows=returnedOrderItems().sort((a,b)=>new Date(b.fulfillment.returnedAt||0)-new Date(a.fulfillment.returnedAt||0));
+    // Candidates a return could be logged against: sold items that actually shipped/completed.
+    const loggable=visibleItems().filter(i=>i.fulfillment && (i.fulfillment.stage==="shipped"||i.fulfillment.stage==="completed") && !i.fulfillment.returned).sort((a,b)=>new Date(b.fulfillment.soldAt||0)-new Date(a.fulfillment.soldAt||0));
+    panel.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
+        <button class="btn" id="rt-check">Check for Returns</button><span class="smallhint" id="rt-msg"></span>
+        <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} open return(s).</span></div>
+      <div class="note" style="margin:0 14px 10px;">Returns are pulled automatically from eBay's returns system when you click Check for Returns. You can also log one manually below if needed. (Auto-matching a return back to its item relies on eBay's listing ID — if a pulled return doesn't attach to the right item, log it manually and let me know.)</div>
+      <div style="padding:0 14px 8px;display:flex;align-items:center;gap:8px;">
+        <select class="cmb" id="rt-pick" style="max-width:340px;"><option value="">Log a return manually…</option>${loggable.slice(0,100).map(i=>`<option value="${esc(i.id)}">${esc(i.desc)} — ${esc(i.fulfillment.buyer||"")}</option>`).join("")}</select>
+        <button class="btn sm" id="rt-add">Log Return</button></div>
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Description</th><th>Warehouse SKU</th><th>Buyer</th><th>Return Opened</th><th style="width:200px;">Reason</th><th style="width:34px;">&#9993;</th><th style="width:170px;"></th></tr></thead><tbody id="rt-tb"></tbody></table></div>`;
+    const tb=panel.querySelector("#rt-tb"), rmsg=panel.querySelector("#rt-msg");
+    panel.querySelector("#rt-check").onclick=async ()=>{
+      rmsg.style.color="#555"; rmsg.textContent="Checking eBay for returns…";
+      try{ const res=await checkOrderReturns((i,n)=>{});
+        rmsg.style.color=res.found?"#c0392b":"#1f7244"; rmsg.textContent="Checked "+res.checked+" return(s) on eBay — "+res.found+" newly matched into WIM."; render();
+      }catch(e){ rmsg.style.color="#c0392b"; rmsg.textContent=e&&e.message?e.message:String(e); }
+    };
+    panel.querySelector("#rt-add").onclick=()=>{ const sel=panel.querySelector("#rt-pick"); const it=DB.items.find(x=>x.id===sel.value); if(!it) return;
+      it.fulfillment.returned=true; it.fulfillment.returnedAt=new Date().toISOString();
+      addHistory(it,"Return opened (logged manually)"); save(); render();
+    };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No open returns.</td></tr>`; return; }
+    rows.forEach(it=>{ const f=it.fulfillment; const tr=document.createElement("tr");
+      const reasonSel=`<select class="cmb sm" data-rreason="${esc(it.id)}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${f.returnReason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
+      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(f.buyer||"—")}</td><td>${f.returnedAt?fmtDay(f.returnedAt):""}</td><td>${reasonSel}</td><td class="cc">${envCell(f.buyer)}</td>
+        <td class="cc"><button class="btn sm" data-restock="${esc(it.id)}" title="Item came back — put it back into inventory">Restock</button> <button class="btn sm" data-resolve="${esc(it.id)}" title="Mark this return handled and clear it from the list">Resolve</button></td>`;
+      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr);
+      tr.querySelector("[data-rreason]").onchange=(e)=>{ f.returnReason=e.target.value; save(); };
+      tr.querySelector("[data-restock]").onclick=()=>{ uiConfirm("Restock \""+esc(it.desc)+"\"? Only once it has physically come back — puts it in a real slot and makes it available again.", ()=>{ f.returnResolved=true; f.returnResolvedAt=new Date().toISOString(); reactivateItem(it, ()=>{}); render(); }); };
+      tr.querySelector("[data-resolve]").onclick=()=>{ f.returnResolved=true; f.returnResolvedAt=new Date().toISOString(); addHistory(it,"Return marked resolved"); save(); render(); };
+    });
+    wireEnvelopes(panel);
   }
   render();
 }
@@ -8169,12 +8939,17 @@ function parseFeedbackXml(xmlText){
     commentText: txt("CommentText",node),
     commentType: txt("CommentType",node), // Positive | Neutral | Negative
     commentTime: txt("CommentTime",node),
-    itemId: txt("ItemID",node)
+    itemId: txt("ItemID",node),
+    feedbackId: txt("FeedbackID",node),
+    transactionId: txt("TransactionID",node),
+    responded: !!txt("Followup",node) // a follow-up/response already exists on this feedback
   }));
   return { positivePercent, feedbackScore: txt("FeedbackScore"), entries };
 }
 const EBAY_SCOPE_INV="https://api.ebay.com/oauth/api_scope/sell.inventory";
 const EBAY_SCOPE_MSG="https://api.ebay.com/oauth/api_scope/commerce.message";
+const EBAY_SCOPE_FIN="https://api.ebay.com/oauth/api_scope/sell.finances";
+const EBAY_SCOPE_ANALYTICS="https://api.ebay.com/oauth/api_scope/sell.analytics.readonly";
 const EBAY_SCOPE_FULFILL="https://api.ebay.com/oauth/api_scope/sell.fulfillment";
 const EBAY={
   ready(){ return WIM_IS_DESKTOP && EBAY_ONLINE && DB.ebay && DB.ebay.appId && DB.ebay.certId && DB.ebay.refreshToken; },
@@ -8214,6 +8989,20 @@ const EBAY={
     const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetFeedback", siteId:"0", xmlBody:xml });
     if(!r.ok) throw new Error("getFeedback (HTTP "+r.status+"): "+(r.body||"").slice(0,300));
     return parseFeedbackXml(r.body);
+  },
+  // Reply publicly to a feedback comment (typically a negative or neutral) via the Trading
+  // API's RespondToFeedback. Verified against eBay's docs: needs the feedback's identifying
+  // info (FeedbackID plus ItemID/TransactionID) and the reply text. Same token, no new scope.
+  async respondToFeedback({feedbackId, itemId, transactionId, targetUser, text}){
+    if(!WIM_IS_DESKTOP) throw new Error("Responding to feedback runs in the desktop app.");
+    const xml=`<?xml version="1.0" encoding="utf-8"?><RespondToFeedbackRequest xmlns="urn:ebay:apis:eBLBaseComponents">`+
+      (feedbackId?`<FeedbackID>${esc(feedbackId)}</FeedbackID>`:"")+
+      (itemId?`<ItemID>${esc(itemId)}</ItemID>`:"")+
+      (transactionId?`<TransactionID>${esc(transactionId)}</TransactionID>`:"")+
+      `<TargetUserID>${esc(targetUser||"")}</TargetUserID><ResponseType>Reply</ResponseType><ResponseText>${esc(text||"")}</ResponseText></RespondToFeedbackRequest>`;
+    const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"RespondToFeedback", siteId:"0", xmlBody:xml });
+    if(!r.ok) throw new Error("respondToFeedback (HTTP "+r.status+"): "+(r.body||"").slice(0,300));
+    return true;
   },
   // Active watcher count — confirmed against eBay's own docs this specifically requires the
   // older Trading API's GetItem call with IncludeWatchCount set, available to the seller of
@@ -8932,6 +9721,90 @@ function openLiveInventory(){
 }
 
 /* ============================================================ LIVE: MANAGE LISTINGS ============================================================ */
+// Send Offers to Watchers — uses eBay's Negotiation API, verified against eBay's current docs.
+// findEligibleItems returns listings that have interested buyers (someone watching, or who
+// added to cart then abandoned); sendOfferToInterestedBuyers sends those buyers a discount
+// offer. Both use the sell.inventory scope WIM already has and the same api.ebay.com root, so
+// no backend change and no reconnect. This is pure upside: eBay already knows who's interested,
+// this just lets you nudge them with a discount to close the sale.
+const EBAY_SCOPE_NEG="https://api.ebay.com/oauth/api_scope/sell.inventory";
+async function openSendOffers(){
+  if(openWindows["send-offers"]){ focusWin(openWindows["send-offers"].el); return; }
+  const {body}=buildWindow({id:"send-offers",title:"Send Offers to Watchers",width:940,height:600,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">eBay tells us which of your listings have interested buyers — send them a discount to help close the sale</span>`});
+  let eligible=[]; // {listingId, title, price, match}
+  let picked=new Set();
+  function render(){
+    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <button class="btn primary" id="so-find">Find Listings with Interested Buyers</button>
+        <span class="smallhint" id="so-msg"></span>
+        ${eligible.length?`<span style="flex:1;"></span>
+        <span style="font-size:12.5px;">Discount</span>
+        <input class="txt" id="so-pct" value="10" style="width:56px;text-align:right;"> <span style="font-size:12.5px;">% off</span>
+        <button class="btn primary" id="so-send" ${!picked.size?"disabled":""}>Send Offer${picked.size?" ("+picked.size+")":""}</button>`:``}
+      </div>
+      ${!eligible.length?`<div class="note">Click above to ask eBay which of your active listings currently have interested buyers — people watching the item, or who added it to their cart. Those are the listings where a discount offer has the best chance of closing a sale.</div>`:``}
+      <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
+        <th style="width:30px;text-align:center;"><span class="chk ${eligible.length&&picked.size===eligible.length?'on':''}" id="so-all"></span></th>
+        <th>Listing</th><th style="width:120px;">Warehouse SKU</th><th style="width:90px;">Price</th><th style="width:110px;">eBay Listing ID</th>
+      </tr></thead><tbody id="so-tb"></tbody></table></div>
+    </div>`;
+    const msg=body.querySelector("#so-msg");
+    body.querySelector("#so-find").onclick=async ()=>{
+      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Not connected to eBay — connect via the mode badge first."; return; }
+      msg.style.color="#555"; msg.textContent="Asking eBay for listings with interested buyers…";
+      try{
+        const r=await EBAY.user("/sell/negotiation/v1/find_eligible_items?limit=200", EBAY_SCOPE_NEG);
+        if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="eBay lookup failed (HTTP "+r.status+"): "+(r.body||"").slice(0,200); return; }
+        const dj=JSON.parse(r.body);
+        const items=dj.eligibleItems||dj.eligibleItem||[];
+        eligible=items.map(e=>{
+          const listingId=String(e.listingId||"");
+          const match=DB.items.find(x=>x.listing && String(x.listing.ebayListingId)===listingId);
+          return { listingId, title:(match&&((match.listing&&match.listing.title)||match.desc))||("Listing "+listingId), price:(match&&match.listing&&match.listing.price)||"", sku:(match&&match.sku)||"—", match };
+        });
+        picked=new Set();
+        msg.style.color=eligible.length?"#1f7244":"#555"; msg.textContent=eligible.length?(eligible.length+" listing(s) have interested buyers."):"No listings currently have interested buyers — check back after items have had time to attract watchers.";
+        render();
+      }catch(e){ msg.style.color="#c0392b"; msg.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
+    };
+    const tb=body.querySelector("#so-tb");
+    if(eligible.length){
+      body.querySelector("#so-all").onclick=()=>{ if(picked.size===eligible.length) picked.clear(); else eligible.forEach(e=>picked.add(e.listingId)); render(); };
+      body.querySelector("#so-send").onclick=async ()=>{
+        const pct=parseFloat(body.querySelector("#so-pct").value);
+        if(!(pct>0 && pct<=90)){ msg.style.color="#c0392b"; msg.textContent="Enter a discount between 1 and 90 percent."; return; }
+        const targets=eligible.filter(e=>picked.has(e.listingId));
+        msg.style.color="#555"; msg.textContent="Sending offer(s) to interested buyers…";
+        let sent=0, failed=0;
+        for(const e of targets){
+          const payload={
+            offeredItems:[{ listingId:e.listingId, quantity:1, discountPercentage:String(pct) }],
+            message:"Thanks for your interest! Here's a special discount to help you decide.",
+            offerDuration:{ unit:"DAY", value:2 }, // eBay caps US at 4; 2 is a safe, valid default
+            allowCounterOffer:false
+          };
+          try{
+            const r=await EBAY.postUser("/sell/negotiation/v1/send_offer_to_interested_buyers", JSON.stringify(payload), EBAY_SCOPE_NEG);
+            if(r.ok) { sent++; if(e.match) addHistory(e.match, "Sent "+pct+"% offer to interested buyers via eBay"); }
+            else failed++;
+          }catch(err){ failed++; }
+        }
+        if(sent) save();
+        msg.style.color=failed?"#c0392b":"#1f7244"; msg.textContent="Sent "+sent+" offer(s)"+(failed?", "+failed+" failed — check that those listings are single-variation and on a supported marketplace":"")+".";
+        picked=new Set(); render();
+      };
+    }
+    eligible.forEach(e=>{ const tr=document.createElement("tr");
+      tr.innerHTML=`<td style="text-align:center;"><span class="chk ${picked.has(e.listingId)?'on':''}" data-id="${esc(e.listingId)}"></span></td>
+        <td style="font-size:12.5px;">${esc(e.title)}</td><td style="font-size:12px;">${esc(e.sku)}</td><td style="font-size:12px;">${e.price?"$"+esc(String(e.price)):"—"}</td><td style="font-size:11px;color:#6b7280;">${esc(e.listingId)}</td>`;
+      tr.querySelector(`[data-id="${e.listingId}"]`).onclick=()=>{ if(picked.has(e.listingId)) picked.delete(e.listingId); else picked.add(e.listingId); render(); };
+      tb.appendChild(tr);
+    });
+  }
+  render();
+}
 function openManageListings(){
   if(openWindows["manage-listings"]){ focusWin(openWindows["manage-listings"].el); return; }
   const {body}=buildWindow({id:"manage-listings",title:"Manage Listings",width:1000,height:600,popoutKey:"managelistings",
@@ -9009,39 +9882,73 @@ function openReviews(){
   function render(){
     const cutoffDays = range==="0-30"?30 : range==="30-60"?60 : range==="90"?90 : null;
     const since = cutoffDays!=null ? Date.now()-cutoffDays*86400000 : null;
+    // Health summary across everything currently known — the at-a-glance reputation state.
+    const all = allEntries.filter(e=>matchedItem(e.itemId));
+    const negs = all.filter(e=>e.commentType==="Negative");
+    const neus = all.filter(e=>e.commentType==="Neutral");
+    const needsResp = all.filter(e=>(e.commentType==="Negative"||e.commentType==="Neutral") && !e.responded);
+    const posPct = (DB.cachedFeedbackSummary&&DB.cachedFeedbackSummary.positivePercent);
     const rows = allEntries.filter(e=>{
       const it=matchedItem(e.itemId); if(!it) return false;
+      if(range==="needs"){ return (e.commentType==="Negative"||e.commentType==="Neutral") && !e.responded; }
       if(range==="0-30"||range==="30-60"){ const t=new Date(e.commentTime).getTime(); const lo=range==="0-30"?Date.now()-30*86400000:Date.now()-60*86400000; const hi=range==="0-30"?Date.now():Date.now()-30*86400000; return t>=lo && t<=hi; }
       if(range==="90"){ const t=new Date(e.commentTime).getTime(); return t<=Date.now()-90*86400000; }
       return true;
     }).sort((a,b)=>new Date(b.commentTime)-new Date(a.commentTime));
-    body.innerHTML=`<div style="padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    const healthHtml = all.length ? `<div style="display:flex;gap:16px;align-items:center;padding:8px 12px;margin:0 14px 4px;background:#eef3fb;border:1px solid #d5e0f0;border-radius:6px;font-size:12.5px;">
+        ${posPct!=null?`<div>Positive: <b style="color:#1f7244;">${posPct}%</b></div>`:``}
+        <div>Negative: <b style="color:#c0392b;">${negs.length}</b></div>
+        <div>Neutral: <b style="color:#7a8694;">${neus.length}</b></div>
+        <div style="flex:1;"></div>
+        ${needsResp.length?`<div style="color:#c0392b;font-weight:600;">${needsResp.length} need${needsResp.length===1?"s":""} a response</div>`:`<div style="color:#1f7244;">Nothing needs a response</div>`}
+      </div>` : ``;
+    body.innerHTML=`<div style="padding:10px 14px 4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn sm" id="rv-load">Pull Feedback</button>
-      <select class="cmb" id="rv-range" style="width:200px;"><option value="all">All time</option><option value="0-30">Last 0-30 days</option><option value="30-60">30-60 days ago</option><option value="90">90+ days ago</option><option value="custom">Custom range…</option></select>
+      <select class="cmb" id="rv-range" style="width:210px;"><option value="all">All time</option><option value="needs">⚠ Needs response (neg/neutral)</option><option value="0-30">Last 0-30 days</option><option value="30-60">30-60 days ago</option><option value="90">90+ days ago</option></select>
       <span class="smallhint">${rows.length} review(s) shown</span><span style="flex:1;"></span><span class="smallhint" id="rv-summary"></span></div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr>
-        <th>Item</th><th style="width:130px;">Date</th><th style="width:34px;">&#9993;</th><th>Buyer</th><th>Comment</th><th style="width:90px;">Rating</th>
+      ${healthHtml}
+      <div class="resultwrap" style="margin:6px 14px 14px;"><table class="res"><thead><tr>
+        <th>Item</th><th style="width:120px;">Date</th><th style="width:34px;">&#9993;</th><th>Buyer</th><th>Comment</th><th style="width:80px;">Rating</th><th style="width:90px;"></th>
       </tr></thead><tbody id="rv-tb"></tbody></table></div>`;
     body.querySelector("#rv-load").onclick=loadFeedback;
     body.querySelector("#rv-range").value=range;
-    body.querySelector("#rv-range").onchange=(e)=>{ if(e.target.value==="custom"){ uiAlert("Custom date range picker coming soon — use one of the preset ranges for now."); e.target.value=range; return; } range=e.target.value; render(); };
+    body.querySelector("#rv-range").onchange=(e)=>{ range=e.target.value; render(); };
     const tb=body.querySelector("#rv-tb");
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">No reviews to show yet for this range. Click Pull Feedback to check eBay.</td></tr>`; return; }
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">${range==="needs"?"Nothing needs a response — every negative and neutral has a reply.":"No reviews to show yet for this range. Click Pull Feedback to check eBay."}</td></tr>`; return; }
     rows.forEach(e=>{
       const it=matchedItem(e.itemId);
       const badgeColor = e.commentType==="Positive"?"#1f7244":e.commentType==="Negative"?"#c0392b":"#7a8694";
       const tr=document.createElement("tr");
+      const canRespond = (e.commentType==="Negative"||e.commentType==="Neutral");
+      const respCell = canRespond ? (e.responded ? `<span class="smallhint" style="color:#1f7244;">replied</span>` : `<button class="btn sm" data-respond="${esc(e.itemId)}">Respond</button>`) : "";
       tr.innerHTML=`<td style="font-size:12.5px;"><a href="#" data-item="${esc(it.id)}" style="color:#1a5fa8;">${esc(it.desc||it.upc)}</a></td>
         <td style="font-size:11px;">${e.commentTime?fmtDate(e.commentTime):"—"}</td>
         <td style="text-align:center;cursor:pointer;color:#9aa3ad;" data-msg="${esc(e.commentingUser)}" title="Message history with this buyer">&#9993;</td>
         <td style="font-size:12px;">${esc(e.commentingUser||"—")}</td>
         <td style="font-size:12px;cursor:pointer;" data-full="${esc(e.commentText||"")}">${esc((e.commentText||"").slice(0,25))}${(e.commentText||"").length>25?"…":""}</td>
-        <td><span style="color:${badgeColor};font-weight:600;font-size:12px;">${esc(e.commentType||"—")}</span></td>`;
+        <td><span style="color:${badgeColor};font-weight:600;font-size:12px;">${esc(e.commentType||"—")}</span></td>
+        <td class="cc">${respCell}</td>`;
       tr.querySelector("[data-item]").onclick=(ev)=>{ ev.preventDefault(); openItemDetail(it,"catalog"); };
       tr.querySelector("[data-msg]").onclick=()=>openCommunication(e.commentingUser);
       const fullCell=tr.querySelector("[data-full]"); if((e.commentText||"").length>25) fullCell.onclick=()=>showCopyable("Full review",e.commentText);
+      const rb=tr.querySelector("[data-respond]"); if(rb) rb.onclick=()=>respondTo(e);
       tb.appendChild(tr);
     });
+  }
+  function respondTo(e){
+    uiModal("Public reply to "+(e.commentType||"").toLowerCase()+" feedback",
+      `<div style="font-size:12.5px;color:#5b6470;margin-bottom:8px;">From <b>${esc(e.commentingUser)}</b>: "${esc(e.commentText||"")}"<br><br>Your reply will be public on your feedback profile — keep it professional, since future buyers read these.</div>
+       <textarea id="fb-reply" style="width:100%;height:90px;font-family:inherit;font-size:13px;padding:8px;border:1px solid #b9b9b9;border-radius:4px;box-sizing:border-box;resize:vertical;" placeholder="Your public response…"></textarea>`,
+      [{label:"Post reply", primary:true, onClick:()=>{
+        const text=(document.getElementById("fb-reply")||{}).value||"";
+        if(!text.trim()) return false; // keep the dialog open if nothing was typed
+        if(!EBAY.ready()){ uiAlert("Not connected to eBay."); return; }
+        (async ()=>{ try{
+          await EBAY.respondToFeedback({ feedbackId:e.feedbackId, itemId:e.itemId, transactionId:e.transactionId, targetUser:e.commentingUser, text:text.trim() });
+          e.responded=true; if(DB.cachedFeedback[e.itemId]) DB.cachedFeedback[e.itemId].responded=true; save();
+          uiAlert("Reply posted to eBay."); render();
+        }catch(err){ uiAlert("Couldn't post reply: "+(err&&err.message?err.message:err)); } })();
+      }},{label:"Cancel"}]);
   }
   async function loadFeedback(){
     const summary=body.querySelector("#rv-summary");
@@ -9051,7 +9958,7 @@ function openReviews(){
       const f=await EBAY.getFeedback();
       allEntries=f.entries||[];
       DB.cachedFeedbackSummary={ positivePercent:f.positivePercent, fetchedAt:new Date().toISOString() };
-      allEntries.forEach(e=>{ if(e.itemId){ DB.cachedFeedback[e.itemId]={ commentType:e.commentType, commentText:e.commentText, commentingUser:e.commentingUser, commentTime:e.commentTime }; if(!DB.feedbackSeenIds.includes(e.itemId)) DB.feedbackSeenIds.push(e.itemId); } });
+      allEntries.forEach(e=>{ if(e.itemId){ DB.cachedFeedback[e.itemId]={ commentType:e.commentType, commentText:e.commentText, commentingUser:e.commentingUser, commentTime:e.commentTime, feedbackId:e.feedbackId, transactionId:e.transactionId, responded:e.responded }; if(!DB.feedbackSeenIds.includes(e.itemId)) DB.feedbackSeenIds.push(e.itemId); } });
       save(); wimRefreshAll();
       render();
       const s2=body.querySelector("#rv-summary"); if(s2) s2.textContent = f.positivePercent!=null ? f.positivePercent+"% positive overall" : "";
@@ -9063,27 +9970,33 @@ let convosCache=[], counterpartyCache=()=>"", openThreadCache=()=>{};
 function openCommunication(focusUsername){
   if(openWindows["comm"]){ focusWin(openWindows["comm"].el); if(focusUsername) setTimeout(()=>{ try{ const m=convosCache.find(c=>counterpartyCache(c)===focusUsername); if(m) openThreadCache(m); }catch(e){} },50); return; }
   const {body}=buildWindow({id:"comm",title:"Messages",width:1020,height:640,popoutKey:"comm",
-    toolbar:`<button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
+    toolbar:`<button class="btn sm primary" id="cm-compose">Compose</button><button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-templates">Templates</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
   let convos=[], current=null, lastRaw="";
   let folder="inbox", searchQ="";
   if(!Array.isArray(DB.sentMessages)) DB.sentMessages=[];
   if(!DB.messageDrafts || typeof DB.messageDrafts!=="object") DB.messageDrafts={};
   body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
-      <div style="flex:0 0 320px;display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0;">
-        <div style="display:flex;border-bottom:1px solid var(--line);">
-          <button class="btn sm cm-folder-tab" data-folder="inbox" style="flex:1;border-radius:0;">Inbox</button>
-          <button class="btn sm cm-folder-tab" data-folder="outbox" style="flex:1;border-radius:0;">Outbox</button>
-          <button class="btn sm cm-folder-tab" data-folder="drafts" style="flex:1;border-radius:0;">Drafts</button>
+      <div style="flex:0 0 168px;display:flex;flex-direction:column;border-right:1px solid var(--line);background:#f4f6f9;min-height:0;">
+        <div style="padding:10px 12px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#8a919c;">Folders</div>
+        <div id="cm-folders" style="flex:1;overflow:auto;">
+          <div class="cm-folder-item" data-folder="inbox">${I.tree_inbox||"📥"} <span>Inbox</span><span class="cm-fcount" id="cm-fc-inbox"></span></div>
+          <div class="cm-folder-item" data-folder="outbox">${I.tree_sent||"📤"} <span>Sent</span></div>
+          <div class="cm-folder-item" data-folder="drafts">${I.tree_draft||"📝"} <span>Drafts</span><span class="cm-fcount" id="cm-fc-drafts"></span></div>
         </div>
+      </div>
+      <div style="flex:0 0 300px;display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0;">
         <div style="padding:8px;border-bottom:1px solid var(--line);"><input class="txt" id="cm-search" placeholder="Search…" style="width:100%;box-sizing:border-box;"></div>
         <div id="cm-list" style="flex:1;overflow:auto;background:#fff;"></div>
       </div>
       <div id="cm-thread" style="flex:1;overflow:auto;padding:0;display:flex;flex-direction:column;min-width:0;"></div>
     </div>`;
   const listEl=body.querySelector("#cm-list"), threadEl=body.querySelector("#cm-thread");
-  function paintFolderTabs(){ body.querySelectorAll(".cm-folder-tab").forEach(b=>{ const on=b.dataset.folder===folder; b.classList.toggle("primary",on); }); }
+  function paintFolderTabs(){ body.querySelectorAll(".cm-folder-item").forEach(b=>{ b.classList.toggle("active",b.dataset.folder===folder); });
+    const inC=body.querySelector("#cm-fc-inbox"); if(inC){ const n=parseInt(DB.lastInboxUnread,10)||0; inC.textContent=n?n:""; }
+    const drC=body.querySelector("#cm-fc-drafts"); if(drC){ const n=Object.keys(DB.messageDrafts||{}).length; drC.textContent=n?n:""; }
+  }
   paintFolderTabs();
-  body.querySelectorAll(".cm-folder-tab").forEach(b=>b.onclick=()=>{ folder=b.dataset.folder; current=null; paintFolderTabs(); paintList(); threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a message to read it.</div>`; });
+  body.querySelectorAll(".cm-folder-item").forEach(b=>b.onclick=()=>{ folder=b.dataset.folder; current=null; paintFolderTabs(); paintList(); threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a message to read it.</div>`; });
   body.querySelector("#cm-search").oninput=(e)=>{ searchQ=e.target.value.toLowerCase(); paintList(); };
   listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">Click <b>Load Inbox</b> to pull your eBay buyer messages.</div>`;
   threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a conversation to read it.</div>`;
@@ -9111,25 +10024,51 @@ function openCommunication(focusUsername){
       let data={}; try{ data=JSON.parse(r.body); }catch(e){}
       convos = simConvos.concat(data.conversations || data.conversationSummaries || data.messages || []);
       convosCache=convos;
+      try{ DB.lastInboxUnread = convos.filter(c=>effectiveUnread(c)).length; save(); if(typeof renderTree==="function") renderTree(); }catch(e){}
       paintList();
       if(focusUsername){ const m=convos.find(c=>counterparty(c)===focusUsername); if(m) openThread(m); }
     }catch(e){ listEl.innerHTML=`<div style="padding:16px;color:#c0392b;font-size:12.5px;">Could not reach eBay: ${esc(e&&e.message?e.message:String(e))}</div>`; }
   }
   if(focusUsername) loadInbox();
+  else if(EBAY.ready() || DB.simulationMode){ loadInbox(); } // auto-load on open like a real inbox, rather than making the user click Load every time
   function renderRawButton(){ const b=document.createElement("div"); b.style.cssText="padding:0 16px 16px;"; const btn=document.createElement("button"); btn.className="btn sm"; btn.textContent="Show raw response"; btn.onclick=()=>showCopyable("Raw eBay response", lastRaw||"(empty)"); listEl.appendChild(btn); }
+  function dateBucket(o){
+    const raw=fld(o,["lastMessageDate","creationDate","lastModifiedDate","date","createdDate"],"");
+    if(!raw) return "Earlier";
+    const d=new Date(raw); if(isNaN(d)) return "Earlier";
+    const now=new Date(), startToday=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const dayMs=86400000, diff=(startToday-new Date(d.getFullYear(),d.getMonth(),d.getDate()))/dayMs;
+    if(diff<=0) return "Today";
+    if(diff===1) return "Yesterday";
+    if(diff<7) return "Last 7 days";
+    if(diff<30) return "Last 30 days";
+    return "Earlier";
+  }
+  // eBay's own unread flag is the source of truth, but a locally-marked-read set lets someone
+  // clear the dot themselves the way any real mail client allows, without eBay necessarily
+  // having marked it read yet. Marked-unread does the reverse. Both persist per conversation.
+  if(!DB.msgReadState || typeof DB.msgReadState!=="object") DB.msgReadState={};
+  function effectiveUnread(c){ const cid=fld(c,["conversationId","id","threadId"],""); const st=DB.msgReadState[cid]; if(st==="read") return false; if(st==="unread") return true; return unreadOf(c); }
+  function recomputeUnreadBadge(){ try{ DB.lastInboxUnread=convos.filter(c=>effectiveUnread(c)).length; save(); if(typeof renderTree==="function") renderTree(); }catch(e){} }
   function paintList(){
     listEl.innerHTML="";
     if(folder==="inbox"){
       let list=convos; if(searchQ) list=list.filter(c=>(counterparty(c)+" "+subjectOf(c)+" "+snippetOf(c)).toLowerCase().includes(searchQ));
       if(!convos.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">No conversations came back.</div>`; renderRawButton(); return; }
       if(!list.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">No matches.</div>`; return; }
-      list.forEach((c)=>{ const i=convos.indexOf(c); const row=document.createElement("div");
-        row.style.cssText="padding:11px 14px;border-bottom:1px solid #f0f2f6;cursor:pointer;"+(current===i?"background:#e2ebf9;":"");
-        row.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:99px;background:${unreadOf(c)?'#3f74d6':'transparent'};flex:0 0 auto;"></span><span style="font-weight:600;font-size:13px;color:#28313f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(counterparty(c))}</span>${DB.messageDrafts[fld(c,["conversationId","id","threadId"],"")]?'<span class="badge warn" style="font-size:9px;">draft</span>':''}<span style="flex:1;"></span><span style="font-size:10.5px;color:#9aa3ad;">${esc(dateOf(c))}</span></div>
-          <div style="font-size:12px;color:#3b434f;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(subjectOf(c))}</div>
-          <div style="font-size:11.5px;color:#8a919c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(snippetOf(c))}</div>`;
-        row.onclick=()=>{ current=i; paintList(); openThread(c); };
-        listEl.appendChild(row); });
+      const buckets=["Today","Yesterday","Last 7 days","Last 30 days","Earlier"];
+      const grouped={}; list.forEach(c=>{ const b=dateBucket(c); (grouped[b]=grouped[b]||[]).push(c); });
+      buckets.forEach(b=>{ if(!grouped[b]||!grouped[b].length) return;
+        const hdr=document.createElement("div"); hdr.textContent=b; hdr.style.cssText="padding:5px 14px;font-size:10.5px;font-weight:700;color:#8a919c;background:#f6f7f9;border-bottom:1px solid #eef0f4;text-transform:uppercase;letter-spacing:.4px;"; listEl.appendChild(hdr);
+        grouped[b].forEach((c)=>{ const i=convos.indexOf(c); const isUnread=effectiveUnread(c); const cid=fld(c,["conversationId","id","threadId"],""); const row=document.createElement("div");
+          row.style.cssText="padding:11px 14px;border-bottom:1px solid #f0f2f6;cursor:pointer;"+(current===i?"background:#e2ebf9;":"");
+          row.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:99px;background:${isUnread?'#3f74d6':'transparent'};flex:0 0 auto;"></span><span style="font-weight:${isUnread?'700':'600'};font-size:13px;color:#28313f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(counterparty(c))}</span>${DB.messageDrafts[cid]?'<span class="badge warn" style="font-size:9px;">draft</span>':''}<span style="flex:1;"></span><span style="font-size:10.5px;color:#9aa3ad;">${esc(dateOf(c))}</span><span class="cm-readtoggle" data-cid="${esc(cid)}" title="${isUnread?'Mark as read':'Mark as unread'}" style="cursor:pointer;font-size:11px;color:#9aa3ad;padding-left:4px;">${isUnread?'✓':'○'}</span></div>
+            <div style="font-size:12px;color:#3b434f;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(subjectOf(c))}</div>
+            <div style="font-size:11.5px;color:#8a919c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(snippetOf(c))}</div>`;
+          row.onclick=()=>{ current=i; if(cid){ DB.msgReadState[cid]="read"; save(); recomputeUnreadBadge(); } paintList(); openThread(c); };
+          const tog=row.querySelector(".cm-readtoggle"); if(tog) tog.onclick=(e)=>{ e.stopPropagation(); if(cid){ DB.msgReadState[cid]= isUnread?"read":"unread"; save(); recomputeUnreadBadge(); paintList(); } };
+          listEl.appendChild(row); });
+      });
       renderRawButton();
     } else if(folder==="outbox"){
       let list=DB.sentMessages.slice().reverse(); if(searchQ) list=list.filter(m=>(m.to+" "+m.text).toLowerCase().includes(searchQ));
@@ -9188,10 +10127,19 @@ function openCommunication(focusUsername){
     // from the same endpoint conventions used elsewhere in the API, not verified documentation.
     // If it's wrong, the error shown will include the exact request/response for diagnosis,
     // the same way the read side got fixed.
-    replyWrap.innerHTML=`<textarea id="cm-reply-text" placeholder="Write a reply…" style="width:100%;height:60px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;resize:vertical;">${esc(DB.messageDrafts[cid]||"")}</textarea>
+    replyWrap.innerHTML=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;"><select class="cmb sm" id="cm-tpl-pick" style="max-width:220px;"><option value="">Insert template…</option>${DB.messageTemplates.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></div>
+      <textarea id="cm-reply-text" placeholder="Write a reply…" style="width:100%;height:60px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;resize:vertical;">${esc(DB.messageDrafts[cid]||"")}</textarea>
       <div id="cm-attach-list" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><button class="btn primary sm" id="cm-reply-send">Send reply</button><button class="btn sm" id="cm-attach-btn">Attach photo</button><input type="file" id="cm-attach-file" accept="image/*" multiple style="display:none;"><span class="smallhint" id="cm-reply-msg">Experimental — first real attempt at sending through eBay's API; if it errors, send me the message shown here.</span></div>`;
     const sendBtn=replyWrap.querySelector("#cm-reply-send"), replyMsg=replyWrap.querySelector("#cm-reply-msg"), replyTxt=replyWrap.querySelector("#cm-reply-text");
+    const tplPick=replyWrap.querySelector("#cm-tpl-pick");
+    if(tplPick) tplPick.onchange=()=>{ const t=DB.messageTemplates.find(x=>x.id===tplPick.value); tplPick.value="";
+      if(!t) return;
+      const itemName=(linked&&((linked.listing&&linked.listing.title)||linked.desc))||subjectOf(c)||"your item";
+      const filled=t.body.replace(/\{buyer\}/g, counterparty(c)).replace(/\{item\}/g, itemName);
+      replyTxt.value = replyTxt.value.trim() ? (replyTxt.value.replace(/\s*$/,"")+"\n\n"+filled) : filled;
+      DB.messageDrafts[cid]=replyTxt.value; save(); replyTxt.focus();
+    };
     const attachBtn=replyWrap.querySelector("#cm-attach-btn"), attachFile=replyWrap.querySelector("#cm-attach-file"), attachList=replyWrap.querySelector("#cm-attach-list");
     let attachments=[]; // base64 images pending attachment
     function paintAttachments(){ attachList.innerHTML=""; attachments.forEach((d,i)=>{ const t=document.createElement("div"); t.style.cssText="position:relative;width:36px;height:36px;background:#fff center/cover no-repeat;border:1px solid #ccc;border-radius:5px;"; t.style.backgroundImage=`url(${d})`;
@@ -9263,6 +10211,56 @@ function openCommunication(focusUsername){
   if(diagBtn) diagBtn.onclick=runDiagnostics;
   const supBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-support"):body.querySelector("#cm-support"));
   if(supBtn) supBtn.onclick=runSupportInfo;
+  const tplBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-templates"):body.querySelector("#cm-templates"));
+  if(tplBtn) tplBtn.onclick=openTemplateManager;
+  const composeBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-compose"):body.querySelector("#cm-compose"));
+  if(composeBtn) composeBtn.onclick=openCompose;
+  function openCompose(){
+    // eBay messaging genuinely isn't free-form — you can't start a message to an arbitrary
+    // stranger, only to someone you already have an order relationship with. So Compose is
+    // built around that real constraint: it lists actual recent buyers WIM already knows
+    // from real orders, and starting one opens that buyer's real conversation thread.
+    const buyers=[];
+    const seen=new Set();
+    DB.items.filter(i=>i.fulfillment&&i.fulfillment.buyer&&!i.fulfillment.simulated).sort((a,b)=>new Date(b.fulfillment.soldAt||0)-new Date(a.fulfillment.soldAt||0)).forEach(i=>{
+      const b=i.fulfillment.buyer; if(seen.has(b)) return; seen.add(b);
+      buyers.push({ buyer:b, desc:i.desc, soldAt:i.fulfillment.soldAt });
+    });
+    const rows=buyers.slice(0,50).map(b=>`<div class="cm-compose-row" data-buyer="${esc(b.buyer)}" style="padding:9px 12px;border-bottom:1px solid #f0f2f6;cursor:pointer;">
+        <div style="font-weight:600;font-size:13px;color:#28313f;">${esc(b.buyer)}</div>
+        <div style="font-size:11.5px;color:#8a919c;">re: ${esc(b.desc)} · ${b.soldAt?fmtDay(b.soldAt):""}</div></div>`).join("");
+    uiModal("Compose — start a message", `<div style="font-size:12px;color:#5b6470;margin-bottom:8px;">eBay only lets you message people you've had an order with. Pick a recent buyer to open their conversation and write a message.</div>
+      <div style="max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;">${rows||'<div class="smallhint" style="padding:12px;">No buyers on record yet — buyers appear here once orders come in through Recently Sold.</div>'}</div>`,
+      [{label:"Close"}]);
+    setTimeout(()=>{
+      document.querySelectorAll(".cm-compose-row").forEach(r=>r.onclick=()=>{ const b=r.dataset.buyer; closeAllModals();
+        // Try to find their existing conversation in whatever's loaded; if messaging hasn't
+        // been loaded or no thread exists yet, be honest that a reply has to start from a
+        // message eBay already links to the order, rather than silently failing.
+        const existing=convos.find(c=>counterparty(c)===b);
+        if(existing){ folder="inbox"; current=convos.indexOf(existing); paintFolderTabs(); paintList(); openThread(existing); }
+        else { uiAlert("No existing message thread with "+b+" is loaded. Click Load Inbox first — if there's still no thread, eBay requires the buyer to have messaged first, or for you to start it from the order on eBay.com. WIM will pull it in here once it exists."); }
+      });
+    },30);
+  }
+  function openTemplateManager(){
+    const rows=DB.messageTemplates.map(t=>`<div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;">
+        <input class="txt" data-tname="${esc(t.id)}" value="${esc(t.name)}" style="width:100%;font-weight:600;margin-bottom:6px;box-sizing:border-box;">
+        <textarea data-tbody="${esc(t.id)}" style="width:100%;height:70px;font-family:inherit;font-size:12.5px;padding:6px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;resize:vertical;">${esc(t.body)}</textarea>
+        <div style="text-align:right;margin-top:4px;"><button class="btn sm" data-tdel="${esc(t.id)}">Delete</button></div>
+      </div>`).join("");
+    uiModal("Message Templates", `<div style="font-size:12px;color:#5b6470;margin-bottom:8px;">Use <b>{buyer}</b> and <b>{item}</b> as placeholders — they fill in automatically when you insert a template into a reply.</div>
+      <div style="max-height:360px;overflow:auto;">${rows||'<div class="smallhint">No templates yet.</div>'}</div>
+      <div style="margin-top:8px;"><button class="btn sm" id="tpl-add">+ New Template</button></div>`,
+      [{label:"Save", primary:true, onClick:()=>{
+        DB.messageTemplates.forEach(t=>{ const n=document.querySelector(`[data-tname="${t.id}"]`), b=document.querySelector(`[data-tbody="${t.id}"]`); if(n) t.name=n.value; if(b) t.body=b.value; });
+        save();
+      }},{label:"Close"}]);
+    setTimeout(()=>{
+      const addBtn=document.getElementById("tpl-add"); if(addBtn) addBtn.onclick=()=>{ DB.messageTemplates.push({ id:"tpl_"+Date.now().toString(36), name:"New template", body:"" }); save(); closeAllModals(); openTemplateManager(); };
+      document.querySelectorAll("[data-tdel]").forEach(b=>b.onclick=()=>{ const id=b.dataset.tdel; DB.messageTemplates=DB.messageTemplates.filter(t=>t.id!==id); save(); closeAllModals(); openTemplateManager(); });
+    },30);
+  }
   async function runSupportInfo(){
     if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to the mode badge."); return; }
     if(!WIM_IS_DESKTOP){ uiAlert("Runs in the desktop app."); return; }

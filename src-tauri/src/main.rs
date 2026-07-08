@@ -587,7 +587,7 @@ async fn ebay_oauth_login(
     // be listed, or that specific feature will fail with eBay's invalid_scope error forever,
     // no matter what's enabled on the Developer Portal, until the person reconnects.
     let sc = if scope.trim().is_empty() {
-        "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/commerce.message https://api.ebay.com/oauth/api_scope/sell.fulfillment https://api.ebay.com/oauth/api_scope/sell.account.readonly".to_string()
+        "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/commerce.message https://api.ebay.com/oauth/api_scope/sell.fulfillment https://api.ebay.com/oauth/api_scope/sell.account.readonly https://api.ebay.com/oauth/api_scope/sell.finances https://api.ebay.com/oauth/api_scope/sell.analytics.readonly".to_string()
     } else {
         scope
     };
