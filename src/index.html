@@ -315,10 +315,12 @@
   .dw-dash{display:flex;flex-wrap:wrap;gap:10px;align-content:flex-start;flex:1;overflow:auto;background:#eef1f6;border:2px dashed #c7cfdb;border-radius:12px;padding:12px;}
   .dw-dash.drag-over{border-color:#4f7cf7;background:#e8eefc;}
   .dw-empty{width:100%;text-align:center;color:#9aa3ad;font-size:13px;padding:40px 0;}
-  .dw-tile{position:relative;background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:0;box-shadow:0 2px 8px rgba(31,45,71,.06);cursor:grab;flex:1;min-width:150px;max-width:230px;min-height:64px;user-select:none;}
+  .dw-tile{position:relative;background:#fff;border:1px solid #e3e7ee;border-radius:12px;padding:0;box-shadow:0 2px 8px rgba(31,45,71,.06);cursor:grab;flex:1;min-width:150px;max-width:230px;min-height:64px;user-select:none;transition:margin .13s ease, transform .13s ease;}
   .dw-tile.wide{flex-basis:100%;}
   .dw-tile.dragging{opacity:.4;}
   .dw-tile.drop-before{box-shadow:-3px 0 0 0 #4f7cf7,0 2px 8px rgba(31,45,71,.06);}
+  .dw-tile.dw-makeroom{margin-left:26px;position:relative;}
+  .dw-tile.dw-makeroom::before{content:"";position:absolute;left:-16px;top:6px;bottom:6px;width:4px;border-radius:3px;background:#4f7cf7;}
   .dw-tile-t{font-size:13px;font-weight:600;color:#28313f;}
   .dw-tile-m{font-size:11px;color:#9aa3ad;margin-top:8px;letter-spacing:1px;}
   .dw-x{position:absolute;top:6px;right:6px;border:none;background:#eef1f6;color:#8a93a0;border-radius:50%;width:20px;height:20px;font-size:11px;line-height:1;cursor:pointer;padding:0;z-index:2;}
@@ -462,6 +464,9 @@ const Cloud={
   deleteAgendaMessage(token,messageId){ return Cloud.rpc("delete_agenda_message",{p_session_token:token,p_message_id:messageId}); },
   deviceLogin(teamCode,deviceKey,localUserId,localUserName){ return Cloud.rpc("device_login",{p_team_code:teamCode,p_device_key:deviceKey,p_local_user_id:localUserId,p_local_user_name:localUserName}); },
   touchSession(token){ return Cloud.rpc("touch_session",{p_session_token:token}); },
+  requestDeviceLogout(token,deviceKey){ return Cloud.rpc("request_device_logout",{p_session_token:token,p_device_key:deviceKey}); },
+  getDeviceLogout(token,deviceKey){ return Cloud.rpc("get_device_logout",{p_session_token:token,p_device_key:deviceKey}); },
+  clearDeviceLogout(token,deviceKey){ return Cloud.rpc("clear_device_logout",{p_session_token:token,p_device_key:deviceKey}); },
   getEbayCredentials(token){ return Cloud.rpc("get_ebay_credentials",{p_session_token:token}); },
   setEbayCredentials(token,env,appId,certId,refreshToken,ruName){ return Cloud.rpc("set_ebay_credentials",{p_session_token:token,p_env:env,p_app_id:appId,p_cert_id:certId,p_refresh_token:refreshToken,p_ru_name:ruName}); }
 };
@@ -483,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.34", BUILD_DATE="2026-10-27", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.38", BUILD_DATE="2026-10-31", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +594,10 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.38","Batch 8 finished: Force Log Out is now real. The admin-only Force Log Out screen shows every device on the team with when it was last seen and whether it is active right now, and each one has a Log out button. Logging out a device sends it a signal through the cloud; the device sees it on its next check-in (within about a minute of normal use), signs itself off, and returns to the login screen with a clear message. You can also log THIS device out from here. It is built on the same proven device round-trip the pause/resume feature already uses. One setup step is required first: the three little server functions this relies on need to be added to the cloud database once -- run the included FORCE_LOGOUT_SETUP.sql file in the Supabase SQL editor (paste, Run, done). Until that is run, the screen still loads and lists devices but sending a logout will report that the server function is not deployed yet, rather than silently failing. Honest note on timing: logout happens on the device next heartbeat, not truly instantly -- making it instant would need a always-connected socket this app does not use, and the check-in interval is short enough that in practice it is within about a minute."],
+  ["3.3.37","Batch 8, part 2: Dashboard Widget Maintenance drag preview. When you drag a widget now, the thing following your cursor is a real preview of that actual widget -- the same tile with sample data you see on the dashboard -- instead of just its name in a little box. And as you drag over the dashboard, the widget you are about to drop in front of visibly slides aside to open a gap with a blue drop marker, so you can see exactly where it will land before you let go. Dropping, reordering, dragging back to the list to remove, and the corner X all work exactly as before."],
+  ["3.3.36","Batch 8, part 1. Renamed the Missing Item screen to Waiting on Storage everywhere -- the Discrepancies menu, the window title, and the tree badge. It already opens as its own floating window over whatever you are on rather than taking over the screen, and the running count at the top of Add Item and Bulk Add still opens it. New Waiting on Storage dashboard widget for the Warehouse dashboard: a tile showing how many items are still waiting to be physically stored, orange when there are any and green when all are stored, and clicking it opens the Waiting on Storage screen. Add it from Configuration -> Dashboard Widgets. Add Inventory no longer interrupts you with the Send SKU tag to the Print Queue? popup after saving -- the item is just created and you stay on it; you can still print a label anytime from the Print button. A newly created item correctly shows as Active the moment it is saved (it already transitioned in place; the New record label only shows before the first save)."],
+  ["3.3.35","Batch 7 finished: the Listed, no SKU screen now matches the new Bulk Add card look. Each eBay listing waiting to be filed is now its own card -- a larger thumbnail, the title, condition, price and quantity shown clearly, and Category / Sub Category / Manually slot laid out in the card -- instead of a cramped wide table row. Everything works exactly as before: select individual cards or Select All, set the Category (which refreshes its Sub Category list), optionally set a manual slot, File one at a time with duplicate detection, or bulk Import the selected ones. Pull New Listings keeps the live animated progress readout from the previous update so a big pull never looks frozen."],
   ["3.3.34","Batch 7, part 2: the Bulk Add card redesign. Bulk Add is no longer a wide scrolling table -- each item is now its own card, with no horizontal scrolling. Left side of each card is a photo panel: a large featured photo box with a Featured/Secondary tag in the corner (like Item Maintenance), an Add photos button, a trash button that deletes the photo currently shown, and a strip of clickable thumbnails each tagged F or S -- click a thumbnail to view it big, click an S tag to make it the featured photo, and the first photo you add is the featured one. The fields are laid out in tidy columns: Item Description / Category / Sub Category, then Listing Price / Cost / Vendor, then Condition with the Manually Slot and Reserve checkboxes right below it, then Quantity, a larger Description box you can actually read with a template picker, and Warehouse SKU. Dropdown carets now sit next to each field label (Category, Sub Category, Vendor, Condition, Description) instead of being crammed inside the textbox -- click the caret to open the WIM dropdown. Category-specific eBay fields appear in their own row at the bottom of the card once a category is set, instead of piling up as extra columns across the whole table. Each card has a trash-can to delete it. The header bar now shows only the six requested columns (Item Description, Category, Condition, Vendor, Unit cost, Quantity) with sort by any of them ascending or descending, a Select all checkbox, per-card checkboxes, and a Delete selected button. Listing price flows through to the item and its listing, and the Reserve checkbox is carried onto the item."],
   ["3.3.33","Batch 7, part 1: the Bulk Add typing and dropdown bugs, plus pull progress. The dropdowns in Bulk Add (Category, Sub Category, Condition, Vendor, Warehouse SKU) used the browser native list control, which covered the textbox so you could not see what you were typing, looked like a google-autofill box instead of a WIM dropdown, and inside the desktop app swallowed certain keystrokes -- which is why the letters C, V, and H would not type and backspace misbehaved. All of these now use a proper WIM dropdown that opens below the field, never covers it, filters as you type, and types normally including C, V, H and backspace. New Bulk Add rows now default their vendor to Warehouse (matching Add Item), so the price-driven cost fills in automatically. Pull New Listings (Listed, no SKU) now shows a live, animated progress readout -- Reading listing 34 of 220, N new so far, with cycling dots -- so a big pull never looks frozen the way 1,000-plus listings did before. Still to come in part 2: the fuller multi-line card layout for Bulk Add and making Listed, no SKU match that new look."],
   ["3.3.32","Batch 6: printing. Fixed the Pop-up blocked. Allow pop-ups to print/save PDF error. Printing was trying to open a browser popup window, which does not exist inside the desktop app, so it always failed. Printing now renders locally through a hidden in-window frame and opens the print dialog directly -- no popup, no error. This fixes printing everywhere in WIM, not just search results, since every screen Print button uses the same routine. The Item Maintenance / Catalog search printout now has a proper titled header listing exactly what you searched for, in field order, with a timestamp -- for example Search Results: Apple, New, Book, A.1, WIC Items  07/15/26 10:54 am -- followed by the results table. Catalog Maintenance columns already sort ascending and descending by clicking the column header (with an arrow indicator), shared with the same sortable search engine Item Maintenance uses, so that part was already in place."],
@@ -854,7 +863,7 @@ const POPOUT_APPS={
   cancelledorders:{ title:"Cancelled Orders", open:()=>openCancelledOrders() },
   crr:{ title:"Cancellations, Refunds, Returns", open:()=>openCancellationsRefundsReturns() },
   refunds:{ title:"Refunds", open:()=>openRefunds() },
-  missingitem:{ title:"Missing Item", open:()=>openMissingItem() },
+  missingitem:{ title:"Waiting on Storage", open:()=>openMissingItem() },
   recentlysold:{ title:"Recently Sold", open:()=>openRecentlySold() },
   recentlylisted:{ title:"Recently Listed", open:()=>openRecentlyListed() },
   fulfillmentaccuracy:{ title:"Fulfillment Accuracy", open:()=>openFulfillmentAccuracy() },
@@ -1189,7 +1198,7 @@ function migrate(d){
       { key:"sku_not_listed", label:"SKU not Listed", category:"Product Lister" },
       { key:"ready_to_list", label:"Ready to List", category:"Product Lister" },
       { key:"cancelled_orders", label:"Cancelled Orders", category:"Product Lister" },
-      { key:"missing_item", label:"Missing Item", category:"Warehouse" },
+      { key:"missing_item", label:"Waiting on Storage", category:"Warehouse" },
       { key:"refunds", label:"Refunds", category:"Product Lister" },
       { key:"listing_functions", label:"Listing Functions (push to eBay)", category:"Product Lister" },
       { key:"communication", label:"Communication", category:"Product Lister" },
@@ -1594,8 +1603,23 @@ async function refreshSyncPausedState(){
     if(r.ok) CLOUD_SYNC_PAUSED = JSON.parse(r.body)===true;
     const dr=await Cloud.getDevicePaused(cloudSession.session_token,thisDeviceKey());
     if(dr.ok) DEVICE_SYNC_PAUSED = JSON.parse(dr.body)===true;
+    // Force Log Out: if an admin has flagged this device to be logged out, honor it now.
+    try{ const lr=await Cloud.getDeviceLogout(cloudSession.session_token,thisDeviceKey());
+      if(lr.ok && JSON.parse(lr.body)===true){
+        try{ await Cloud.clearDeviceLogout(cloudSession.session_token,thisDeviceKey()); }catch(e){}
+        forceLogoutThisDevice();
+        return;
+      }
+    }catch(e){ /* server function not deployed / transient — ignore */ }
     try{ paintCloudBadge(); renderSyncPausedBanner(); }catch(e){}
   }catch(e){ /* leave the last-known cached values in place on a transient failure */ }
+}
+// Logs this device out in response to an admin Force Log Out. Clears the local session and
+// returns to the login screen with a clear explanation.
+function forceLogoutThisDevice(){
+  try{ cloudSession=null; SESSION.user=null; save(); }catch(e){}
+  try{ uiAlert("You've been logged out by an administrator."); }catch(e){}
+  try{ location.hash=""; location.reload(); }catch(e){ try{ showLogin&&showLogin(); }catch(_){} }
 }
 // Lets an admin see this device in the Manage Devices list, and keeps "last seen" fresh
 // so stale/unused devices are obvious. Safe to call often — it's just an upsert.
@@ -2578,7 +2602,7 @@ const TREE_LABEL_FEATURE={
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Stale Listings":"stale_listings_report","Low Stock":"low_stock_report","Listing Traffic":"listing_traffic_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","Send Offers to Watchers":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items","Import Scans":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Missing Item":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Waiting on Storage":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -2620,7 +2644,7 @@ function nodeActionsRaw(node){
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","Send Offers to Watchers"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items","Import Scans","Find by Photo"];
-  if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List","Cancelled Orders","Refunds","Missing Item"];
+  if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List","Cancelled Orders","Refunds","Waiting on Storage"];
   if(node.key==="comm") return isLive() ? ["Communication","Reviews"] : ["Communication"];
   if(node.key==="livereports") return ["Fulfillment Accuracy","Stale Listings","Listing Traffic","Listing Report","Item Rank","Listing Efficiency"];
   return [];
@@ -2721,6 +2745,9 @@ const DASH_WIDGETS={
     render:c=>c.tile("Inventory Value","$"+c.invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}),"#1f9d57")},
   highestSku:{title:"Highest Value SKU *",desc:"The single highest-value unit currently on hand. Leadership only.",role:"leadership",modes:["warehouse"],previewKind:"tile",
     render:c=>{ const h=c.highest; return c.tile("Highest Value SKU", h?("$"+h.val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—","#1f9d57", h?(esc(h.sku)+" · "+esc((h.desc||"").slice(0,22))):""); }},
+  waitingStorage:{title:"Waiting on Storage",desc:"Items created but not yet confirmed physically stored.",role:"all",modes:["warehouse"],previewKind:"tile",
+    render:c=>{ const n=pendingStorageItems().length; const accent=n?"#e08a1f":"#1f9d57";
+      return c.tile("Waiting on Storage",String(n),accent,n?"to be stored →":"all stored",()=>launchApp("missingitem")); }},
   itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM (refreshes automatically while connected).",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>{ const simCount = DB.simulationMode ? (DB.pulledListings||[]).filter(p=>p.simulated && p.simProfileId===DB.activeSimulationProfileId).length : null;
       const notReady=!EBAY.ready() && simCount==null;
@@ -3224,14 +3251,25 @@ function openDashWidgets(){
     const dx=e.clientX-drag.startX, dy=e.clientY-drag.startY;
     if(!drag.moved && Math.hypot(dx,dy)<5) return;
     drag.moved=true;
-    if(!drag.ghost){ const g=document.createElement("div"); g.className="dw-ghost"; g.textContent=widgetBaseTitle(DASH_WIDGETS[drag.key]); document.body.appendChild(g); drag.ghost=g; }
+    if(!drag.ghost){
+      // Ghost shows the ACTUAL widget preview, not just its name, so what you drag looks like
+      // what will land. Reuse the same previewTile markup the dashboard preview uses.
+      const g=document.createElement("div"); g.className="dw-ghost dw-ghost-live";
+      g.style.cssText="position:fixed;z-index:99999;pointer-events:none;opacity:.9;transform:rotate(-1.5deg);box-shadow:0 8px 24px rgba(0,0,0,.22);width:210px;";
+      try{ g.innerHTML=previewTile(drag.entry||{k:drag.key,cfg:Object.assign({},DASH_WIDGETS[drag.key].defaultConfig||{})}); }
+      catch(err){ g.textContent=widgetBaseTitle(DASH_WIDGETS[drag.key]); }
+      // Strip the remove-X from the floating ghost so it reads as a clean preview.
+      const x=g.querySelector(".dw-x"); if(x) x.remove();
+      document.body.appendChild(g); drag.ghost=g;
+    }
     drag.ghost.style.left=(e.clientX+12)+"px"; drag.ghost.style.top=(e.clientY+10)+"px";
     const dash=body.querySelector("#dw-dash"), avail=body.querySelector("#dw-avail");
     dash.querySelectorAll(".drop-before").forEach(x=>x.classList.remove("drop-before"));
+    dash.querySelectorAll(".dw-makeroom").forEach(x=>x.classList.remove("dw-makeroom"));
     dash.classList.remove("drag-over"); avail.classList.remove("drag-over");
     const el=document.elementFromPoint(e.clientX,e.clientY);
     const tileEl=el&&el.closest&&el.closest(".dw-tile");
-    if(tileEl&&dash.contains(tileEl)) tileEl.classList.add("drop-before");
+    if(tileEl&&dash.contains(tileEl)){ tileEl.classList.add("drop-before"); tileEl.classList.add("dw-makeroom"); }
     else if(el===dash||dash.contains(el)) dash.classList.add("drag-over");
     else if(el===avail||avail.contains(el)) avail.classList.add("drag-over");
   }
@@ -3241,6 +3279,7 @@ function openDashWidgets(){
     if(d.ghost) d.ghost.remove();
     const dash=body.querySelector("#dw-dash"), avail=body.querySelector("#dw-avail");
     dash.querySelectorAll(".drop-before").forEach(x=>x.classList.remove("drop-before"));
+    dash.querySelectorAll(".dw-makeroom").forEach(x=>x.classList.remove("dw-makeroom"));
     dash.classList.remove("drag-over"); avail.classList.remove("drag-over");
     if(!d.moved) return; // it was just a click, not a drag — let normal click handlers do their job
     const el=document.elementFromPoint(e.clientX,e.clientY);
@@ -3533,7 +3572,7 @@ function actionCountBadge(label){
   else if(label==="Fulfillment Accuracy" && SESSION.user) n=unreadViolationCount(SESSION.user.id, null);
   else if(label==="Listed, no SKU") n=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId)).length;
   else if(label==="Cancelled Orders") n=cancelledOrderItems().length;
-  else if(label==="Missing Item") n=pendingStorageItems().length;
+  else if(label==="Waiting on Storage") n=pendingStorageItems().length;
   else if(label==="Refunds") n=refundedOrderItems().length;
   else if(label==="Cancellations, Refunds, Returns") n=cancelledOrderItems().length+refundedOrderItems().length+returnedOrderItems().length;
   else if(label==="SKU not Listed") n=unlistedActive().length;
@@ -3606,7 +3645,7 @@ function handleAction(k,a){
   if(k==="discrepancies"&&a==="Listing Review") return launchApp("listingreview");
   if(k==="discrepancies"&&a==="Cancelled Orders") return launchApp("cancelledorders");
   if(k==="discrepancies"&&a==="Refunds") return launchApp("refunds");
-  if(k==="discrepancies"&&a==="Missing Item") return launchApp("missingitem");
+  if(k==="discrepancies"&&a==="Waiting on Storage") return launchApp("missingitem");
   if(k==="fulfillment"&&a==="Recently Sold") return launchApp("recentlysold");
   if(k==="fulfillment"&&a==="Recently Listed") return launchApp("recentlylisted");
   if(k==="fulfillment"&&a==="Shipping") return launchApp("shipping");
@@ -3788,8 +3827,58 @@ function openChangePassword(){
 // once it is.
 function openForceLogout(){
   const id="force-logout"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Force Log Out",width:480,height:260});
-  body.innerHTML=`<div style="padding:16px;" class="note">This needs real "who's currently logged in, right now" tracking across devices, which hasn't been built yet — that's separate infrastructure from the device registry (Manage Devices tracks devices, not active login sessions on them). The menu item and admin-only permission are in place; the actual feature is a follow-up.</div>`;
+  const {body}=buildWindow({id,title:"Force Log Out",width:680,height:480,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Remotely log any device off the team — admin only</span>`});
+  let devices=[];
+  const ACTIVE_MS=6*60*1000; // "currently active" = checked in within the last ~6 minutes
+  async function load(){
+    body.innerHTML=`<div style="padding:16px;">Loading devices…</div>`;
+    if(!cloudSession){ body.innerHTML=`<div style="padding:16px;" class="note">Log in through the cloud first (the regular User Login screen) to use Force Log Out.</div>`; return; }
+    try{
+      const r=await Cloud.listDevices(cloudSession.session_token);
+      if(!r.ok){ body.innerHTML=`<div style="padding:16px;color:#c0392b;">Couldn't load devices (HTTP ${r.status}): ${esc((r.body||"").slice(0,200))}</div>`; return; }
+      try{ devices=JSON.parse(r.body)||[]; }catch(e){ devices=[]; }
+      render();
+    }catch(e){ body.innerHTML=`<div style="padding:16px;color:#c0392b;">Could not reach the server: ${esc(e&&e.message?e.message:String(e))}</div>`; }
+  }
+  function render(){
+    const myKey=thisDeviceKey(); const now=Date.now();
+    body.innerHTML=`<div style="padding:16px;">
+      <div class="smallhint" style="margin-bottom:10px;">Log a device out remotely — useful for a lost or shared device, or someone who left themselves logged in. The device logs itself off the next time it checks in with the server (within about a minute of normal use), then returns to the login screen.</div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn sm" id="fl-refresh">Refresh</button></div>
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th>Device</th><th style="width:150px;">Last seen</th><th style="width:100px;">Status</th><th style="width:130px;"></th></tr></thead><tbody id="fl-tb"></tbody></table></div>
+      ${!devices.length?`<div class="smallhint" style="margin-top:10px;">No devices have checked in yet.</div>`:``}
+      <div id="fl-msg" class="smallhint" style="margin-top:10px;"></div>
+      </div>`;
+    body.querySelector("#fl-refresh").onclick=load;
+    const tb=body.querySelector("#fl-tb"), msg=body.querySelector("#fl-msg");
+    devices.forEach(d=>{
+      const isMe=d.device_key===myKey;
+      const seen=d.last_seen_at?new Date(d.last_seen_at):null;
+      const active = seen && !isNaN(seen) && (now-seen.getTime()<ACTIVE_MS);
+      const tr=document.createElement("tr");
+      const td1=document.createElement("td"); td1.style.fontSize="12.5px"; td1.innerHTML=`${esc(d.device_name)}${isMe?' <span class="smallhint">(this device)</span>':''}`;
+      const td2=document.createElement("td"); td2.style.fontSize="12px"; td2.textContent=seen&&!isNaN(seen)?seen.toLocaleString():"—";
+      const td3=document.createElement("td"); td3.innerHTML = active?`<span style="color:#1f7244;">● Active now</span>`:`<span style="color:#8a95a3;">idle</span>`;
+      const td4=document.createElement("td");
+      const btn=document.createElement("button"); btn.className="btn sm"; btn.style.cssText="border-color:#c0392b;color:#c0392b;"; btn.textContent=isMe?"Log me out":"Log out";
+      btn.onclick=()=>{
+        uiConfirm(isMe?"Log THIS device out now?":`Log out "${d.device_name}"? It will be signed off the next time it checks in.`, async ()=>{
+          btn.disabled=true;
+          if(isMe){ forceLogoutThisDevice(); return; }
+          try{
+            const r=await Cloud.requestDeviceLogout(cloudSession.session_token,d.device_key);
+            if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="Couldn't send the logout (HTTP "+r.status+"). "+(r.status===404?"The server function may not be deployed yet.":(r.body||"").slice(0,160)); btn.disabled=false; return; }
+            msg.style.color="#1f7244"; msg.textContent=`Logout sent to "${d.device_name}". It will sign off within about a minute.`;
+          }catch(e){ msg.style.color="#c0392b"; msg.textContent="Could not reach the server: "+(e&&e.message?e.message:e); btn.disabled=false; }
+        });
+      };
+      td4.appendChild(btn);
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+      tb.appendChild(tr);
+    });
+  }
+  load();
 }
 function openModifyUsers(){
   if(openWindows["sec-users"]){ focusWin(openWindows["sec-users"].el); return; }
@@ -5879,20 +5968,14 @@ function openItemDetail(item,mode,nav,defaultTab){
         // closing and reopening a new one, so Upload photos / Publish appear immediately
         // without ever leaving the page.
         transitionToExisting();
-        if(!isLive() && !it._pendingListing){
-          wimToast("Created \u2713","success");
-          uiConfirm("Added 1 item to inventory. Send SKU tag to the Print Queue?", ()=>{ try{ enqueuePrint(made); }catch(e){ uiAlert("Couldn't queue the label: "+(e&&e.message?e.message:e)); } });
-        } else { wimToast("Created \u2713","success"); }
+        wimToast("Created \u2713","success");
       } else {
         // Multiple units created at once, or sent straight to Live — no single item to stay
         // on, so this still closes and opens the first one fresh.
         _closeWin();
         if(made.length){ setTimeout(()=>{ openItemDetail(made[0],"edit"); },30); }
         if(sendToLive){ wimToast("Created & sent to Live \u2192 Ready to List \u2713","success"); }
-        else if(made.length && !isLive() && !it._pendingListing){
-          wimToast("Created \u2713","success");
-          uiConfirm("Added "+made.length+" item"+(made.length>1?"s":"")+" to inventory. Send SKU tag"+(made.length>1?"s":"")+" to the Print Queue?", ()=>{ try{ enqueuePrint(made); }catch(e){ uiAlert("Couldn't queue the label: "+(e&&e.message?e.message:e)); } });
-        } else if(made.length){ wimToast("Created \u2713","success"); }
+        else if(made.length){ wimToast("Created \u2713","success"); }
       }
     }
     else if(!keepOpen){ _closeWin(); }
@@ -9565,7 +9648,7 @@ function openCancellationsRefundsReturns(){
 
 function openMissingItem(){
   if(openWindows["missing-item"]){ focusWin(openWindows["missing-item"].el); return; }
-  const {body}=buildWindow({id:"missing-item",title:"Missing Item",width:1040,height:640,
+  const {body}=buildWindow({id:"missing-item",title:"Waiting on Storage",width:1040,height:640,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Everything waiting to be confirmed stored — search any item to see what else it was added with, for checking nearby spots if something's been swapped</span>`});
   let picked=new Set(); let q="";
   function render(){
@@ -10322,51 +10405,56 @@ function openListedNoSku(){
         <button class="btn primary" id="pnl-import" ${(!picked.size||!allHaveCategory)?"disabled":""} title="${!picked.size?"Select at least one row":!allHaveCategory?"Every selected row needs a Category set first":""}">Import Listing${picked.size===1?"":"s"}${picked.size?" ("+picked.size+")":""}</button>`:``}
         <span style="flex:1;"></span><span class="smallhint">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span></div>
       <div id="pnl-msg" class="smallhint" style="padding:0 14px 6px;"></div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr>
-        <th style="width:26px;"></th><th style="width:46px;"></th><th>Title</th><th style="width:140px;">eBay Condition</th><th style="width:70px;">Price</th><th style="width:44px;">Qty</th>
-        <th style="width:130px;">Category</th><th style="width:130px;">Sub-Category</th><th style="width:140px;">Manually Slot</th><th style="width:80px;"></th>
-      </tr></thead><tbody id="pnl-tb"></tbody></table></div>`;
+      <div id="pnl-cards" style="padding:0 14px 14px;overflow:auto;"></div>`;
     body.querySelector("#pnl-pull").onclick=()=>pullNewListings(()=>{ rowChoices={}; render(); });
-    const tb=body.querySelector("#pnl-tb");
-    if(!list.length){ tb.innerHTML=`<tr><td colspan="10" style="color:#888;">Nothing waiting. Click <b>Pull New Listings</b> to fetch active eBay listings that haven't been filed in WIM yet.</td></tr>`; return; }
-    if(list.length){
-      body.querySelector("#pnl-selall").onclick=()=>{ if(picked.size===list.length){ picked.clear(); } else { list.forEach(c=>picked.add(c.ebaySku)); } render(); };
-      const importBtn=body.querySelector("#pnl-import");
-      if(importBtn && !importBtn.disabled) importBtn.onclick=()=>{
-        const msg=body.querySelector("#pnl-msg");
-        const targets=list.filter(c=>picked.has(c.ebaySku));
-        let okCount=0, errs=[];
-        targets.forEach(c=>{
-          const ch=rowChoices[c.ebaySku];
-          const r=createItemFromListing(c, ch.section, ch.subCategory, ch.manualSlot?ch.manualSlotValue:null);
-          if(r.ok){ okCount++; DB.pulledListings=(DB.pulledListings||[]).filter(x=>x.ebaySku!==c.ebaySku); picked.delete(c.ebaySku); delete rowChoices[c.ebaySku]; }
-          else errs.push(c.title+": "+r.error);
-        });
-        save(); wimRefreshAll(); refreshSearchWindows&&refreshSearchWindows();
-        msg.style.color=errs.length?"#c0392b":"#1f7244";
-        msg.textContent=okCount+" item(s) imported."+(errs.length?(" "+errs.length+" failed: "+errs.join(" · ")):"");
-        render();
-      };
-    }
-    list.forEach((c)=>{ const ch=rowChoices[c.ebaySku]; const tr=document.createElement("tr");
-      tr.innerHTML=`<td><span class="chk ${picked.has(c.ebaySku)?'on':''}" data-pick="${esc(c.ebaySku)}"></span></td>
-        <td>${c.thumb?`<img src="${esc(c.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
-        <td style="font-size:12px;">${esc(c.title)}</td><td>${esc(c.condLabel||"—")}</td><td>${c.price?("$"+esc(c.price)):"—"}</td><td class="cc">${esc(c.qty||"1")}</td>
-        <td><select class="cmb" data-sec="${esc(c.ebaySku)}" style="font-size:11.5px;"><option value="">—</option>${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${ch.section===s?'selected':''}>${esc(s)}</option>`).join("")}</select></td>
-        <td><select class="cmb" data-sub="${esc(c.ebaySku)}" style="font-size:11.5px;"></select></td>
-        <td><label class="chkrow" style="font-size:11px;"><span class="chk ${ch.manualSlot?'on':''}" data-manual="${esc(c.ebaySku)}"></span></label><input class="txt" data-slotval="${esc(c.ebaySku)}" placeholder="e.g. A.6" style="width:62px;font-size:11px;display:${ch.manualSlot?'inline-block':'none'};margin-left:4px;" value="${esc(ch.manualSlotValue||'')}"></td>
-        <td></td>`;
-      tr.querySelector(`[data-pick="${c.ebaySku}"]`).onclick=()=>{ if(picked.has(c.ebaySku)) picked.delete(c.ebaySku); else picked.add(c.ebaySku); render(); };
-      const secSel=tr.querySelector(`[data-sec="${c.ebaySku}"]`); const subSel=tr.querySelector(`[data-sub="${c.ebaySku}"]`);
-      function refreshSub(){ subSel.innerHTML=`<option value="">—</option>`+subcatsOf(secSel.value).map(s=>`<option value="${esc(s.name)}" ${ch.subCategory===s.name?'selected':''}>${esc(s.name)}</option>`).join(""); }
+    const tb=body.querySelector("#pnl-cards");
+    if(!list.length){ tb.innerHTML=`<div style="color:#888;padding:20px 4px;">Nothing waiting. Click <b>Pull New Listings</b> to fetch active eBay listings that haven't been filed in WIM yet.</div>`; return; }
+    body.querySelector("#pnl-selall").onclick=()=>{ if(picked.size===list.length){ picked.clear(); } else { list.forEach(c=>picked.add(c.ebaySku)); } render(); };
+    const importBtn=body.querySelector("#pnl-import");
+    if(importBtn && !importBtn.disabled) importBtn.onclick=()=>{
+      const msg=body.querySelector("#pnl-msg");
+      const targets=list.filter(c=>picked.has(c.ebaySku));
+      let okCount=0, errs=[];
+      targets.forEach(c=>{ const ch=rowChoices[c.ebaySku];
+        const r=createItemFromListing(c, ch.section, ch.subCategory, ch.manualSlot?ch.manualSlotValue:null);
+        if(r.ok){ okCount++; DB.pulledListings=(DB.pulledListings||[]).filter(x=>x.ebaySku!==c.ebaySku); picked.delete(c.ebaySku); delete rowChoices[c.ebaySku]; }
+        else errs.push(c.title+": "+r.error);
+      });
+      save(); wimRefreshAll(); refreshSearchWindows&&refreshSearchWindows();
+      msg.style.color=errs.length?"#c0392b":"#1f7244";
+      msg.textContent=okCount+" item(s) imported."+(errs.length?(" "+errs.length+" failed: "+errs.join(" · ")):"");
+      render();
+    };
+    list.forEach((c)=>{ const ch=rowChoices[c.ebaySku];
+      const card=document.createElement("div");
+      card.style.cssText="background:#fff;border:0.5px solid #d5dae1;border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start;";
+      card.innerHTML=`
+        <span class="chk ${picked.has(c.ebaySku)?'on':''}" data-pick="${esc(c.ebaySku)}" style="margin-top:38px;"></span>
+        <div style="width:88px;height:88px;flex-shrink:0;border:0.5px solid #e2e6ec;border-radius:8px;background:#fafafa center/contain no-repeat;${c.thumb?'':'display:flex;align-items:center;justify-content:center;color:#b9c2cf;'}" ${c.thumb?`data-bg="${esc(c.thumb)}"`:''}>${c.thumb?'':'—'}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;margin-bottom:2px;">${esc(c.title)}</div>
+          <div class="smallhint" style="margin-bottom:10px;">${esc(c.condLabel||"—")} · ${c.price?("$"+esc(c.price)):"no price"} · Qty ${esc(c.qty||"1")}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px 14px;">
+            <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb" data-sec="${esc(c.ebaySku)}" style="width:100%;font-size:12px;height:30px;"><option value="">— select —</option>${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${ch.section===s?'selected':''}>${esc(s)}</option>`).join("")}</select></div>
+            <div><label style="font-size:11px;color:#5b6470;">Sub Category</label><select class="cmb" data-sub="${esc(c.ebaySku)}" style="width:100%;font-size:12px;height:30px;"></select></div>
+            <div><label style="font-size:11px;color:#5b6470;">Warehouse slot</label>
+              <label class="chkrow" style="font-size:11px;display:flex;align-items:center;gap:5px;height:30px;"><span class="chk ${ch.manualSlot?'on':''}" data-manual="${esc(c.ebaySku)}"></span> Manually slot
+              <input class="txt" data-slotval="${esc(c.ebaySku)}" placeholder="e.g. A.6" style="width:70px;font-size:11px;display:${ch.manualSlot?'inline-block':'none'};" value="${esc(ch.manualSlotValue||'')}"></label></div>
+          </div>
+        </div>
+        <button class="btn sm" data-file="${esc(c.ebaySku)}" title="File one at a time, with duplicate detection" style="flex-shrink:0;margin-top:38px;">File…</button>`;
+      const bgEl=card.querySelector("[data-bg]"); if(bgEl) bgEl.style.backgroundImage=`url(${bgEl.dataset.bg})`;
+      card.querySelector(`[data-pick="${c.ebaySku}"]`).onclick=()=>{ if(picked.has(c.ebaySku)) picked.delete(c.ebaySku); else picked.add(c.ebaySku); render(); };
+      const secSel=card.querySelector(`[data-sec="${c.ebaySku}"]`); const subSel=card.querySelector(`[data-sub="${c.ebaySku}"]`);
+      function refreshSub(){ subSel.innerHTML=`<option value="">— select —</option>`+subcatsOf(secSel.value).map(s=>`<option value="${esc(s.name)}" ${ch.subCategory===s.name?'selected':''}>${esc(s.name)}</option>`).join(""); }
       refreshSub();
       secSel.onchange=()=>{ ch.section=secSel.value; ch.subCategory=""; refreshSub(); render(); };
       subSel.onchange=()=>{ ch.subCategory=subSel.value; };
-      const tdF=document.createElement("td"); tdF.className="cc"; const f=document.createElement("button"); f.className="btn sm"; f.textContent="File…"; f.title="One-at-a-time, with duplicate detection"; f.onclick=()=>fileListing(c,()=>render()); tdF.appendChild(f); tr.lastElementChild.replaceWith(tdF);
-      const manualChk=tr.querySelector(`[data-manual="${c.ebaySku}"]`), slotInput=tr.querySelector(`[data-slotval="${c.ebaySku}"]`);
+      card.querySelector(`[data-file="${c.ebaySku}"]`).onclick=()=>fileListing(c,()=>render());
+      const manualChk=card.querySelector(`[data-manual="${c.ebaySku}"]`), slotInput=card.querySelector(`[data-slotval="${c.ebaySku}"]`);
       manualChk.onclick=()=>{ ch.manualSlot=!ch.manualSlot; slotInput.style.display=ch.manualSlot?"inline-block":"none"; render(); };
       slotInput.oninput=()=>{ ch.manualSlotValue=slotInput.value; };
-      tb.appendChild(tr); });
+      tb.appendChild(card); });
   }
   function fileListing(c,done){
     const dupe=findDupeCandidate(null, c.title, c.condLabel);
