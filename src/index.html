@@ -483,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.27", BUILD_DATE="2026-10-20", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.28", BUILD_DATE="2026-10-21", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +589,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.28","Fixed the System Health screen Refresh All button doing nothing. The button and its status text live in the window toolbar, but the code was looking for them inside the window body -- so the click handler never attached and nothing refreshed. Now wired correctly from the window root, so Refresh All actually re-checks every service, and the this-month call counts for Shippo and EasyPost update on refresh too instead of being frozen at whatever they were when the screen opened."],
   ["3.3.27","Batch 2 of the updates list: the blank-screen bug and a consistent save/cancel model across the maintenance screens. The empty-screen-after-save/cancel is gone. There is no more Okay button -- on an item, once you change something a blue Save button appears next to Cancel; clicking Save commits the change, flashes Saved, and leaves you on the page with the Save button gone until you change something else. Cancel with no changes closes right away; Cancel with unsaved changes asks Yes save / No discard / Keep editing. Category Maintenance and Group Maintenance were switched to the same model -- they no longer save every keystroke instantly; instead adds, renames, and deletes are held as pending changes and a Save button appears, with the same discard/keep-editing prompt on Cancel, so a mistaken delete is no longer instant and permanent. Vendor, Condition, and Adjustment maintenance get the same safer behavior for free since they share the screen. Built on one shared save controller so every screen behaves identically and there is a single place to maintain it."],
   ["3.3.26","New System Health screen under Configuration -> Account Health -- one place showing the state of every outside service WIM depends on, so a usage limit or outage surfaces before it silently breaks something. It is deliberately honest about what each service actually exposes rather than faking numbers: eBay shows a live status with the tightest resource summarized and a button through to the full API Limits breakdown; Shippo and EasyPost show WIM own count of the rate calls it made this month (they do not publish a usage number, and the counter resets on the 1st) plus a live reachable check; Cloud Sync (Supabase) and the InventoryIQ Cloudflare Worker show reachable or unreachable; and eBay Picture Services is shown as informational since it has no capacity total to track (per-image size limits and 90-day auto-expiry, not a quota). A Refresh All button re-checks everything on demand, and it also checks once automatically when opened. Green means good; red or yellow is worth a look."],
   ["3.3.25","Configuration menu reorganized into collapsible sub-groups (batch 1 of the updates list). The everyday config apps -- Dashboard Widgets, Shipping Data, warehouse maintenance apps, Description Manager, and the admin ones like Supervisory Maintenance, Backup and Updates, Local Profiles, Simulation Mode, and About/Version -- still sit directly under Configuration. The rest are now tucked into three expandable groups, each with a plus button to open it: Account Health (eBay Compliance Log, eBay API Limits), Security (Manage Devices), and Setup (Photo Default, eBay Connection, Listing Configuration, InventoryIQ, and the Cloud Sync apps). Nothing was removed or lost -- every app is exactly where it was permission-wise, just grouped so the Configuration list is far shorter and easier to scan. A group only shows if you have access to at least one app inside it."],
@@ -7211,10 +7212,13 @@ function openSimulateSaleDialog(profileId,onDone){
 // quota to track at all, so it's informational.
 async function openSystemHealth(){
   if(openWindows["system-health"]){ focusWin(openWindows["system-health"].el); return; }
-  const {body}=buildWindow({id:"system-health",title:"System Health",width:900,height:640,
+  const {body,win}=buildWindow({id:"system-health",title:"System Health",width:900,height:640,
     toolbar:`<button class="btn sm primary" id="sh-refresh">Refresh All</button><span style="flex:1;"></span><span class="smallhint" id="sh-msg"></span>`});
+  // The toolbar is a sibling of body, so its controls must be queried from the window root.
+  const winEl=win||(openWindows["system-health"]&&openWindows["system-health"].el);
+  const shMsg=()=>winEl?winEl.querySelector("#sh-msg"):null;
   const month=new Date().toISOString().slice(0,7);
-  const usage=(DB.apiUsage&&DB.apiUsage.month===month)?(DB.apiUsage.counts||{}):{};
+  function currentUsage(){ return (DB.apiUsage&&DB.apiUsage.month===month)?(DB.apiUsage.counts||{}):{}; }
   // Known soft limits for the local-counter services (free-tier ballparks — shown as guidance,
   // not gospel, since the providers can change them). Used only to color the usage bar.
   const softLimits={ shippo:{ label:"Shippo", limit:null, note:"Free tier has no hard monthly call cap, but very high volume can be throttled." },
@@ -7222,6 +7226,7 @@ async function openSystemHealth(){
   let statuses={}; // service -> {state:'ok'|'down'|'unknown', detail}
   function pill(state){ const c=state==="ok"?"#1f9d55":state==="down"?"#c0392b":"#9aa3ad"; const t=state==="ok"?"Reachable":state==="down"?"Unreachable":"Not checked"; return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:${c};">${t}</span>`; }
   function render(){
+    const usage=currentUsage();
     const ebaySummary = statuses.ebay || {state:"unknown"};
     body.innerHTML=`<div style="padding:16px;overflow:auto;height:100%;box-sizing:border-box;">
       <div style="font-size:12.5px;color:#5b6470;margin-bottom:14px;">Every outside service WIM depends on, in one place. Green means reachable and within limits; anything red or yellow is worth a look before it interrupts work.</div>
@@ -7263,11 +7268,10 @@ async function openSystemHealth(){
         <div class="smallhint">Photo hosting has no capacity total to track — it works on per-image limits (12MB / 1600×1600 max) and photos auto-expire 90 days after a listing ends, so there's no storage quota that can be exceeded.</div>
       </div>
     </div>`;
-    body.querySelector("#sh-refresh").onclick=runChecks;
     body.querySelector("#sh-ebay-detail").onclick=()=>{ try{ openEbayApiLimits(); }catch(e){} };
   }
   async function runChecks(){
-    const msg=body.querySelector("#sh-msg"); msg.style.color="#555"; msg.textContent="Checking services…";
+    const msg=shMsg(); if(msg){ msg.style.color="#555"; msg.textContent="Checking services…"; }
     // eBay — reachable + a quick quota sanity read.
     try{
       if(EBAY.ready()){ const rl=await EBAY.getRateLimits();
@@ -7300,9 +7304,11 @@ async function openSystemHealth(){
     try{ if(DB.iqSettings&&DB.iqSettings.token&&WIM_IS_DESKTOP){ const r=await wimDesktop.invoke("iq_fetch_scans",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token }); statuses.iq={state:r&&r.ok?"ok":(r&&r.status===401?"down":"down"), detail:r&&r.ok?"Reachable and authenticating.":(r&&r.status===401?"Reachable, but the token was rejected (401).":"Couldn't reach the Worker (HTTP "+(r&&r.status)+").")}; }
       else statuses.iq={state:"unknown", detail:"No InventoryIQ token set — configure it under Setup → InventoryIQ."}; }
     catch(e){ statuses.iq={state:"down"}; }
-    msg.style.color="#1f7244"; msg.textContent="Checked "+new Date().toLocaleTimeString()+".";
+    const doneMsg=shMsg(); if(doneMsg){ doneMsg.style.color="#1f7244"; doneMsg.textContent="Checked "+new Date().toLocaleTimeString()+"."; }
     render();
   }
+  // Wire the toolbar Refresh button once (the toolbar is not rebuilt by render()).
+  const refreshBtn=winEl&&winEl.querySelector("#sh-refresh"); if(refreshBtn) refreshBtn.onclick=runChecks;
   render();
   runChecks();
 }
