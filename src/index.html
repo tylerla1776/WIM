@@ -483,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.22", BUILD_DATE="2026-10-15", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.25", BUILD_DATE="2026-10-18", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +589,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.25","Configuration menu reorganized into collapsible sub-groups (batch 1 of the updates list). The everyday config apps -- Dashboard Widgets, Shipping Data, warehouse maintenance apps, Description Manager, and the admin ones like Supervisory Maintenance, Backup and Updates, Local Profiles, Simulation Mode, and About/Version -- still sit directly under Configuration. The rest are now tucked into three expandable groups, each with a plus button to open it: Account Health (eBay Compliance Log, eBay API Limits), Security (Manage Devices), and Setup (Photo Default, eBay Connection, Listing Configuration, InventoryIQ, and the Cloud Sync apps). Nothing was removed or lost -- every app is exactly where it was permission-wise, just grouped so the Configuration list is far shorter and easier to scan. A group only shows if you have access to at least one app inside it."],
+  ["3.3.24","Two real fixes found while connecting to a live account. Publishing a listing: fixed the HTTP 400 where eBay rejected a listing for a missing package weight. Two things were wrong -- WIM was never actually including the weight and dimensions in what it sent to eBay at all (so even an item with a weight entered would still fail), and it did not check for a weight before trying to publish. Both fixed: weight (pounds) and dimensions (inches) are now sent, and if an item has no weight WIM stops before contacting eBay and tells you exactly what to do -- open the item, Shipping/Package section, enter a weight -- instead of a cryptic eBay error. This mainly affected scan-imported items, which come in with no weight by default. Messages: fixed opening a message from an actual eBay member failing with Missing the parameter conversationType. WIM was sending the parameter in the wrong format (conversationType instead of eBay required conversation_type), so eBay genuinely could not see it -- corrected on both the read and reply calls, verified against eBay own docs. And now that the parameter works, eBay own notifications actually attempt to load their real content instead of always showing a cannot-load message."],
+  ["3.3.23","Sold-item price comparison paste is now forgiving of a whole-page paste. Before, it only worked if you carefully drag-selected just the results table from eBay Research Sold tab; a full Ctrl+A copy of the page brought in navigation junk (Deals, Gift Cards, Watchlist, etc.) and the parser found nothing. Now, when the precise method finds no rows, WIM falls back to scanning the whole paste structurally -- pulling out real listing rows (a title followed by a price and date) and ignoring the menu and page chrome on its own. So you can just select all, copy, paste, and let WIM sort out what is real."],
   ["3.3.22","InventoryIQ scan import -- the scan-to-photo-to-listing workflow is now wired end to end. New Import Scans screen under Manage Inventory: Import New Scans pulls items that were scanned and accepted in the InventoryIQ app (description and category only), creates a listing-in-progress for each, and tells InventoryIQ it was imported so nothing double-imports. For every imported item WIM creates a dated photo folder in your synced Google Drive (base path set in the new Configuration -> InventoryIQ screen), named by the item description plus its id so two same-named items never collide. A Photos? column shows a green Yes or red No per item; the photo person drops photos into that item folder, and Refresh Photos pulls them in, attaches them to the item, and flips the indicator. Clicking an item description opens its landing page to build and publish the listing as normal, with the photos already attached. Once the listing publishes, that item folder is auto-deleted (optional, on by default) since eBay EPS holds the photos by then -- the delete is safety-guarded on the backend to only ever remove folders inside your named WIM photo base, never anything above it. New Configuration -> InventoryIQ screen holds the Worker URL, API token, photo base path, and auto-delete toggle, with a Test Connection button. This adds real backend commands (calling the Worker, reading and writing the Drive folders), so it needs a genuine recompile."],
   ["3.3.21","Stale Listings can now act, not just report. Select any number of stale listings and either reprice them by a percentage or end them outright, right from the report -- turning the who-is-just-sitting-there list into a one-click decision. Reprice uses eBay bulkUpdatePriceQuantity, the call eBay built specifically for changing price on live listings (up to 25 at a time, sent in chunks automatically), and End uses the same withdraw-offer path WIM delist already uses -- both on the sell.inventory permission WIM already has, no new scope and no backend change. A checkbox column and select-all were added, and both actions confirm first and then report exactly how many succeeded, how many failed, and how many were skipped because they were not published through WIM (which have no offer for eBay to change). Ended items stay in your WIM inventory, just withdrawn from sale. Honest note: the live reprice and end calls could not be tested against a real active listing from here, so each item reports its own pass/fail rather than assuming success."],
   ["3.3.20","Feedback tracking and response -- the last of three from the eBay-API audit. WIM already pulled raw feedback into the Reviews screen; this turns it into real reputation management. A health header now sits at the top of Reviews showing your positive percent, how many negatives and neutrals you have, and a clear count of how many still need a response. A new Needs response filter surfaces exactly the negative and neutral feedback you have not replied to yet, so nothing damaging sits unanswered. And you can now Respond to a negative or neutral right from the row -- it posts a public reply straight to your eBay feedback profile via the Trading API RespondToFeedback call (verified against eBay docs), then marks that entry replied. All of it runs on the eBay connection and token WIM already has -- no new permission and no backend change. Honest note: the response posting could not be tested end-to-end without a real negative on a live account, so if a post fails it shows exactly why rather than failing silently."],
@@ -2395,10 +2398,23 @@ function nodeVisible(node){
   return filterActionsByAccess(actions).length>0;
 }
 function nodeActions(node){ return filterActionsByAccess(nodeActionsRaw(node)); }
+// Configuration is organized into a set of base apps shown directly, plus three collapsible
+// sub-groups (Account Health, Security, Setup). CONFIG_SUBGROUPS defines which apps live under
+// each group header; anything not in a subgroup shows directly under Configuration.
+const CONFIG_SUBGROUPS=[
+  { key:"cfg_acct_health", label:"Account Health", members:["eBay Compliance Log","eBay API Limits"] },
+  { key:"cfg_security", label:"Security", members:["Manage Devices"] },
+  { key:"cfg_setup", label:"Setup", members:["Photo Default","eBay Connection","Listing Configuration","InventoryIQ","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"] },
+];
+function configSubgroupOf(action){ for(const g of CONFIG_SUBGROUPS){ if(g.members.includes(action)) return g.key; } return null; }
 function nodeActionsRaw(node){
   if(node.key==="config"){ 
-    if(isLive()){ const a=["Dashboard Widgets","Photo Default","Shipping Data","Description Manager","Category Maintenance","eBay Connection","Listing Configuration","InventoryIQ"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
-    const a=["Dashboard Widgets","Photo Default","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager","eBay Connection","Listing Configuration","InventoryIQ"]; if(role()==="admin"){ a.push("Supervisory Maintenance"); a.push("Backup & Updates"); a.push("Cloud Sync Setup"); a.push("Local Profiles"); a.push("Manage Devices"); a.push("eBay Compliance Log"); a.push("eBay API Limits"); a.push("Simulation Mode"); a.push("Cloud Data Migration"); a.push("Cloud Sync (Test)"); } a.push("About / Version"); return a; }
+    if(isLive()){ const base=["Dashboard Widgets","Shipping Data","Description Manager","Category Maintenance"]; if(role()==="admin"){ base.push("Supervisory Maintenance"); base.push("Backup & Updates"); base.push("Local Profiles"); base.push("Simulation Mode"); } base.push("About / Version");
+      const grouped=[]; if(role()==="admin"){ grouped.push("eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
+      return base.concat(grouped); }
+    const base=["Dashboard Widgets","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager"]; if(role()==="admin"){ base.push("Supervisory Maintenance"); base.push("Backup & Updates"); base.push("Local Profiles"); base.push("Simulation Mode"); } base.push("About / Version");
+    const grouped=[]; if(role()==="admin"){ grouped.push("eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
+    return base.concat(grouped); }
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
@@ -3288,8 +3304,28 @@ function renderTree(){
     row.querySelector(".exp").onclick=(e)=>{ e.stopPropagation(); if(hasKids){ treeState.expanded[node.key]=!exp; renderTree(); } };
     row.onclick=()=>{ treeState.sel=node.key; if(hasKids) treeState.expanded[node.key]=!exp; renderTree(); };
     pane.appendChild(row);
-    if(hasKids&&exp){ acts.forEach(a=>{ const cr=document.createElement("div"); cr.className="node"; cr.style.marginLeft="30px"; cr.style.fontSize="14px";
-      cr.innerHTML=`<span class="exp none"></span><span>${a}${actionCountBadge(a)}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); }); }
+    if(hasKids&&exp){
+      if(node.key==="config"){
+        // Configuration renders in two tiers: base apps directly, then collapsible sub-groups.
+        const inSub=new Set(); CONFIG_SUBGROUPS.forEach(g=>g.members.forEach(m=>inSub.add(m)));
+        acts.filter(a=>!inSub.has(a)).forEach(a=>{ const cr=document.createElement("div"); cr.className="node"; cr.style.marginLeft="30px"; cr.style.fontSize="14px";
+          cr.innerHTML=`<span class="exp none"></span><span>${a}${actionCountBadge(a)}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); });
+        CONFIG_SUBGROUPS.forEach(g=>{
+          const members=acts.filter(a=>g.members.includes(a)); if(!members.length) return; // hidden if user has no access to any member
+          const gexp=treeState.expanded[g.key];
+          const gr=document.createElement("div"); gr.className="node"; gr.style.marginLeft="30px"; gr.style.fontSize="14px"; gr.style.fontWeight="600";
+          gr.innerHTML=`<span class="exp">${gexp?'&minus;':'+'}</span><span>${g.label}</span>`;
+          gr.querySelector(".exp").onclick=(e)=>{ e.stopPropagation(); treeState.expanded[g.key]=!gexp; renderTree(); };
+          gr.onclick=()=>{ treeState.expanded[g.key]=!gexp; renderTree(); };
+          pane.appendChild(gr);
+          if(gexp){ members.forEach(a=>{ const cr=document.createElement("div"); cr.className="node"; cr.style.marginLeft="52px"; cr.style.fontSize="13.5px";
+            cr.innerHTML=`<span class="exp none"></span><span>${a}${actionCountBadge(a)}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); }); }
+        });
+      } else {
+        acts.forEach(a=>{ const cr=document.createElement("div"); cr.className="node"; cr.style.marginLeft="30px"; cr.style.fontSize="14px";
+          cr.innerHTML=`<span class="exp none"></span><span>${a}${actionCountBadge(a)}</span>`; cr.onclick=()=>handleAction(node.key,a); pane.appendChild(cr); });
+      }
+    }
   });
 }
 // A small (#) badge next to tree action labels that have a live count worth showing at a
@@ -4198,12 +4234,23 @@ function aspectValueArray(name, value, it){
   return parts;
 }
 function ebayPayload(it){ // builds the Sell Inventory API createOrReplaceInventoryItem body (sku goes in the URL, not the body)
-  return { condition: ebayCondEnum(it.condition),
+  const payload={ condition: ebayCondEnum(it.condition),
     product:{ title:(it.listing&&it.listing.title?it.listing.title:it.desc||"").slice(0,80),
       description:(it.listing&&it.listing.descBody)||it.desc||"",
       aspects: (it.aspects&&Object.keys(it.aspects).length)?Object.fromEntries(Object.entries(it.aspects).map(([k,v])=>[k, aspectValueArray(k,v,it)])):{ Condition:[it.condition||"Unspecified"] },
       imageUrls: (it.listing&&it.listing.ebayImageUrls)||[] },
     availability:{ shipToLocationAvailability:{ quantity: listingQty(it) } } };
+  // Package weight & dimensions — eBay requires a weight to publish anything with real shipping.
+  // Include whatever the item has; weight in pounds, dimensions in inches (US marketplace).
+  const wt=parseFloat(it.shipWeight);
+  if(!isNaN(wt) && wt>0){
+    payload.packageWeightAndSize={ weight:{ value:wt, unit:"POUND" } };
+    const L=parseFloat(it.shipLength), W=parseFloat(it.shipWidth), H=parseFloat(it.shipHeight);
+    if(!isNaN(L)&&!isNaN(W)&&!isNaN(H)&&L>0&&W>0&&H>0){
+      payload.packageWeightAndSize.dimensions={ length:L, width:W, height:H, unit:"INCH" };
+    }
+  }
+  return payload;
 }
 // Everything an item needs before WIM will attempt a real eBay publish.
 function ebayListingPrereqs(it){
@@ -4217,6 +4264,11 @@ function ebayListingPrereqs(it){
   if(missing.some(m=>/policy|location/.test(m))) missing.push("(set policies/location once in Configuration → eBay Connection → Listing setup)");
   const price=(it.listing&&it.listing.price)||it.retail;
   if(!price || isNaN(parseFloat(price))) missing.push("a listing price");
+  // eBay refuses to publish any listing with a calculated/real shipping cost unless the package
+  // has a weight. Catch it here with a clear message instead of a cryptic HTTP 400 at publish
+  // time. (Scan-imported items come in with no weight by default, so this is the usual trigger.)
+  const wt=parseFloat(it.shipWeight);
+  if(!it.shipWeight || isNaN(wt) || wt<=0) missing.push("a package weight (open the item → Shipping/Package section → enter Weight; even ~1 lb for a small item)");
   return missing;
 }
 // Full Sell Inventory API publish: createOrReplaceInventoryItem -> createOffer (once) -> publishOffer.
@@ -5207,7 +5259,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         const raw=lastPasteText||pastebox.textContent||"";
         const parsed = isSH ? parseEbaySellerHubResearch(raw) : parseEbaySoldPaste(raw);
         const msg=tabbody.querySelector("#cmps-pastemsg");
-        if(!parsed.length){ msg.style.color="#c0392b"; msg.textContent=isSH?"Couldn't find any listings in that paste — make sure you copied the results table from the Sold tab on eBay's Research tool.":"Couldn't find any sold listings in that paste — make sure you copied the area with the “Sold [date]” lines."; return; }
+        if(!parsed.length){ msg.style.color="#c0392b"; msg.textContent=isSH?"Couldn't find any sold listings in that paste. Make sure you're on the Sold tab in eBay's Research tool and the results actually loaded before copying — then paste the whole page, that's fine.":"Couldn't find any sold listings in that paste — make sure you copied the area with the “Sold [date]” lines."; return; }
         // Best-effort: real eBay listing photos are hosted on i.ebayimg.com specifically, which
         // filters out eBay's own logos/icons/UI chrome that might have been swept into the
         // selection. Matched positionally (Nth image -> Nth listing) since there's no reliable
@@ -9540,6 +9592,41 @@ function parseEbaySellerHubResearch(raw){
     if(dateRe.test(dateLine)){ const d=new Date(dateLine); if(!isNaN(d)) dateLastSold=d.toISOString(); }
     out.push({ title, condition:inferConditionFromTitle(title), price:avgPrice, avgShip, totalSold, soldDate:dateLastSold });
   }
+  // Fallback: if the precise anchor-based pass found nothing — which is exactly what happens
+  // on a whole-page Ctrl+A paste, where that ", preview full size image" anchor doesn't survive
+  // — scan structurally instead. A real research row is a title line (long, letters, not a
+  // price/date/known-nav-word) followed within a few lines by a dollar price and eventually a
+  // date. Navigation junk ("Deals", "Gift Cards", "Watchlist") never has a price+date after it,
+  // so it gets skipped naturally without needing a hardcoded blocklist.
+  if(!out.length){
+    const navJunk=/^(skip to main content|hi\b.*|deals|brand outlet|gift cards|help & contact|sell|watchlist|expand .*|my ebay|notifications|expand cart|shop by category|advanced|search|home|saved|feedback|sign out|categories?)$/i;
+    // Structural non-title lines that can sit near a price but aren't listings.
+    const notTitle=/(free shipping|^\d+% |fixed price|^auction$|^edit$|best offer|^\$|per item|^\d[\d,]*\.\d{2}$|watchers?$|sold$|^\d+ (sold|bids?|watchers?)$)/i;
+    for(let i=0;i<lines.length;i++){
+      const title=lines[i];
+      if(!title || title.length<12) continue;                 // real titles are reasonably long
+      if(navJunk.test(title)) continue;                       // obvious page chrome
+      if(notTitle.test(title)) continue;                      // shipping/format/price status lines
+      if(priceRe.test(title) || dateRe.test(title)) continue; // a price/date isn't a title
+      if(!/[A-Za-z]/.test(title)) continue;                   // must contain letters
+      const letters=(title.match(/[A-Za-z]/g)||[]).length; if(letters<8) continue; // enough real words
+      // Look ahead up to 12 lines for a price, then (optionally) a date.
+      let price="", avgShip="", totalSold=null, soldDate="";
+      let foundPriceAt=-1;
+      for(let k=i+1;k<Math.min(i+13,lines.length);k++){
+        const m=(lines[k]||"").match(priceRe);
+        if(m){ price=m[1].replace(/,/g,""); foundPriceAt=k; break; }
+      }
+      if(foundPriceAt<0) continue; // no price nearby → not a listing row, skip (this drops nav junk)
+      for(let k=foundPriceAt+1;k<Math.min(foundPriceAt+10,lines.length);k++){
+        if(dateRe.test(lines[k]||"")){ const d=new Date(lines[k]); if(!isNaN(d)) soldDate=d.toISOString(); break; }
+        const sm=(lines[k]||"").match(priceRe); if(sm && !avgShip) avgShip=sm[1]; // first following price = likely shipping
+        const tm=(lines[k]||"").match(/^\d+$/); if(tm && totalSold==null) totalSold=parseInt(lines[k],10);
+      }
+      out.push({ title, condition:inferConditionFromTitle(title), price, avgShip, totalSold, soldDate });
+      i=foundPriceAt; // continue past this row's data so we don't re-scan its numbers as titles
+    }
+  }
   return out;
 }
 async function pullNewListings(after,silent){
@@ -10273,13 +10360,21 @@ function openCommunication(focusUsername){
     if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; replyWrap.innerHTML=`<div class="smallhint">No conversation id — can't reply.</div>`; return; }
     const convType=fld(c,["conversationType"],"");
     if(convType==="FROM_EBAY"){
-      // eBay's single-conversation endpoint rejects this type outright (it reports the
-      // conversationType parameter as "missing" even though it's present) — these system
-      // notifications aren't retrievable as a full thread the way buyer/seller messages are.
-      // Show what the list already gave us instead of repeatedly hitting a call that 400s.
+      // These are eBay's own automated notifications. Historically WIM didn't even try to load
+      // them because the call always failed — but that failure was actually the camelCase
+      // parameter bug (fixed now), not a real limitation. So attempt the real load; only if it
+      // genuinely fails do we fall back to the title/date the list already had.
+      try{
+        const nr=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversation_type=FROM_EBAY", EBAY_SCOPE_MSG);
+        if(nr.ok){
+          let ndata={}; try{ ndata=JSON.parse(nr.body); }catch(e){}
+          const nmsgs = ndata.messages || ndata.messageDetails || (ndata.conversation&&ndata.conversation.messages) || [];
+          if(nmsgs.length){ renderConversationMessages(nmsgs, c); replyWrap.innerHTML=`<div class="smallhint">eBay's own notifications can't be replied to.</div>`; return; }
+        }
+      }catch(e){ /* fall through to the informational view below */ }
       msgsEl.innerHTML=`<div style="color:#5b6470;font-size:12.5px;line-height:1.6;">
         <div style="font-weight:600;color:#28313f;margin-bottom:4px;">${esc(subjectOf(c))}</div>
-        <div>This is an automated notification from eBay itself (account alert, password reset, promo, etc.) — not a message from a buyer or seller. eBay's API doesn't provide the full notification text through this endpoint, only the title and date you see in the list.</div>
+        <div>This is an automated notification from eBay itself (account alert, password reset, promo, etc.). The full text isn't available through the API for this one — the title and date above are what eBay provided.</div>
         <div style="margin-top:8px;">To read the full notification, check it on <a href="#" id="cm-open-ebay" style="color:#3b7dd8;">eBay.com → My eBay → Messages</a>.</div></div>`;
       const lnk=msgsEl.querySelector("#cm-open-ebay"); if(lnk) lnk.onclick=(e)=>{ e.preventDefault(); openExternal("https://mesg.ebay.com/mesgweb/ViewMessages/0"); };
       replyWrap.innerHTML=`<div class="smallhint">eBay's own notifications can't be replied to.</div>`;
@@ -10342,7 +10437,7 @@ function openCommunication(focusUsername){
           } else { replyMsg.style.color="#c0392b"; replyMsg.textContent="Photo upload failed — nothing sent."; sendBtn.disabled=false; return; }
         } else {
           const payload=JSON.stringify({ body:text });
-          const r=await EBAY.postUser("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"/message?conversationType="+encodeURIComponent(convType), payload, EBAY_SCOPE_MSG);
+          const r=await EBAY.postUser("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"/message?conversation_type="+encodeURIComponent(convType), payload, EBAY_SCOPE_MSG);
           if(r.ok){ replyMsg.style.color="#1f7244"; replyMsg.textContent="Sent."; }
           else { replyMsg.style.color="#c0392b"; replyMsg.innerHTML="Couldn't send (HTTP "+r.status+"). <button class=\"btn sm\" id=\"cm-reply-raw\" style=\"margin-left:6px;\">Show details</button>"; const rb=replyMsg.querySelector("#cm-reply-raw"); if(rb) rb.onclick=()=>showCopyable("Send-reply error (send this to support)", r.body||"(empty)"); sendBtn.disabled=false; return; }
         }
@@ -10353,7 +10448,7 @@ function openCommunication(focusUsername){
       finally{ sendBtn.disabled=false; }
     };
     try{
-      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversationType="+encodeURIComponent(convType||"FROM_EBAY"), EBAY_SCOPE_MSG);
+      const r=await EBAY.user("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"?conversation_type="+encodeURIComponent(convType||"FROM_MEMBERS"), EBAY_SCOPE_MSG);
       if(!r.ok){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Couldn't load this conversation (HTTP ${r.status}).<br>${esc((r.body||"").slice(0,300))}</div>`; return; }
       let data={}; try{ data=JSON.parse(r.body); }catch(e){}
       const msgs = data.messages || data.messageDetails || (data.conversation&&data.conversation.messages) || [];
