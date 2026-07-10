@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.38", BUILD_DATE="2026-10-31", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.39", BUILD_DATE="2026-11-01", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.39","Fixes from the third feedback round. Fixed Add Inventory crashing on open (Cannot access bottomBtn before initialization) -- the Warehouse cost auto-fill was firing during the page build and touching the Save button before it existed; the open-time fill is now silent and no longer trips over itself. Fixed Cancel (and the X) not closing a popped-out window -- it removed the page contents but left an empty window shell behind; the close now reliably shuts the whole window through every supported method. In Bulk Add: the Find on eBay button is now a big, full-width button directly under the Add photos / delete buttons on each card instead of a small icon off to the side, so it is easy to see; adding photos naturally pushes it down. The category-fields section that made cards huge is now a collapsible section that defaults to CLOSED -- click the Listing Fields header (renamed from Category Fields) to expand it and fill in the eBay fields, click again to collapse. Cards stay compact until you choose to open the fields."],
   ["3.3.38","Batch 8 finished: Force Log Out is now real. The admin-only Force Log Out screen shows every device on the team with when it was last seen and whether it is active right now, and each one has a Log out button. Logging out a device sends it a signal through the cloud; the device sees it on its next check-in (within about a minute of normal use), signs itself off, and returns to the login screen with a clear message. You can also log THIS device out from here. It is built on the same proven device round-trip the pause/resume feature already uses. One setup step is required first: the three little server functions this relies on need to be added to the cloud database once -- run the included FORCE_LOGOUT_SETUP.sql file in the Supabase SQL editor (paste, Run, done). Until that is run, the screen still loads and lists devices but sending a logout will report that the server function is not deployed yet, rather than silently failing. Honest note on timing: logout happens on the device next heartbeat, not truly instantly -- making it instant would need a always-connected socket this app does not use, and the check-in interval is short enough that in practice it is within about a minute."],
   ["3.3.37","Batch 8, part 2: Dashboard Widget Maintenance drag preview. When you drag a widget now, the thing following your cursor is a real preview of that actual widget -- the same tile with sample data you see on the dashboard -- instead of just its name in a little box. And as you drag over the dashboard, the widget you are about to drop in front of visibly slides aside to open a gap with a blue drop marker, so you can see exactly where it will land before you let go. Dropping, reordering, dragging back to the list to remove, and the corner X all work exactly as before."],
   ["3.3.36","Batch 8, part 1. Renamed the Missing Item screen to Waiting on Storage everywhere -- the Discrepancies menu, the window title, and the tree badge. It already opens as its own floating window over whatever you are on rather than taking over the screen, and the running count at the top of Add Item and Bulk Add still opens it. New Waiting on Storage dashboard widget for the Warehouse dashboard: a tile showing how many items are still waiting to be physically stored, orange when there are any and green when all are stored, and clicking it opens the Waiting on Storage screen. Add it from Configuration -> Dashboard Widgets. Add Inventory no longer interrupts you with the Send SKU tag to the Print Queue? popup after saving -- the item is just created and you stay on it; you can still print a label anytime from the Print button. A newly created item correctly shows as Active the moment it is saved (it already transitioned in place; the New record label only shows before the first save)."],
@@ -2235,7 +2236,19 @@ function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top
   applyZoom(body, DB.meta.appZoom[win.dataset.zoomgroup]||80);
   const winbtnList=ctr.querySelectorAll(".winbtn:not([data-popout])"); const [minB,maxB,closeB]=winbtnList;
   const doClose=()=>{ win.remove(); delete openWindows[id]; renderTaskbar(); if(onClose)onClose();
-    if(WIM_POPOUT_MODE && !modalsEl.querySelector(".window")){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
+    if(WIM_POPOUT_MODE && !modalsEl.querySelector(".window")){
+      // This is a popped-out OS window and its last in-page window just closed — close the real
+      // Tauri window too, or an empty shell is left behind. Try every known API shape, then fall
+      // back to window.close() so Cancel always actually closes the window.
+      let closed=false;
+      try{ const W=window.__TAURI__&&window.__TAURI__.window;
+        const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent())));
+        if(cw&&cw.close){ cw.close(); closed=true; }
+      }catch(e){}
+      if(!closed){ try{ const WV=window.__TAURI__&&window.__TAURI__.webviewWindow; const cur=WV&&WV.getCurrentWebviewWindow&&WV.getCurrentWebviewWindow(); if(cur&&cur.close){ cur.close(); closed=true; } }catch(e){} }
+      if(!closed){ try{ window.close(); }catch(e){} }
+    }
+  };
   let prev=null;
   const toggleMax=()=>{ if(win.dataset.max==="1"){ Object.assign(win.style, prev); win.dataset.max="0"; }
     else { prev={left:win.style.left,top:win.style.top,width:win.style.width,height:win.style.height};
@@ -5747,11 +5760,11 @@ function openItemDetail(item,mode,nav,defaultTab){
   //    fills automatically and is not meant to be hand-maintained.
   //  • Any other vendor → cost is suggested from that vendor's Unit Costing average, and only
   //    while the cost field hasn't been deliberately typed over.
-  function applyWarehouseCost(){
+  function applyWarehouseCost(silent){
     if(!costInp) return;
     const price=(body.querySelector("#d-price")||{}).value || (it.listing&&it.listing.price) || it.retail;
     const c=warehouseCostForPrice(price);
-    if(c!=null){ costInp.value=c.toFixed(2); costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); }
+    if(c!=null){ costInp.value=c.toFixed(2); costInp.dataset.autoFilled="1"; if(!silent){ markDirty&&markDirty(); } updateGmDisplay(); }
   }
   function vendorIsWarehouse(){ return (vendorSel?vendorSel.value:it.vendor)==="Warehouse"; }
   if(vendorSel && costInp && !ro){
@@ -5764,8 +5777,9 @@ function openItemDetail(item,mode,nav,defaultTab){
     // If Warehouse is the (default) vendor, keep cost synced to price as price is typed.
     const priceInp=body.querySelector("#d-price");
     if(priceInp){ priceInp.addEventListener("input",()=>{ if(vendorIsWarehouse()) applyWarehouseCost(); }); }
-    // Fill once on open if this item is on the Warehouse vendor and has a price.
-    if(vendorIsWarehouse()) applyWarehouseCost();
+    // Fill once on open if this item is on the Warehouse vendor and has a price — silent, so it
+    // doesn't touch the not-yet-initialized Save button or mark a fresh item dirty.
+    if(vendorIsWarehouse()) applyWarehouseCost(true);
   }
   const descTop=body.querySelector("#d-desc"); if(descTop && !ro) descTop.oninput=()=>{
     // Title reflects the item description automatically, same live-sync pattern as Price —
@@ -6304,6 +6318,10 @@ function openBulkAdd(){
     const delB=document.createElement("button"); delB.className="btn sm"; delB.style.cssText="width:30px;border-color:#c0392b;color:#c0392b;"; delB.textContent="🗑"; delB.title="Delete the photo shown above";
     delB.onclick=()=>{ if(r._viewIdx>=0){ r.images.splice(r._viewIdx,1); r._viewIdx=r.images.length?Math.min(r._viewIdx,r.images.length-1):-1; render(); } };
     btnRow.appendChild(addB); btnRow.appendChild(delB); btnRow.appendChild(file); wrap.appendChild(btnRow);
+    // Big, easy-to-see Find on eBay button, directly under the photo buttons.
+    const findB=document.createElement("button"); findB.className="btn sm ba-find"; findB.style.cssText="width:100%;margin-top:6px;padding:7px 0;font-weight:600;border-color:#378add;color:#0c447c;";
+    findB.innerHTML="🔍 Find on eBay"; findB.title="Search eBay to set category & required listing fields";
+    wrap.appendChild(findB);
     // Thumbnail strip — click to view, click an S tag to promote to featured.
     const strip=document.createElement("div"); strip.style.cssText="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;";
     r.images.forEach((src,idx)=>{
@@ -6377,16 +6395,17 @@ function openBulkAdd(){
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;align-items:center;">
             <input type="checkbox" class="ba-selrow" ${selected.has(r)?"checked":""} title="Select this item">
-            <button class="btn sm ba-find" title="Search eBay to set category &amp; required fields">🔍</button>
             <button class="btn sm ba-del" style="border-color:#c0392b;color:#c0392b;" title="Delete this item">🗑</button>
           </div>
         </div>
         ${dyn.length?`<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
-          <div style="font-size:11px;color:#5b6470;margin-bottom:7px;">Category fields <span style="color:#8a95a3;">(from eBay for ${esc(r.section||"this category")})</span></div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div>${lbl(a.name)}<input class="txt ba-asp" data-asp="${esc(a.name)}" value="${esc(r.aspects[a.name]||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}`;
+          <div class="ba-lf-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span class="ba-lf-caret" style="display:inline-block;transition:transform .12s;transform:rotate(${r._fieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Fields</b> <span style="color:#8a95a3;">(from eBay for ${esc(r.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}</span></div>
+          <div class="ba-lf-body" style="display:${r._fieldsOpen?'grid':'none'};grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div>${lbl(a.name)}<input class="txt ba-asp" data-asp="${esc(a.name)}" value="${esc(r.aspects[a.name]||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}`;
 
       // Photo panel
       card.querySelector(".ba-photo-slot").replaceWith(photoPanel(r));
+      // Listing Fields collapse toggle (default collapsed so the card stays compact)
+      const lfHdr=card.querySelector(".ba-lf-hdr"); if(lfHdr) lfHdr.onclick=()=>{ r._fieldsOpen=!r._fieldsOpen; render(); };
       // Text field wiring
       card.querySelectorAll("input[data-f]").forEach(inp=>{ inp.oninput=()=>{ r[inp.dataset.f]=inp.value; if(inp.dataset.f==="slot") inp.style.color=inp.value?"inherit":"#8a95a3"; }; });
       card.querySelectorAll("input.ba-asp").forEach(inp=>{ inp.oninput=()=>{ r.aspects[inp.dataset.asp]=inp.value; }; });
