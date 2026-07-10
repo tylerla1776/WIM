@@ -483,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.26", BUILD_DATE="2026-10-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.27", BUILD_DATE="2026-10-20", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +589,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.27","Batch 2 of the updates list: the blank-screen bug and a consistent save/cancel model across the maintenance screens. The empty-screen-after-save/cancel is gone. There is no more Okay button -- on an item, once you change something a blue Save button appears next to Cancel; clicking Save commits the change, flashes Saved, and leaves you on the page with the Save button gone until you change something else. Cancel with no changes closes right away; Cancel with unsaved changes asks Yes save / No discard / Keep editing. Category Maintenance and Group Maintenance were switched to the same model -- they no longer save every keystroke instantly; instead adds, renames, and deletes are held as pending changes and a Save button appears, with the same discard/keep-editing prompt on Cancel, so a mistaken delete is no longer instant and permanent. Vendor, Condition, and Adjustment maintenance get the same safer behavior for free since they share the screen. Built on one shared save controller so every screen behaves identically and there is a single place to maintain it."],
   ["3.3.26","New System Health screen under Configuration -> Account Health -- one place showing the state of every outside service WIM depends on, so a usage limit or outage surfaces before it silently breaks something. It is deliberately honest about what each service actually exposes rather than faking numbers: eBay shows a live status with the tightest resource summarized and a button through to the full API Limits breakdown; Shippo and EasyPost show WIM own count of the rate calls it made this month (they do not publish a usage number, and the counter resets on the 1st) plus a live reachable check; Cloud Sync (Supabase) and the InventoryIQ Cloudflare Worker show reachable or unreachable; and eBay Picture Services is shown as informational since it has no capacity total to track (per-image size limits and 90-day auto-expiry, not a quota). A Refresh All button re-checks everything on demand, and it also checks once automatically when opened. Green means good; red or yellow is worth a look."],
   ["3.3.25","Configuration menu reorganized into collapsible sub-groups (batch 1 of the updates list). The everyday config apps -- Dashboard Widgets, Shipping Data, warehouse maintenance apps, Description Manager, and the admin ones like Supervisory Maintenance, Backup and Updates, Local Profiles, Simulation Mode, and About/Version -- still sit directly under Configuration. The rest are now tucked into three expandable groups, each with a plus button to open it: Account Health (eBay Compliance Log, eBay API Limits), Security (Manage Devices), and Setup (Photo Default, eBay Connection, Listing Configuration, InventoryIQ, and the Cloud Sync apps). Nothing was removed or lost -- every app is exactly where it was permission-wise, just grouped so the Configuration list is far shorter and easier to scan. A group only shows if you have access to at least one app inside it."],
   ["3.3.24","Two real fixes found while connecting to a live account. Publishing a listing: fixed the HTTP 400 where eBay rejected a listing for a missing package weight. Two things were wrong -- WIM was never actually including the weight and dimensions in what it sent to eBay at all (so even an item with a weight entered would still fail), and it did not check for a weight before trying to publish. Both fixed: weight (pounds) and dimensions (inches) are now sent, and if an item has no weight WIM stops before contacting eBay and tells you exactly what to do -- open the item, Shipping/Package section, enter a weight -- instead of a cryptic eBay error. This mainly affected scan-imported items, which come in with no weight by default. Messages: fixed opening a message from an actual eBay member failing with Missing the parameter conversationType. WIM was sending the parameter in the wrong format (conversationType instead of eBay required conversation_type), so eBay genuinely could not see it -- corrected on both the read and reply calls, verified against eBay own docs. And now that the parameter works, eBay own notifications actually attempt to load their real content instead of always showing a cannot-load message."],
@@ -2177,6 +2178,42 @@ function uiConfirm(msg,onYes,opts){ opts=opts||{}; return uiModal(opts.title||"P
   [{label:opts.yes||"Yes",primary:true,onClick:()=>{ if(onYes) onYes(); }},{label:opts.no||"Cancel"}]); }
 function uiChoose(msg,choices,title){ // choices: [{label,primary,onClick}]
   return uiModal(title||"WIM", `<div style="font-size:13px;">${esc(msg)}</div>`, choices); }
+// Reusable deferred-save controller — implements WIM's universal save/cancel behavior in one
+// place so every maintenance-style screen behaves identically: no "Okay" button; a gray Cancel
+// that closes; a blue Save that appears only once something changed and shows a "Saved" flash
+// when clicked; and a Yes-save / No-discard / Keep-editing prompt if you cancel with unsaved
+// changes. Screens supply: the footer element to host the buttons, an apply() that commits the
+// pending changes, a discard() that reverts them, and the window's close().
+function makeSaveController({footerEl, apply, discard, close, rerender, saveLabel}){
+  let dirty=false;
+  function paint(){
+    footerEl.innerHTML="";
+    if(dirty){
+      const save=document.createElement("button"); save.className="btn primary"; save.textContent=saveLabel||"Save";
+      save.onclick=()=>{ try{ apply(); }catch(e){ uiAlert("Couldn't save: "+(e&&e.message?e.message:e)); return; } dirty=false; wimToast("Saved \u2713","success"); if(rerender) rerender(); paint(); flash(); };
+      footerEl.appendChild(save);
+    }
+    const cancel=document.createElement("button"); cancel.className="btn"; cancel.textContent="Cancel";
+    cancel.onclick=()=>ctrl.attemptClose();
+    footerEl.appendChild(cancel);
+  }
+  function flash(){ try{ footerEl.closest(".body")||footerEl; const b=footerEl.closest(".body"); if(b){ b.style.transition="background-color .12s"; const prev=b.style.backgroundColor; b.style.backgroundColor="#eef7f0"; setTimeout(()=>{ b.style.backgroundColor=prev||""; },350); } }catch(e){} }
+  const ctrl={
+    markDirty(){ if(!dirty){ dirty=true; paint(); } },
+    isDirty(){ return dirty; },
+    reset(){ dirty=false; paint(); },
+    attemptClose(){
+      if(!dirty){ close(); return; }
+      uiModal("Save changes?","<div style=\"font-size:13px;\">You have unsaved changes. Save them before closing?</div>",
+        [{label:"Yes, save",primary:true,onClick:()=>{ try{ apply(); }catch(e){ uiAlert("Couldn't save: "+(e&&e.message?e.message:e)); return false; } dirty=false; close(); }},
+         {label:"No, discard",onClick:()=>{ try{ if(discard) discard(); }catch(e){} dirty=false; close(); }},
+         {label:"Keep editing"}]);
+    },
+    paint
+  };
+  paint();
+  return ctrl;
+}
 function attachAutofill(input, getOptions){
   input.addEventListener("input",()=>{
     const len=input.value.length;
@@ -3683,12 +3720,18 @@ function openListMaintenance(kind){
               adjustment:{id:"adj-maint",title:"Adjustment Configuration",one:"Adjustment Type",many:"adjustment types",ph:"e.g. Donation",arr:()=>DB.adjustmentTypes} }[kind];
   const id=cfg.id; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const arr=cfg.arr; const canOpen=(kind==="section"||kind==="group");
-  const {body,close}=buildWindow({id,title:cfg.title,width:620,height:560,toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Add, modify, or delete ${cfg.many}${canOpen?" — double-click to see items":""} — changes save automatically</span>`});
+  const {body,close}=buildWindow({id,title:cfg.title,width:620,height:560,toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Add, modify, or delete ${cfg.many}${canOpen?" — double-click to see items":""}. Changes are held until you click Save.</span>`});
+  // Deferred-save working model: all edits go into these staged operations and the working list,
+  // and nothing touches DB until Save. Cancel with pending changes prompts save/discard.
+  let working=arr().slice();          // the list as the user is editing it
+  const renames=[];                   // {from,to} to apply on save
+  const deletes=[];                   // names to delete on save
+  const adds=[];                      // brand-new names to add on save
   body.innerHTML=`<fieldset class="gb" style="margin:14px;"><legend>Add ${cfg.one}</legend>
       <div class="inline-add"><div class="ff" style="grid-template-columns:auto 1fr;flex:1;"><label class="fld">Name</label><input class="txt" id="lm-name" placeholder="${cfg.ph}"></div>
         <button class="btn sm" id="lm-add">Add</button></div><div class="err" id="lm-err"></div></fieldset>
     <div style="padding:0 14px;flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">${cfg.many.charAt(0).toUpperCase()+cfg.many.slice(1)}</div><div class="listbox" id="lm-list"></div></div>
-    <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;justify-content:flex-end;"><button class="btn primary" id="lm-okay">Okay</button></div>`;
+    <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;justify-content:flex-end;" id="lm-footer"></div>`;
   const err=body.querySelector("#lm-err");
   const usageCount=(name)=> kind==="section"? DB.items.filter(i=>i.section===name).length
     : kind==="group"? DB.items.filter(i=>(i.groups||[]).includes(name)).length
@@ -3697,11 +3740,30 @@ function openListMaintenance(kind){
     : DB.items.filter(i=>i.condition===name).length;
   const unit = kind==="adjustment"?"records":"items";
   let editing=null;
+  // Commit all staged operations to DB. Order matters: renames, then deletes, then adds.
+  function applyAll(){
+    renames.forEach(r=>{ applyRename(kind,r.from,r.to); });
+    deletes.forEach(n=>{ applyDelete(kind,n); });
+    adds.forEach(n=>{ if(!arr().some(x=>x.toLowerCase()===n.toLowerCase())){ arr().push(n);
+      if(kind==="section"){ if(!DB.conditionsByCat) DB.conditionsByCat={}; if(!DB.conditionsByCat[n]) DB.conditionsByCat[n]=DB.conditions.slice(); if(!DB.subcats) DB.subcats={}; if(!DB.subcats[n]) DB.subcats[n]=[{name:n,ebayId:"",ebayName:"",aspects:[]}]; } } });
+    save(); refreshSearchWindows();
+    // Re-sync the working copy to the now-updated real list.
+    working=arr().slice(); renames.length=0; deletes.length=0; adds.length=0;
+  }
+  const ctrl=makeSaveController({ footerEl:body.querySelector("#lm-footer"), apply:applyAll,
+    discard:()=>{ working=arr().slice(); renames.length=0; deletes.length=0; adds.length=0; }, close,
+    rerender:()=>render(), saveLabel:"Save" });
   const render=()=>{ const l=body.querySelector("#lm-list"); l.innerHTML="";
-    arr().slice().forEach(name=>{ const li=document.createElement("div"); li.className="li"; li.style.display="flex"; li.style.justifyContent="space-between"; li.style.alignItems="center"; li.style.gap="8px";
+    working.slice().forEach(name=>{ const li=document.createElement("div"); li.className="li"; li.style.display="flex"; li.style.justifyContent="space-between"; li.style.alignItems="center"; li.style.gap="8px";
       const left=document.createElement("div"); left.style.flex="1"; left.style.display="flex"; left.style.alignItems="center"; left.style.gap="8px";
       if(editing===name){ const inp=document.createElement("input"); inp.className="txt"; inp.style.flex="1"; inp.value=name;
-        const commit=()=>{ const nn=inp.value.trim(); if(nn && nn!==name){ if(arr().some(x=>x.toLowerCase()===nn.toLowerCase())){ err.style.color="#c0392b"; err.textContent="That name already exists."; return; } applyRename(kind,name,nn); save(); refreshSearchWindows(); } editing=null; err.textContent=""; render(); };
+        const commit=()=>{ const nn=inp.value.trim(); if(nn && nn!==name){ if(working.some(x=>x.toLowerCase()===nn.toLowerCase())){ err.style.color="#c0392b"; err.textContent="That name already exists."; return; }
+            // stage the rename in the working list + ops
+            const idx=working.indexOf(name); if(idx>=0) working[idx]=nn;
+            // if this was a pending add, just rename the add; else record a rename op
+            const ai=adds.indexOf(name); if(ai>=0) adds[ai]=nn; else renames.push({from:name,to:nn});
+            ctrl.markDirty();
+          } editing=null; err.textContent=""; render(); };
         inp.addEventListener("keydown",e=>{ if(e.key==="Enter") commit(); if(e.key==="Escape"){ editing=null; render(); } });
         inp.addEventListener("blur",commit); left.appendChild(inp); setTimeout(()=>inp.focus(),0); }
       else { const span=document.createElement("span"); span.style.flex="1"; span.innerHTML=`${esc(name)} <span class="smallhint">(${usageCount(name)} ${unit})</span>`;
@@ -3716,19 +3778,24 @@ function openListMaintenance(kind){
       mod.onclick=()=>{ if(editing===name){ const inp=left.querySelector("input"); if(inp) inp.blur(); } else { editing=name; render(); } };
       const del=document.createElement("button"); del.className="btn sm"; del.textContent="Delete";
       del.onclick=()=>{ const n=usageCount(name);
-        const msg = kind==="condition" ? (n>0?name+" is used by "+n+" item(s); their Condition will be cleared. Delete?":"Delete "+name+"?")
-                  : kind==="adjustment" ? "Delete adjustment type "+name+"? Existing records keep their type." 
-                  : (n>0?name+" is used by "+n+" item(s). Delete anyway? It will be removed from those items entirely, and this will be recorded in each item's history and in Records.":"Delete "+name+"?");
-        uiConfirm(msg,()=>{ applyDelete(kind,name); save(); refreshSearchWindows(); render(); }); };
+        const msg = kind==="condition" ? (n>0?name+" is used by "+n+" item(s); their Condition will be cleared on Save. Remove it?":"Remove "+name+"?")
+                  : kind==="adjustment" ? "Remove adjustment type "+name+"? Existing records keep their type." 
+                  : (n>0?name+" is used by "+n+" item(s). Remove it? On Save it will be removed from those items entirely, recorded in each item's history and in Records.":"Remove "+name+"?");
+        uiConfirm(msg,()=>{ // stage the delete
+          const idx=working.indexOf(name); if(idx>=0) working.splice(idx,1);
+          const ai=adds.indexOf(name); if(ai>=0) adds.splice(ai,1); else deletes.push(name);
+          ctrl.markDirty(); render(); }); };
       wrap.appendChild(mod); wrap.appendChild(del); li.appendChild(left); li.appendChild(wrap); l.appendChild(li); });
   };
   const addNow=()=>{ const v=body.querySelector("#lm-name").value.trim(); err.style.color="#c0392b";
     if(!v){ err.textContent="Enter a name."; return; }
-    if(arr().some(x=>x.toLowerCase()===v.toLowerCase())){ err.textContent="That name already exists."; return; }
-    arr().push(v); if(kind==="section"){ if(!DB.conditionsByCat) DB.conditionsByCat={}; if(!DB.conditionsByCat[v]) DB.conditionsByCat[v]=DB.conditions.slice(); if(!DB.subcats) DB.subcats={}; if(!DB.subcats[v]) DB.subcats[v]=[{name:v,ebayId:"",ebayName:"",aspects:[]}]; } save(); refreshSearchWindows(); body.querySelector("#lm-name").value=""; err.style.color="#1f7244"; err.textContent='Added "'+v+'".'; render(); body.querySelector("#lm-name").focus(); };
+    if(working.some(x=>x.toLowerCase()===v.toLowerCase())){ err.textContent="That name already exists."; return; }
+    working.push(v); adds.push(v); ctrl.markDirty();
+    body.querySelector("#lm-name").value=""; err.style.color="#1f7244"; err.textContent='Added "'+v+'" (click Save to keep).'; render(); body.querySelector("#lm-name").focus(); };
   body.querySelector("#lm-add").onclick=addNow;
   body.querySelector("#lm-name").addEventListener("keydown",e=>{ if(e.key==="Enter") addNow(); });
-  body.querySelector("#lm-okay").onclick=close;
+  // Route the window's X button through the same save-prompt logic.
+  body._confirmClose=(proceed)=>{ if(ctrl.isDirty()){ ctrl.attemptClose(); } else proceed(); };
   render();
 }
 /* ============================================================ UNIT COSTING ============================================================ */
@@ -4821,7 +4888,7 @@ function openItemDetail(item,mode,nav,defaultTab){
     <div class="tabs"><div class="tab sel" id="d-tab-groups">Groups</div><div class="tab" id="d-tab-history">Item History</div><div class="tab" id="d-tab-listing">Listing Details</div><div class="tab" id="d-tab-compare">Price Compare</div></div>
     <div class="pane-tabbody" id="d-tabbody"></div>
     </div>
-    <div class="statusbar"><span id="d-status"></span><span id="d-status-action" style="margin-left:8px;"></span><span id="d-statusbtns">${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}${(isNew&&!isLive())?'<button class="btn" id="d-addsend">Add &amp; Send</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'Create+':'Add Item'):'Okay'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
+    <div class="statusbar"><span id="d-status"></span><span id="d-status-action" style="margin-left:8px;"></span><span id="d-statusbtns">${ro?'<button class="btn" id="d-close">Close</button>':`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}${(isNew&&!isLive())?'<button class="btn" id="d-addsend">Add &amp; Send</button> ':''}<button class="btn primary" id="d-save">${isNew?(isLive()?'Create+':'Add Item'):'Save'}</button> <button class="btn" id="d-close">Cancel</button>`}</span></div>`;
 
   if(!it.images) it.images=it.image?[it.image]:[]; if(it.imageFeatured==null) it.imageFeatured=0;
   if(it.images.length && !it.images.includes(it.image)) it.image=it.images[it.imageFeatured]||it.images[0];
@@ -5585,12 +5652,17 @@ function openItemDetail(item,mode,nav,defaultTab){
   function flashSaved(){ try{ ["#d-desc","#d-price","#d-cost","#d-section","#d-condition","#d-onhand"].forEach(sel=>{ const e=body.querySelector(sel); if(e){ e.style.transition="background-color .15s"; const prev=e.style.backgroundColor; e.style.backgroundColor="#e2f3e6"; setTimeout(()=>{ e.style.backgroundColor=prev||""; },450); } }); }catch(e){} }
   dirty=false;
   let bottomBtn=body.querySelector("#d-save");
-  function updateBtn(){ if(!bottomBtn) return; bottomBtn.textContent = isNew?(isLive()?"Create+":"Add Item"):(dirty?(itemStatus(it)==="listed"?"Update Listing":"Save"):"Okay"); }
+  function updateBtn(){ if(!bottomBtn) return;
+    if(isNew){ bottomBtn.style.display=""; bottomBtn.textContent = isLive()?"Create+":"Add Item"; }
+    else if(dirty){ bottomBtn.style.display=""; bottomBtn.textContent = itemStatus(it)==="listed"?"Update Listing":"Save"; }
+    else { bottomBtn.style.display="none"; } // existing item, no changes — only Cancel shows
+  }
   const s2l=body.querySelector("#d-send2list"); if(s2l) s2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); wimRefreshAll(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
   function markDirty(){ if(!dirty){ dirty=true; updateBtn(); } }
   body.addEventListener("input",markDirty); body.addEventListener("change",markDirty);
   const origManualClick=manual.onclick; manual.onclick=()=>{ origManualClick(); markDirty(); };
-  bottomBtn.onclick=()=>doSave(false);
+  bottomBtn.onclick=()=>doSave(isNew?false:true); // existing item: Save keeps window open + flashes; new item: create then transition
+  updateBtn(); // set initial button visibility — hidden for a freshly-opened existing item
   const addSendBtn=body.querySelector("#d-addsend"); if(addSendBtn) addSendBtn.onclick=()=>doSave(false,true);
   const topSave=body.parentElement? null:null; const tsv=openWindows[wid].el.querySelector('[data-act="Save"]'); if(tsv) tsv.onclick=()=>doSave(true);
   const wts=openWindows[wid].el.querySelector('#d-waiting'); if(wts) wts.onclick=()=>openMissingItem();
@@ -5607,8 +5679,8 @@ function openItemDetail(item,mode,nav,defaultTab){
     const lastsold=body.querySelector("#d-lastsold"); if(lastsold) lastsold.innerHTML="Added to system: "+fmtDate(it.createdAt);
     const statusBtns=body.querySelector("#d-statusbtns");
     if(statusBtns){
-      statusBtns.innerHTML=`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">Okay</button> <button class="btn" id="d-close">Cancel</button>`;
-      bottomBtn=body.querySelector("#d-save"); bottomBtn.onclick=()=>doSave(false); updateBtn();
+      statusBtns.innerHTML=`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">Save</button> <button class="btn" id="d-close">Cancel</button>`;
+      bottomBtn=body.querySelector("#d-save"); bottomBtn.onclick=()=>doSave(true); updateBtn();
       const newClose=body.querySelector("#d-close"); if(newClose) newClose.onclick=()=>confirmCloseItem(_closeWin);
       const newS2l=body.querySelector("#d-send2list"); if(newS2l) newS2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); wimRefreshAll(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
     }
