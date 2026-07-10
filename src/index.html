@@ -483,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.28", BUILD_DATE="2026-10-21", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.34", BUILD_DATE="2026-10-27", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +589,12 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.34","Batch 7, part 2: the Bulk Add card redesign. Bulk Add is no longer a wide scrolling table -- each item is now its own card, with no horizontal scrolling. Left side of each card is a photo panel: a large featured photo box with a Featured/Secondary tag in the corner (like Item Maintenance), an Add photos button, a trash button that deletes the photo currently shown, and a strip of clickable thumbnails each tagged F or S -- click a thumbnail to view it big, click an S tag to make it the featured photo, and the first photo you add is the featured one. The fields are laid out in tidy columns: Item Description / Category / Sub Category, then Listing Price / Cost / Vendor, then Condition with the Manually Slot and Reserve checkboxes right below it, then Quantity, a larger Description box you can actually read with a template picker, and Warehouse SKU. Dropdown carets now sit next to each field label (Category, Sub Category, Vendor, Condition, Description) instead of being crammed inside the textbox -- click the caret to open the WIM dropdown. Category-specific eBay fields appear in their own row at the bottom of the card once a category is set, instead of piling up as extra columns across the whole table. Each card has a trash-can to delete it. The header bar now shows only the six requested columns (Item Description, Category, Condition, Vendor, Unit cost, Quantity) with sort by any of them ascending or descending, a Select all checkbox, per-card checkboxes, and a Delete selected button. Listing price flows through to the item and its listing, and the Reserve checkbox is carried onto the item."],
+  ["3.3.33","Batch 7, part 1: the Bulk Add typing and dropdown bugs, plus pull progress. The dropdowns in Bulk Add (Category, Sub Category, Condition, Vendor, Warehouse SKU) used the browser native list control, which covered the textbox so you could not see what you were typing, looked like a google-autofill box instead of a WIM dropdown, and inside the desktop app swallowed certain keystrokes -- which is why the letters C, V, and H would not type and backspace misbehaved. All of these now use a proper WIM dropdown that opens below the field, never covers it, filters as you type, and types normally including C, V, H and backspace. New Bulk Add rows now default their vendor to Warehouse (matching Add Item), so the price-driven cost fills in automatically. Pull New Listings (Listed, no SKU) now shows a live, animated progress readout -- Reading listing 34 of 220, N new so far, with cycling dots -- so a big pull never looks frozen the way 1,000-plus listings did before. Still to come in part 2: the fuller multi-line card layout for Bulk Add and making Listed, no SKU match that new look."],
+  ["3.3.32","Batch 6: printing. Fixed the Pop-up blocked. Allow pop-ups to print/save PDF error. Printing was trying to open a browser popup window, which does not exist inside the desktop app, so it always failed. Printing now renders locally through a hidden in-window frame and opens the print dialog directly -- no popup, no error. This fixes printing everywhere in WIM, not just search results, since every screen Print button uses the same routine. The Item Maintenance / Catalog search printout now has a proper titled header listing exactly what you searched for, in field order, with a timestamp -- for example Search Results: Apple, New, Book, A.1, WIC Items  07/15/26 10:54 am -- followed by the results table. Catalog Maintenance columns already sort ascending and descending by clicking the column header (with an arrow indicator), shared with the same sortable search engine Item Maintenance uses, so that part was already in place."],
+  ["3.3.31","Batch 5: Category and Group Maintenance. Category Maintenance is now locked -- since categories are official eBay categories, they can no longer be renamed, deleted, or added here. The screen now only lets you view every category with its item count and manage each category sub-categories (the Sub Categories button). The Add Category form and the Modify/Delete buttons are gone. A one-time cleanup ran on your categories exactly as requested: the Bulk category was removed, everything in the General category was moved to NONE, and General was then removed -- leaving NONE as the single user placeholder category (items are allowed to sit in NONE in warehouse mode and before listing; the listing step is where a real eBay category gets chosen). Any items that were in Bulk were also moved to NONE so nothing is orphaned. Group Maintenance already got its gray Cancel, appears-on-change Save button, and save/discard/keep-editing prompt back in the batch 2 save-model work, and the Category Maintenance blank-screen-on-close was fixed there too -- so those parts of this section were already done."],
+  ["3.3.30","Batch 4: Cost and Vendor logic, plus the new Warehouse vendor. Picking a vendor on an item now fills the Cost field with that vendor current Unit Costing average -- and this now works on any item, not just brand-new ones (it was only firing for new items before, which is why it seemed like it wasn t auto-populating). A deliberately typed cost is still respected. New Warehouse vendor: created automatically and set as the default vendor for new items. Its cost is driven purely by the listing price through an editable tier table -- type a price and the cost fills in automatically (10 gives 1.00, 30 gives 5.00, and so on), matching the exact bands requested: under 14.95 is 1.00, 14.95 to 24.94 is 2.00, 24.95 to 29.94 is 3.00, 29.95 to 39.94 is 5.00, 39.95 to 49.94 is 6.00, and 49.95 and up is 7.00. Those bands live in Unit Costing under the Warehouse vendor, fully editable -- change a threshold, change a cost, add a new band, or delete one, with a built-in try it box to preview what any price would cost. The Warehouse cost is meant to fill automatically and not be hand-maintained; a rare one-off edit only changes that single item recorded cost and feeds into nothing else, exactly as intended."],
+  ["3.3.29","Batch 3: Item Maintenance landing page. Groups tab now supports multi-select -- click several groups on either side (they highlight) and one arrow moves all of them at once, instead of one at a time; the group search box is still there. The Item History tab columns (Date, Change, User, Time) are now clickable to sort ascending/descending with an arrow indicator. The Item Maintenance search now has a Sub Category dropdown right under Category, and Reserve Item moved to the last field. The big one: Category vs Sub Category is now consistent. The eBay CATEGORY drives which listing fields appear -- not the sub-category. Change the category and the listing fields reload for that category, pulled live from eBay (a Load fields for this category button is there too, and it auto-loads on category change when connected). Sub Category is now purely an internal WIM tag with no effect on listing fields; it defaults to blank so you must choose one (including a None option) before an item can be added. Books & Magazines was seeded with Books, Comics, Manga, and None. Existing eBay-field data was migrated up from the old sub-category storage to the new category-level storage so nothing was lost. Honest note: pulling a category fields the first time needs a live eBay connection; categories not yet mapped to an eBay category will prompt you to map them via Find on eBay first."],
   ["3.3.28","Fixed the System Health screen Refresh All button doing nothing. The button and its status text live in the window toolbar, but the code was looking for them inside the window body -- so the click handler never attached and nothing refreshed. Now wired correctly from the window root, so Refresh All actually re-checks every service, and the this-month call counts for Shippo and EasyPost update on refresh too instead of being frozen at whatever they were when the screen opened."],
   ["3.3.27","Batch 2 of the updates list: the blank-screen bug and a consistent save/cancel model across the maintenance screens. The empty-screen-after-save/cancel is gone. There is no more Okay button -- on an item, once you change something a blue Save button appears next to Cancel; clicking Save commits the change, flashes Saved, and leaves you on the page with the Save button gone until you change something else. Cancel with no changes closes right away; Cancel with unsaved changes asks Yes save / No discard / Keep editing. Category Maintenance and Group Maintenance were switched to the same model -- they no longer save every keystroke instantly; instead adds, renames, and deletes are held as pending changes and a Save button appears, with the same discard/keep-editing prompt on Cancel, so a mistaken delete is no longer instant and permanent. Vendor, Condition, and Adjustment maintenance get the same safer behavior for free since they share the screen. Built on one shared save controller so every screen behaves identically and there is a single place to maintain it."],
   ["3.3.26","New System Health screen under Configuration -> Account Health -- one place showing the state of every outside service WIM depends on, so a usage limit or outage surfaces before it silently breaks something. It is deliberately honest about what each service actually exposes rather than faking numbers: eBay shows a live status with the tightest resource summarized and a button through to the full API Limits breakdown; Shippo and EasyPost show WIM own count of the rate calls it made this month (they do not publish a usage number, and the counter resets on the 1st) plus a live reachable check; Cloud Sync (Supabase) and the InventoryIQ Cloudflare Worker show reachable or unreachable; and eBay Picture Services is shown as informational since it has no capacity total to track (per-image size limits and 90-day auto-expiry, not a quota). A Refresh All button re-checks everything on demand, and it also checks once automatically when opened. Green means good; red or yellow is worth a look."],
@@ -1220,6 +1226,26 @@ function migrate(d){
   // Local API-usage counters for services with no public usage endpoint (Shippo, EasyPost,
   // etc.). Keyed by month so it self-resets; the System Health screen reads these.
   if(!d.apiUsage) d.apiUsage={ month:"", counts:{} };
+  // Category-driven listing fields: aspects and eBay-category mapping now live at the category
+  // level, not the sub-category. Migrate any older sub-category data up so nothing is lost.
+  if(!d.categoryAspects) d.categoryAspects={};
+  if(!d.categoryEbayMap) d.categoryEbayMap={};
+  if(!d._catAspectMigrated){
+    Object.keys(d.subcats||{}).forEach(cat=>{
+      (d.subcats[cat]||[]).forEach(sc=>{
+        if(sc && sc.ebayId && !d.categoryEbayMap[cat]) d.categoryEbayMap[cat]=sc.ebayId;
+        if(sc && sc.aspects && sc.aspects.length && !(d.categoryAspects[cat]&&d.categoryAspects[cat].length)) d.categoryAspects[cat]=sc.aspects.slice();
+      });
+    });
+    d._catAspectMigrated=true;
+  }
+  // Seed the requested Books & Magazines sub-categories (internal tags, no eBay effect).
+  if(d.sections && d.sections.includes("Books & Magazines")){
+    if(!d.subcats) d.subcats={};
+    if(!d.subcats["Books & Magazines"]) d.subcats["Books & Magazines"]=[];
+    const want=["Books","Comics","Manga","None"];
+    want.forEach(n=>{ if(!d.subcats["Books & Magazines"].some(s=>s.name===n)) d.subcats["Books & Magazines"].push({name:n,ebayId:"",ebayName:"",aspects:[]}); });
+  }
   if(!Array.isArray(d.deletionAuditLog)) d.deletionAuditLog=[];
   if(!d.cachedFeedback) d.cachedFeedback={};
   if(!Array.isArray(d.feedbackSeenIds)) d.feedbackSeenIds=[];
@@ -1260,6 +1286,43 @@ function migrate(d){
     ];
   }
   if(!d.vendorCosting || typeof d.vendorCosting!=="object") d.vendorCosting={};
+  // The Warehouse vendor: cost is driven purely by the item's listing price via editable tiers,
+  // not by a purchase pool. Auto-created, and set as the default vendor for new items.
+  if(!Array.isArray(d.vendors)) d.vendors=[];
+  if(!d.vendors.includes("Warehouse")) d.vendors.unshift("Warehouse");
+  if(!d.warehouseCostTiers){
+    // {maxUnder: price is BELOW this value → cost} ; last tier uses maxUnder=null for "and up".
+    d.warehouseCostTiers=[
+      { maxUnder:14.95, cost:1.00 },
+      { maxUnder:24.95, cost:2.00 },
+      { maxUnder:29.95, cost:3.00 },
+      { maxUnder:39.95, cost:5.00 },
+      { maxUnder:49.95, cost:6.00 },
+      { maxUnder:null,  cost:7.00 },
+    ];
+  }
+  // Default the pinned vendor (used for new items) to Warehouse if nothing else is pinned.
+  if(d.pinnedVendor==null || d.pinnedVendor==="") d.pinnedVendor="Warehouse";
+  // One-time category cleanup: NONE is the only user-created placeholder category. Remove Bulk,
+  // migrate General's items to NONE, then remove General.
+  if(!d._categoryCleanupDone && Array.isArray(d.sections)){
+    // Ensure NONE exists as the placeholder.
+    if(!d.sections.includes("NONE")){ d.sections.push("NONE");
+      if(!d.subcats) d.subcats={}; if(!d.subcats["NONE"]) d.subcats["NONE"]=[{name:"NONE",ebayId:"",ebayName:"",aspects:[]}];
+      if(!d.conditionsByCat) d.conditionsByCat={}; if(!d.conditionsByCat["NONE"]) d.conditionsByCat["NONE"]=(d.conditions||[]).slice();
+    }
+    // Move any items in General (or the also-removed Bulk) to NONE so none are orphaned.
+    (d.items||[]).forEach(it=>{ if(it.section==="General"||it.section==="Bulk") it.section="NONE"; });
+    // Remove Bulk and General from the category list and their sub-cat/condition entries.
+    ["Bulk","General"].forEach(cat=>{
+      d.sections=d.sections.filter(s=>s!==cat);
+      if(d.subcats) delete d.subcats[cat];
+      if(d.conditionsByCat) delete d.conditionsByCat[cat];
+      if(d.categoryAspects) delete d.categoryAspects[cat];
+      if(d.categoryEbayMap) delete d.categoryEbayMap[cat];
+    });
+    d._categoryCleanupDone=true;
+  }
   if(!d.shippingData || typeof d.shippingData!=="object") d.shippingData={ byCategory:{}, packagingCost:"0.00" };
   if(!d.shipFrom || typeof d.shipFrom!=="object") d.shipFrom={ city:"", state:"", zip:"", country:"US" };
   if(!Array.isArray(d.shippingComparisons)) d.shippingComparisons=[];
@@ -1711,7 +1774,34 @@ function findSubcatByEbayId(ebayId){
   return null;
 }
 function subcatObj(cat,name){ return subcatsOf(cat).find(s=>s.name===name)||null; }
-function aspectsFor(it){ const sc=subcatObj(it.section,it.subCategory); return sc?(sc.aspects||[]):[]; }
+// Listing fields (eBay aspects) are driven by the eBay CATEGORY, never the sub-category.
+// Sub-category is an internal WIM tag only and has zero effect on which fields appear.
+// Category-level aspects are cached in DB.categoryAspects (keyed by category name); the eBay
+// category id each WIM category maps to lives in DB.categoryEbayMap.
+function categoryEbayId(cat){
+  if(DB.categoryEbayMap && DB.categoryEbayMap[cat]) return DB.categoryEbayMap[cat];
+  // Back-compat: older data stored the eBay id on a sub-category object — fall back to the
+  // first sub-category under this category that has one, so nothing breaks pre-migration.
+  const sc=subcatsOf(cat).find(s=>s&&s.ebayId); return sc?sc.ebayId:"";
+}
+function aspectsFor(it){ return (DB.categoryAspects && DB.categoryAspects[it.section]) || []; }
+// Fetch a category's eBay aspects live and cache them at the category level. Called when the
+// category changes on an item, so the listing fields always reflect the current category.
+async function fetchCategoryAspects(cat, onStep){
+  try{
+    const ebayId=categoryEbayId(cat);
+    if(!ebayId || !EBAY.ready()) return (DB.categoryAspects&&DB.categoryAspects[cat])||[];
+    onStep&&onStep("Loading "+cat+" listing fields from eBay…");
+    const tree=await EBAY.treeId();
+    const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=`+encodeURIComponent(ebayId));
+    if(r.ok){ const aspectStruct=(JSON.parse(r.body).aspects)||[];
+      const mapped=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),multi:!!(a.aspectConstraint&&a.aspectConstraint.itemToAspectCardinality==="MULTI"),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
+      if(!DB.categoryAspects) DB.categoryAspects={}; DB.categoryAspects[cat]=mapped; save();
+      return mapped;
+    }
+  }catch(e){ /* best-effort */ }
+  return (DB.categoryAspects&&DB.categoryAspects[cat])||[];
+}
 function descsForCat(cat){ return (DB.descriptions||[]).filter(d=> (d.categories||[]).includes(cat) || (d.categories||[]).includes("*ALL*")); }
 function listedItems(){ return DB.items.filter(i=>i.listing && (i.listing.status==="listed")); }
 function delistedItems(){ return DB.items.filter(i=>i.listing && i.listing.status==="delisted"); }
@@ -1994,6 +2084,14 @@ function groupKey(it){ return [String(it.desc||"").trim().toLowerCase(), it.sect
 // forever.
 function vendorPool(vendor){ if(!vendor) return null; if(!DB.vendorCosting[vendor]) DB.vendorCosting[vendor]={ unitsRemaining:0, costRemaining:0, purchases:[] }; return DB.vendorCosting[vendor]; }
 function vendorAvgCost(vendor){ const p=DB.vendorCosting[vendor]; if(!p || !p.unitsRemaining) return null; return p.costRemaining/p.unitsRemaining; }
+// Warehouse vendor cost is a pure function of the listing price, via the editable tier table.
+// Returns the cost for a given price, or null if price isn't a usable number.
+function warehouseCostForPrice(price){
+  const p=parseFloat(price); if(isNaN(p)) return null;
+  const tiers=DB.warehouseCostTiers||[];
+  for(const t of tiers){ if(t.maxUnder==null) return t.cost; if(p < t.maxUnder) return t.cost; }
+  return tiers.length? tiers[tiers.length-1].cost : null;
+}
 function vendorDrawUnit(vendor, actualCost){ const p=DB.vendorCosting[vendor]; if(!p || p.unitsRemaining<=0) return;
   p.unitsRemaining-=1; p.costRemaining=Math.max(0, p.costRemaining-(parseFloat(actualCost)||0)); }
 function unitsOf(it){ // active units of the same product (matching description/category/condition), ordered by SKU (closest to A.1.01 first)
@@ -2215,6 +2313,47 @@ function makeSaveController({footerEl, apply, discard, close, rerender, saveLabe
   paint();
   return ctrl;
 }
+// A WIM-native combo box: a normal text input with a styled dropdown list that appears BELOW
+// the field (never covering it) and never swallows keystrokes. This replaces native HTML
+// <datalist>, which in the Tauri WebView2 covers the textbox and intercepts certain keys
+// (notably C/V/H) and backspace. Options are provided by getOptions(); onChange fires on pick
+// or blur. Returns nothing — it wires itself onto the given input element.
+function wimCombo(input, getOptions, onChange){
+  input.setAttribute("autocomplete","off"); input.removeAttribute("list");
+  let panel=null, activeIdx=-1, filtered=[];
+  function close(){ if(panel){ panel.remove(); panel=null; activeIdx=-1; } document.removeEventListener("mousedown",onDocDown,true); }
+  function onDocDown(e){ if(panel && !panel.contains(e.target) && e.target!==input) close(); }
+  function open(){
+    const all=(getOptions()||[]).map(String);
+    const v=(input.value||"").toLowerCase();
+    filtered = v ? all.filter(o=>o.toLowerCase().includes(v)) : all.slice();
+    if(!filtered.length){ close(); return; }
+    if(!panel){ panel=document.createElement("div"); panel.className="wim-combo-panel";
+      panel.style.cssText="position:fixed;z-index:99999;background:#fff;border:1px solid #9aa3b0;border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.16);max-height:220px;overflow:auto;font-size:12.5px;";
+      document.body.appendChild(panel); document.addEventListener("mousedown",onDocDown,true); }
+    const r=input.getBoundingClientRect();
+    panel.style.left=r.left+"px"; panel.style.top=(r.bottom+2)+"px"; panel.style.minWidth=r.width+"px";
+    panel.innerHTML="";
+    filtered.forEach((o,i)=>{ const row=document.createElement("div"); row.textContent=o;
+      row.style.cssText="padding:5px 10px;cursor:pointer;"+(i===activeIdx?"background:#e2ebf9;":"");
+      row.onmousedown=(e)=>{ e.preventDefault(); pick(o); };
+      row.onmouseenter=()=>{ activeIdx=i; paintActive(); };
+      panel.appendChild(row); });
+  }
+  function paintActive(){ if(!panel) return; [...panel.children].forEach((c,i)=>c.style.background=i===activeIdx?"#e2ebf9":""); }
+  function pick(val){ input.value=val; close(); if(onChange) onChange(val); }
+  input.addEventListener("focus",open);
+  input.addEventListener("input",()=>{ activeIdx=-1; open(); }); // normal typing — no key swallowing
+  input.addEventListener("keydown",(e)=>{
+    if(!panel){ if(e.key==="ArrowDown"){ open(); } return; }
+    if(e.key==="ArrowDown"){ e.preventDefault(); activeIdx=Math.min(filtered.length-1,activeIdx+1); paintActive(); scrollActive(); }
+    else if(e.key==="ArrowUp"){ e.preventDefault(); activeIdx=Math.max(0,activeIdx-1); paintActive(); scrollActive(); }
+    else if(e.key==="Enter"){ if(activeIdx>=0){ e.preventDefault(); pick(filtered[activeIdx]); } }
+    else if(e.key==="Escape"){ close(); }
+  });
+  function scrollActive(){ if(!panel||activeIdx<0) return; const el=panel.children[activeIdx]; if(el&&el.scrollIntoView) el.scrollIntoView({block:"nearest"}); }
+  input.addEventListener("blur",()=>{ setTimeout(()=>{ close(); if(onChange) onChange(input.value); },150); });
+}
 function attachAutofill(input, getOptions){
   input.addEventListener("input",()=>{
     const len=input.value.length;
@@ -2231,12 +2370,23 @@ function compressImage(file,maxDim=480,q=0.65){ return new Promise((res,rej)=>{ 
     const c=document.createElement("canvas"); c.width=w;c.height=h; c.getContext("2d").drawImage(img,0,0,w,h); res(c.toDataURL("image/jpeg",q)); }; img.onerror=rej; img.src=rd.result; }; rd.onerror=rej; rd.readAsDataURL(file); }); }
 function printTable(title, headers, rows, opts){
   opts=opts||{};
-  const w=window.open("","_blank"); if(!w){ uiAlert("Pop-up blocked. Allow pop-ups to print/save PDF."); return; }
   const thead=headers.map(h=>`<th>${esc(h)}</th>`).join("");
   const tbody=rows.map(r=>"<tr>"+r.map(c=>`<td>${esc(c)}</td>`).join("")+"</tr>").join("");
   const footer=opts.footerNote?`<div style="margin-top:10px;font-weight:600;">${esc(opts.footerNote)}</div>`:"";
-  w.document.write(`<html><head><title>${esc(title)}</title><style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px;}h2{margin:0 0 4px;}table{border-collapse:collapse;width:100%;font-size:12px;margin-top:10px;}th,td{border:1px solid #999;padding:5px 8px;text-align:left;}th{background:#eee;}</style></head><body><h2>${esc(title)}</h2><div>${new Date().toLocaleString()} &middot; ${rows.length} records</div><table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>${footer}</body></html>`);
-  w.document.close(); w.focus(); setTimeout(()=>w.print(),350);
+  const subtitle=opts.subtitle?`<div style="font-size:13px;margin:2px 0 2px;">${esc(opts.subtitle)}</div>`:"";
+  const html=`<!DOCTYPE html><html><head><title>${esc(title)}</title><style>body{font-family:Segoe UI,Arial,sans-serif;margin:24px;}h2{margin:0 0 4px;}table{border-collapse:collapse;width:100%;font-size:12px;margin-top:10px;}th,td{border:1px solid #999;padding:5px 8px;text-align:left;}th{background:#eee;}</style></head><body><h2>${esc(title)}</h2>${subtitle}<div style="font-size:12px;color:#333;">${esc(opts.timestamp||new Date().toLocaleString())} &middot; ${rows.length} record${rows.length===1?"":"s"}</div><table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>${footer}</body></html>`;
+  // Print via a hidden iframe inside the current document — window.open() returns null in the
+  // Tauri webview (there's no real browser popup), which is what caused the "Pop-up blocked"
+  // error. An in-document iframe prints locally with no popup.
+  let fr=document.getElementById("wim-print-frame");
+  if(fr) fr.remove();
+  fr=document.createElement("iframe"); fr.id="wim-print-frame";
+  fr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(fr);
+  const doc=fr.contentWindow.document; doc.open(); doc.write(html); doc.close();
+  const go=()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ uiAlert("Couldn't open the print dialog: "+(e&&e.message?e.message:e)); } };
+  // Give the iframe a moment to lay out before printing.
+  if(fr.contentWindow.document.readyState==="complete") setTimeout(go,250); else fr.onload=()=>setTimeout(go,250);
 }
 function downloadCSV(filename, headers, rows){
   const esc2=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
@@ -3721,17 +3871,20 @@ function openListMaintenance(kind){
               adjustment:{id:"adj-maint",title:"Adjustment Configuration",one:"Adjustment Type",many:"adjustment types",ph:"e.g. Donation",arr:()=>DB.adjustmentTypes} }[kind];
   const id=cfg.id; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const arr=cfg.arr; const canOpen=(kind==="section"||kind==="group");
-  const {body,close}=buildWindow({id,title:cfg.title,width:620,height:560,toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Add, modify, or delete ${cfg.many}${canOpen?" — double-click to see items":""}. Changes are held until you click Save.</span>`});
+  // Category Maintenance is locked: eBay categories can't be added, renamed, or deleted here —
+  // users only view them with item counts and manage each one's sub-categories.
+  const locked=(kind==="section");
+  const {body,close}=buildWindow({id,title:cfg.title,width:620,height:560,toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">${locked?"View categories and their item counts, and manage each category's sub-categories. eBay categories can't be renamed or deleted here.":"Add, modify, or delete "+cfg.many+(canOpen?" — double-click to see items":"")+". Changes are held until you click Save."}</span>`});
   // Deferred-save working model: all edits go into these staged operations and the working list,
   // and nothing touches DB until Save. Cancel with pending changes prompts save/discard.
   let working=arr().slice();          // the list as the user is editing it
   const renames=[];                   // {from,to} to apply on save
   const deletes=[];                   // names to delete on save
   const adds=[];                      // brand-new names to add on save
-  body.innerHTML=`<fieldset class="gb" style="margin:14px;"><legend>Add ${cfg.one}</legend>
+  body.innerHTML=`${locked?'':`<fieldset class="gb" style="margin:14px;"><legend>Add ${cfg.one}</legend>
       <div class="inline-add"><div class="ff" style="grid-template-columns:auto 1fr;flex:1;"><label class="fld">Name</label><input class="txt" id="lm-name" placeholder="${cfg.ph}"></div>
-        <button class="btn sm" id="lm-add">Add</button></div><div class="err" id="lm-err"></div></fieldset>
-    <div style="padding:0 14px;flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">${cfg.many.charAt(0).toUpperCase()+cfg.many.slice(1)}</div><div class="listbox" id="lm-list"></div></div>
+        <button class="btn sm" id="lm-add">Add</button></div><div class="err" id="lm-err"></div></fieldset>`}
+    <div style="padding:${locked?'14px':'0'} 14px 0;flex:1;display:flex;flex-direction:column;min-height:0;"><div class="col-title" style="text-align:left;">${cfg.many.charAt(0).toUpperCase()+cfg.many.slice(1)}</div><div class="listbox" id="lm-list"></div></div>
     <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;justify-content:flex-end;" id="lm-footer"></div>`;
   const err=body.querySelector("#lm-err");
   const usageCount=(name)=> kind==="section"? DB.items.filter(i=>i.section===name).length
@@ -3775,26 +3928,31 @@ function openListMaintenance(kind){
         pin.innerHTML=isPinned?"📌":"📍"; pin.style.opacity=isPinned?"1":".55";
         pin.onclick=()=>{ DB.pinnedVendor = isPinned ? "" : name; save(); render(); };
         wrap.appendChild(pin); }
-      const mod=document.createElement("button"); mod.className="btn sm"; mod.textContent=editing===name?"OK":"Modify";
-      mod.onclick=()=>{ if(editing===name){ const inp=left.querySelector("input"); if(inp) inp.blur(); } else { editing=name; render(); } };
-      const del=document.createElement("button"); del.className="btn sm"; del.textContent="Delete";
-      del.onclick=()=>{ const n=usageCount(name);
-        const msg = kind==="condition" ? (n>0?name+" is used by "+n+" item(s); their Condition will be cleared on Save. Remove it?":"Remove "+name+"?")
-                  : kind==="adjustment" ? "Remove adjustment type "+name+"? Existing records keep their type." 
-                  : (n>0?name+" is used by "+n+" item(s). Remove it? On Save it will be removed from those items entirely, recorded in each item's history and in Records.":"Remove "+name+"?");
-        uiConfirm(msg,()=>{ // stage the delete
-          const idx=working.indexOf(name); if(idx>=0) working.splice(idx,1);
-          const ai=adds.indexOf(name); if(ai>=0) adds.splice(ai,1); else deletes.push(name);
-          ctrl.markDirty(); render(); }); };
-      wrap.appendChild(mod); wrap.appendChild(del); li.appendChild(left); li.appendChild(wrap); l.appendChild(li); });
+      if(!locked){
+        const mod=document.createElement("button"); mod.className="btn sm"; mod.textContent=editing===name?"OK":"Modify";
+        mod.onclick=()=>{ if(editing===name){ const inp=left.querySelector("input"); if(inp) inp.blur(); } else { editing=name; render(); } };
+        const del=document.createElement("button"); del.className="btn sm"; del.textContent="Delete";
+        del.onclick=()=>{ const n=usageCount(name);
+          const msg = kind==="condition" ? (n>0?name+" is used by "+n+" item(s); their Condition will be cleared on Save. Remove it?":"Remove "+name+"?")
+                    : kind==="adjustment" ? "Remove adjustment type "+name+"? Existing records keep their type." 
+                    : (n>0?name+" is used by "+n+" item(s). Remove it? On Save it will be removed from those items entirely, recorded in each item's history and in Records.":"Remove "+name+"?");
+          uiConfirm(msg,()=>{ // stage the delete
+            const idx=working.indexOf(name); if(idx>=0) working.splice(idx,1);
+            const ai=adds.indexOf(name); if(ai>=0) adds.splice(ai,1); else deletes.push(name);
+            ctrl.markDirty(); render(); }); };
+        wrap.appendChild(mod); wrap.appendChild(del);
+      }
+      li.appendChild(left); li.appendChild(wrap); l.appendChild(li); });
   };
   const addNow=()=>{ const v=body.querySelector("#lm-name").value.trim(); err.style.color="#c0392b";
     if(!v){ err.textContent="Enter a name."; return; }
     if(working.some(x=>x.toLowerCase()===v.toLowerCase())){ err.textContent="That name already exists."; return; }
     working.push(v); adds.push(v); ctrl.markDirty();
     body.querySelector("#lm-name").value=""; err.style.color="#1f7244"; err.textContent='Added "'+v+'" (click Save to keep).'; render(); body.querySelector("#lm-name").focus(); };
-  body.querySelector("#lm-add").onclick=addNow;
-  body.querySelector("#lm-name").addEventListener("keydown",e=>{ if(e.key==="Enter") addNow(); });
+  if(!locked){
+    body.querySelector("#lm-add").onclick=addNow;
+    body.querySelector("#lm-name").addEventListener("keydown",e=>{ if(e.key==="Enter") addNow(); });
+  }
   // Route the window's X button through the same save-prompt logic.
   body._confirmClose=(proceed)=>{ if(ctrl.isDirty()){ ctrl.attemptClose(); } else proceed(); };
   render();
@@ -3819,6 +3977,7 @@ function openUnitCosting(){
     const det=body.querySelector("#uc-detail");
     if(!selected){ det.innerHTML=`<div class="smallhint">Choose a vendor on the left.</div>`; return; }
     const pool=vendorPool(selected); const avg=vendorAvgCost(selected);
+    if(selected==="Warehouse"){ renderWarehouseTiers(det); return; }
     det.innerHTML=`<div style="font-size:18px;font-weight:700;margin-bottom:4px;">${esc(selected)}</div>
       <div style="display:flex;gap:14px;margin:14px 0;">
         <div class="gb" style="padding:10px 16px;"><div class="smallhint">Units Remaining</div><div style="font-size:22px;font-weight:700;">${pool.unitsRemaining}</div></div>
@@ -3846,6 +4005,34 @@ function openUnitCosting(){
       pool.unitsRemaining+=units; pool.costRemaining+=cost; pool.purchases.push({units,cost,at:new Date().toISOString()});
       save(); render();
     };
+  }
+  function renderWarehouseTiers(det){
+    const tiers=DB.warehouseCostTiers||[];
+    det.innerHTML=`<div style="font-size:18px;font-weight:700;margin-bottom:4px;">Warehouse</div>
+      <div class="smallhint" style="margin-bottom:12px;max-width:560px;">The Warehouse vendor's cost is set automatically from the item's listing price — it isn't a purchase pool. Edit the price bands below; each row means "if the price is below this amount, the cost is this." The last row is the catch-all for everything at or above the highest band.</div>
+      <div class="resultwrap"><table class="res"><thead><tr><th>Price is under…</th><th>Cost</th><th style="width:90px;"></th></tr></thead><tbody id="wt-tb"></tbody></table></div>
+      <div style="margin-top:10px;"><button class="btn sm" id="wt-add">+ Add band</button></div>
+      <fieldset class="gb" style="margin-top:16px;max-width:360px;"><legend>Try it</legend>
+        <div style="display:flex;gap:8px;align-items:flex-end;"><div class="ff sm"><label>Price</label><input class="txt" id="wt-try" inputmode="decimal" style="width:120px;" placeholder="e.g. 30"></div>
+        <div style="font-size:13px;">Cost would be <b id="wt-tryout">—</b></div></div></fieldset>`;
+    const tb=det.querySelector("#wt-tb");
+    tiers.forEach((t,i)=>{ const tr=document.createElement("tr");
+      const isLast=(t.maxUnder==null);
+      tr.innerHTML=`<td>${isLast?'<span class="smallhint">and up (catch-all)</span>':`$<input class="txt" data-th="${i}" value="${t.maxUnder}" inputmode="decimal" style="width:90px;">`}</td>
+        <td>$<input class="txt" data-cost="${i}" value="${Number(t.cost).toFixed(2)}" inputmode="decimal" style="width:80px;"></td>
+        <td>${isLast?'':`<button class="btn sm" data-del="${i}">Delete</button>`}</td>`;
+      tb.appendChild(tr); });
+    det.querySelectorAll("[data-th]").forEach(inp=>inp.addEventListener("change",()=>{ const i=+inp.dataset.th; const v=parseFloat(inp.value); if(!isNaN(v)) DB.warehouseCostTiers[i].maxUnder=v; sortTiers(); save(); render(); }));
+    det.querySelectorAll("[data-cost]").forEach(inp=>inp.addEventListener("change",()=>{ const i=+inp.dataset.cost; const v=parseFloat(inp.value); if(!isNaN(v)){ DB.warehouseCostTiers[i].cost=v; save(); } }));
+    det.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.del; DB.warehouseCostTiers.splice(i,1); save(); render(); });
+    det.querySelector("#wt-add").onclick=()=>{ // insert a new band before the catch-all
+      const arr=DB.warehouseCostTiers; const lastThresh=arr.filter(t=>t.maxUnder!=null).reduce((m,t)=>Math.max(m,t.maxUnder),0);
+      arr.splice(arr.length-1,0,{maxUnder:lastThresh+10,cost:0}); sortTiers(); save(); render(); };
+    const tryIn=det.querySelector("#wt-try"), tryOut=det.querySelector("#wt-tryout");
+    if(tryIn) tryIn.addEventListener("input",()=>{ const c=warehouseCostForPrice(tryIn.value); tryOut.textContent=c!=null?("$"+c.toFixed(2)):"—"; });
+  }
+  function sortTiers(){ // keep bands in ascending threshold order, catch-all last
+    DB.warehouseCostTiers.sort((a,b)=>{ if(a.maxUnder==null) return 1; if(b.maxUnder==null) return -1; return a.maxUnder-b.maxUnder; });
   }
   render();
 }
@@ -4354,17 +4541,12 @@ function ebayListingPrereqs(it){
 // category first.
 async function refreshAspectDefsIfStale(it, onStep){
   try{
-    const sc=subcatObj(it.section,it.subCategory);
-    if(!sc || !sc.ebayId || !EBAY.ready()) return;
-    const stale = !sc.aspects || !sc.aspects.length || sc.aspects.some(a=>a.multi===undefined);
+    const cat=it.section; const ebayId=categoryEbayId(cat);
+    if(!ebayId || !EBAY.ready()) return;
+    const cur=(DB.categoryAspects&&DB.categoryAspects[cat])||null;
+    const stale = !cur || !cur.length || cur.some(a=>a.multi===undefined);
     if(!stale) return;
-    onStep&&onStep("Refreshing this category's eBay field definitions…");
-    const tree=await EBAY.treeId();
-    const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=`+encodeURIComponent(sc.ebayId));
-    if(r.ok){ const aspectStruct=(JSON.parse(r.body).aspects)||[];
-      sc.aspects=aspectStruct.map(a=>({name:a.localizedAspectName,required:!!(a.aspectConstraint&&a.aspectConstraint.aspectRequired),multi:!!(a.aspectConstraint&&a.aspectConstraint.itemToAspectCardinality==="MULTI"),values:(a.aspectValues||[]).map(v=>v.localizedValue).slice(0,200)}));
-      save();
-    }
+    await fetchCategoryAspects(cat, onStep);
   }catch(e){ /* best-effort — publishing continues either way, just possibly with stale data */ }
 }
 async function publishToEbay(it,onStep){
@@ -4582,6 +4764,9 @@ function buildSearchUI(body,{scope,cols,winId}){
   const optSec=`<option value="">(any)</option>`+DB.sections.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");
   const optGrp=`<option value="">(any)</option><option value="None">None</option>`+DB.groups.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join("");
   const optCon=`<option value="">(any)</option><option value="None">None</option>`+allConditions().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  // Sub Category options: every distinct sub-category name defined across all categories.
+  const allSubcatNames=(()=>{ const s=new Set(); Object.values(DB.subcats||{}).forEach(arr=>(arr||[]).forEach(sc=>{ const nm=(sc&&sc.name)||""; if(nm) s.add(nm); })); return Array.from(s).sort(); })();
+  const optSubcat=`<option value="">(any)</option>`+allSubcatNames.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("");
   body.innerHTML=`
     ${dlSec}${dlSlot}${dlGrp}${dlCon}
     <div class="searchform">
@@ -4592,9 +4777,10 @@ function buildSearchUI(body,{scope,cols,winId}){
       <div class="ff"><label>Category</label><select class="cmb" id="s-sec">${optSec}</select></div>
       <div class="ff"><label>Group</label><select class="cmb" id="s-grp">${optGrp}</select></div>
       <div class="ff"><label>Condition</label><select class="cmb" id="s-con">${optCon}</select></div>
-      <div class="ff"><label>Reserve Item</label><select class="cmb" id="s-reserve"><option value="">(any)</option><option value="yes">Reserved only</option><option value="no">Not reserved</option></select></div>
+      <div class="ff"><label>Sub Category</label><select class="cmb" id="s-subcat">${optSubcat}</select></div>
       ${isCat?`<div class="ff"><label>Added on/after</label><input class="txt" id="s-added" type="date"></div>
-      <div class="ff"><label>Sold on/after</label><input class="txt" id="s-soldon" type="date"></div>`:'<div></div>'}
+      <div class="ff"><label>Sold on/after</label><input class="txt" id="s-soldon" type="date"></div>`:''}
+      <div class="ff"><label>Reserve Item</label><select class="cmb" id="s-reserve"><option value="">(any)</option><option value="yes">Reserved only</option><option value="no">Not reserved</option></select></div>
     </div>
     <div style="padding:0 14px 10px;display:flex;gap:8px;align-items:center;">
       <button class="btn primary" id="s-go">Search</button><button class="btn" id="s-clear">Clear</button>
@@ -4611,7 +4797,7 @@ function buildSearchUI(body,{scope,cols,winId}){
   function run(){
     const g=id=>{ const e=body.querySelector("#"+id); return e?e.value:""; };
     const upc=g("s-upc").trim().toLowerCase(), sku=g("s-sku").trim().toLowerCase(), slot=g("s-slot").trim(), desc=g("s-desc").trim().toLowerCase();
-    const sec=g("s-sec").trim(), grp=g("s-grp").trim(), con=g("s-con").trim(), reserve=g("s-reserve").trim();
+    const sec=g("s-sec").trim(), grp=g("s-grp").trim(), con=g("s-con").trim(), reserve=g("s-reserve").trim(), subcat=g("s-subcat").trim();
     const addedAfter=isCat?g("s-added"):"", soldAfter=isCat?g("s-soldon"):"";
     const eqi=(a,b)=>String(a||"").trim().toLowerCase()===String(b||"").trim().toLowerCase();
     st.results=pool().filter(it=>{
@@ -4622,6 +4808,7 @@ function buildSearchUI(body,{scope,cols,winId}){
       if(sec){ if(sec.toLowerCase()==="none"){ if(it.section) return false; } else if(!eqi(it.section,sec)) return false; }
       if(grp){ if(grp.toLowerCase()==="none"){ if((it.groups||[]).length) return false; } else if(!(it.groups||[]).some(x=>eqi(x,grp))) return false; }
       if(con){ if(con.toLowerCase()==="none"){ if(it.condition) return false; } else if(!eqi(it.condition,con)) return false; }
+      if(subcat && !eqi(it.subCategory,subcat)) return false;
       if(reserve==="yes" && !(it.listing&&it.listing.reserveItem)) return false;
       if(reserve==="no" && it.listing&&it.listing.reserveItem) return false;
       if(addedAfter&&(!it.createdAt||it.createdAt.slice(0,10)<addedAfter)) return false;
@@ -4673,7 +4860,16 @@ function buildSearchUI(body,{scope,cols,winId}){
       const pcols=cols.filter(c=>!(c.key==="sold"&&c.type==="check"));
       const heads=pcols.map(c=>c.label);
       const rows=st.results.map(it=>pcols.map(c=> c.type==="date"?fmtDay(c.get(it)):(c.get(it)||"") ));
-      printTable(isCat?"WIM Catalog — Search Results":"WIM Item Maintenance — Search Results", heads, rows); }; }
+      // Build the "Search Results: <terms>" header from whatever was actually searched, in
+      // field order: Item#, SKU, Slot, Description, Category, Group, Condition, Sub Category.
+      const gv=id=>{ const e=body.querySelector("#"+id); return e?String(e.value||"").trim():""; };
+      const terms=[gv("s-upc"),gv("s-sku"),gv("s-slot"),gv("s-desc"),gv("s-sec"),gv("s-grp"),gv("s-con"),gv("s-subcat")].filter(v=>v && v!=="(any)");
+      const rvSel=body.querySelector("#s-reserve"); if(rvSel && rvSel.value) terms.push(rvSel.value==="yes"?"Reserved":"Not reserved");
+      const subtitle = terms.length ? ("Search Results: "+terms.join(", ")) : "Search Results: (all items)";
+      const now=new Date();
+      const ts = (now.getMonth()+1).toString().padStart(2,"0")+"/"+now.getDate().toString().padStart(2,"0")+"/"+String(now.getFullYear()).slice(2)+" "+
+        now.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).toLowerCase();
+      printTable(isCat?"WIM Catalog — Search Results":"WIM Item Maintenance — Search Results", heads, rows, { subtitle, timestamp:ts }); }; }
   if(!isCat){ body.querySelector("#s-add").onclick=()=>openItemDetail(null,"new");
     body.querySelector("#s-soldbtn").onclick=()=>{ if(st.pending.size) openItemsSold(st, body); }; }
   renderHead();      // headers visible immediately; rows wait for Search
@@ -4978,15 +5174,20 @@ function openItemDetail(item,mode,nav,defaultTab){
   const subSel=body.querySelector("#d-subcat"), secSel=body.querySelector("#d-section"); let lwrap=null;
   if(!it.aspects) it.aspects={}; if(!it.images) it.images=it.image?[it.image]:[]; if(it.imageFeatured==null) it.imageFeatured=0;
   if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};
-  function fillSubcats(){ const cat=(secSel&&secSel.value)||it.section; let subs=subcatsOf(cat); if(!subs.length) subs=[{name:cat}];
-    if(!subs.some(s=>s.name===it.subCategory)) it.subCategory=subs[0].name;
-    subSel.innerHTML=subs.map(s=>`<option ${s.name===it.subCategory?'selected':''}>${esc(s.name)}</option>`).join(""); }
-  function renderListing(){ if(!lwrap) return; const cat=(secSel&&secSel.value)||it.section; const asp=aspectsFor({section:cat,subCategory:it.subCategory});
-    const scObj=subcatObj(cat,it.subCategory);
-    let html=`<fieldset class="gb" style="margin:8px 0;"><legend>Listing fields${it.subCategory?` &mdash; ${esc(it.subCategory)}`:''}${scObj&&scObj._new?' <span class="badge warn">*NEW</span>':''}</legend>`;
-    if(!ro && WIM_IS_DESKTOP && (!it.listing || it.listing.status!=="listed")){ html+=`<div style="margin-bottom:8px;"><button class="btn sm" id="d-ebayfind">🔍 Find on eBay (auto-fill fields)</button></div>`; }
+  function fillSubcats(){ const cat=(secSel&&secSel.value)||it.section; let subs=subcatsOf(cat).slice();
+    // Sub-category is an internal tag. It defaults to blank so the user is forced to pick one,
+    // and always offers a "None" option. It has no effect on listing fields.
+    if(!subs.some(s=>s.name==="None")) subs.push({name:"None"});
+    const names=subs.map(s=>s.name);
+    const cur=names.includes(it.subCategory)?it.subCategory:"";
+    subSel.innerHTML=`<option value="" ${cur===""?'selected':''}>— select —</option>`+subs.map(s=>`<option value="${esc(s.name)}" ${s.name===cur?'selected':''}>${esc(s.name)}</option>`).join("");
+    it.subCategory=cur;
+  }
+  function renderListing(){ if(!lwrap) return; const cat=(secSel&&secSel.value)||it.section; const asp=aspectsFor({section:cat});
+    let html=`<fieldset class="gb" style="margin:8px 0;"><legend>Listing fields${cat?` &mdash; ${esc(cat)}`:''}</legend>`;
+    if(!ro && WIM_IS_DESKTOP && (!it.listing || it.listing.status!=="listed")){ html+=`<div style="margin-bottom:8px;"><button class="btn sm" id="d-ebayfind">🔍 Find on eBay (auto-fill fields)</button> <button class="btn sm" id="d-refreshfields">↻ Load fields for this category</button></div>`; }
     if(asp.length){ html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">`+asp.map(a=>`<div class="ff" style="grid-template-columns:120px 1fr;"><label class="fld">${esc(a.name)}${a.required?' <span class="req">*</span>':''}</label><input class="txt af-asp" data-asp="${esc(a.name)}" value="${esc(it.aspects[a.name]||"")}" ${ro?'disabled':''}></div>`).join("")+`</div>`; }
-    else { html+=`<div class="smallhint">No eBay fields defined for this sub category yet. Set them in Category Maintenance &rarr; Sub Categories, or (in a later update) the magnifying-glass search will fill them automatically.</div>`; }
+    else { html+=`<div class="smallhint">No eBay listing fields loaded for <b>${esc(cat)}</b> yet. Click "Load fields for this category" to pull them from eBay (needs a live connection), or use Find on eBay to auto-fill from a matching listing.</div>`; }
     html+=`</fieldset>`;
     if(!ro){ const descs=descsForCat(cat);
       html+=`<fieldset class="gb" style="margin:8px 0;"><legend>eBay listing</legend>
@@ -5031,6 +5232,13 @@ function openItemDetail(item,mode,nav,defaultTab){
     lwrap.innerHTML=html;
     lwrap.querySelectorAll(".af-asp").forEach(inp=>inp.oninput=()=>{ it.aspects[inp.dataset.asp]=inp.value; markDirty&&markDirty(); });
     const ebtn=lwrap.querySelector("#d-ebayfind"); if(ebtn) ebtn.onclick=()=>openEbayFind(it, ()=>{ refreshTopFields(); renderListing(); });
+    const rfbtn=lwrap.querySelector("#d-refreshfields"); if(rfbtn) rfbtn.onclick=async ()=>{
+      const cat=(secSel&&secSel.value)||it.section;
+      if(!categoryEbayId(cat)){ uiAlert("This category isn't mapped to an eBay category yet, so WIM can't pull its fields. Map it in Category Maintenance → Sub Categories (via Find on eBay), then try again."); return; }
+      if(!EBAY.ready()){ uiAlert("Connect to eBay first (the Connect button by the mode badge)."); return; }
+      rfbtn.disabled=true; rfbtn.textContent="Loading…";
+      await fetchCategoryAspects(cat); renderListing();
+    };
     if(!ro){
       const t=lwrap.querySelector("#l-title"), q=lwrap.querySelector("#l-qty"), dsel=lwrap.querySelector("#l-desc"), dbody=lwrap.querySelector("#l-descbody");
       t.oninput=()=>{ it.listing.title=t.value; it._titleManuallySet=true; markDirty&&markDirty(); };
@@ -5096,8 +5304,15 @@ function openItemDetail(item,mode,nav,defaultTab){
     }
     updateGmDisplay();
   }
-  if(secSel) secSel.addEventListener("change",()=>{ it.subCategory=null; fillSubcats(); renderListing(); markDirty&&markDirty(); });
-  if(subSel) subSel.addEventListener("change",()=>{ it.subCategory=subSel.value; renderListing(); markDirty&&markDirty(); });
+  if(secSel) secSel.addEventListener("change",async ()=>{
+    it.section=secSel.value; it.subCategory=""; fillSubcats(); renderListing(); markDirty&&markDirty();
+    // Pull this category's eBay listing fields live if we don't already have them cached.
+    const cat=secSel.value;
+    if(cat && !(DB.categoryAspects&&DB.categoryAspects[cat]&&DB.categoryAspects[cat].length) && categoryEbayId(cat) && EBAY.ready()){
+      await fetchCategoryAspects(cat); renderListing();
+    }
+  });
+  if(subSel) subSel.addEventListener("change",()=>{ it.subCategory=subSel.value; markDirty&&markDirty(); }); // sub-category is an internal tag; no field effect
   fillSubcats(); renderListing();
 
   function compareStats(items){ const ps=(items||[]).map(x=>parseFloat(x.price)).filter(n=>!isNaN(n));
@@ -5375,9 +5590,17 @@ function openItemDetail(item,mode,nav,defaultTab){
     };
     tabbody.querySelector("#cmps-back").onclick=()=>{ soldPasteRows=null; compareTab(); };
   }
+  let histSort={key:"at",dir:-1}; // default newest-first
   function historyTab(){
-    const hist=(it.history||[]).slice().sort((a,b)=> new Date(b.at)-new Date(a.at));
-    tabbody.innerHTML=`<div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:110px;">Date</th><th>Change</th><th style="width:160px;">User</th><th style="width:90px;">Time</th></tr></thead><tbody id="d-hist-tb"></tbody></table></div>`;
+    const cols=[{k:"at",label:"Date",w:"110px",get:h=>new Date(h.at).getTime()},
+                {k:"desc",label:"Change",w:"",get:h=>(h.desc||"").toLowerCase()},
+                {k:"by",label:"User",w:"160px",get:h=>(h.by||"").toLowerCase()},
+                {k:"time",label:"Time",w:"90px",get:h=>new Date(h.at).getTime()}];
+    const col=cols.find(c=>c.k===histSort.key)||cols[0];
+    const hist=(it.history||[]).slice().sort((a,b)=>{ const av=col.get(a),bv=col.get(b); return (av<bv?-1:av>bv?1:0)*histSort.dir; });
+    const th=cols.map(c=>`<th style="cursor:pointer;${c.w?'width:'+c.w+';':''}" data-hk="${c.k}">${c.label}${histSort.key===c.k?(histSort.dir>0?' ▲':' ▼'):''}</th>`).join("");
+    tabbody.innerHTML=`<div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr>${th}</tr></thead><tbody id="d-hist-tb"></tbody></table></div>`;
+    tabbody.querySelectorAll("[data-hk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.hk; if(histSort.key===k) histSort.dir*=-1; else histSort={key:k,dir:1}; historyTab(); });
     const tb=tabbody.querySelector("#d-hist-tb");
     if(!hist.length){ tb.innerHTML=`<tr><td colspan="4" style="color:#888;">No history yet.</td></tr>`; return; }
     hist.forEach(h=>{ const d=new Date(h.at); const tr=document.createElement("tr");
@@ -5388,14 +5611,18 @@ function openItemDetail(item,mode,nav,defaultTab){
       <div><div class="grp-h">Can be assigned to these groups</div><input class="txt" id="g-search" placeholder="Search groups…" style="width:100%;margin-bottom:6px;"><div class="listbox" id="g-avail" style="min-height:170px;"></div></div>
       <div class="mid-btns"><button class="btn sm" id="g-add" ${ro?'disabled':''}>&#9654;</button><button class="btn sm" id="g-rem" ${ro?'disabled':''}>&#9664;</button></div>
       <div><div class="grp-h">Assigned to these groups</div><div class="listbox" id="g-assigned" style="min-height:170px;margin-top:30px;"></div></div></div>`;
-    const av=tabbody.querySelector("#g-avail"),asg=tabbody.querySelector("#g-assigned"); let selA=null,selB=null;
+    const av=tabbody.querySelector("#g-avail"),asg=tabbody.querySelector("#g-assigned");
+    // Multi-select: each side keeps a Set of highlighted names; the arrows move all of them.
+    const selA=new Set(), selB=new Set();
     function paintAvail(filter){ av.innerHTML=""; const f=(filter||"").toLowerCase();
-      avail.filter(g=>!f||g.toLowerCase().includes(f)).forEach(g=>{ const li=document.createElement("div"); li.className="li"; li.textContent=g; li.onclick=()=>{ av.querySelectorAll(".li").forEach(x=>x.classList.remove("sel")); li.classList.add("sel"); selA=g; }; av.appendChild(li); }); }
+      avail.filter(g=>!f||g.toLowerCase().includes(f)).forEach(g=>{ const li=document.createElement("div"); li.className="li"+(selA.has(g)?" sel":""); li.textContent=g;
+        li.onclick=()=>{ if(selA.has(g)) selA.delete(g); else selA.add(g); li.classList.toggle("sel"); }; av.appendChild(li); }); }
     paintAvail("");
-    const gs=tabbody.querySelector("#g-search"); if(gs) gs.oninput=()=>{ selA=null; paintAvail(gs.value); };
-    assigned.forEach(g=>{ const li=document.createElement("div"); li.className="li"; li.textContent=g; li.onclick=()=>{ asg.querySelectorAll(".li").forEach(x=>x.classList.remove("sel")); li.classList.add("sel"); selB=g; }; asg.appendChild(li); });
-    if(!ro){ tabbody.querySelector("#g-add").onclick=()=>{ if(selA){ assigned.push(selA); markDirty(); groupsTab(); } };
-      tabbody.querySelector("#g-rem").onclick=()=>{ if(selB){ assigned=assigned.filter(x=>x!==selB); markDirty(); groupsTab(); } }; }
+    const gs=tabbody.querySelector("#g-search"); if(gs) gs.oninput=()=>{ paintAvail(gs.value); };
+    assigned.forEach(g=>{ const li=document.createElement("div"); li.className="li"; li.textContent=g;
+      li.onclick=()=>{ if(selB.has(g)) selB.delete(g); else selB.add(g); li.classList.toggle("sel"); }; asg.appendChild(li); });
+    if(!ro){ tabbody.querySelector("#g-add").onclick=()=>{ if(selA.size){ selA.forEach(g=>{ if(!assigned.includes(g)) assigned.push(g); }); markDirty(); groupsTab(); } };
+      tabbody.querySelector("#g-rem").onclick=()=>{ if(selB.size){ assigned=assigned.filter(x=>!selB.has(x)); markDirty(); groupsTab(); } }; }
   }
   function showTab(t){ curTab=t;
     body.querySelector("#d-tab-groups").classList.toggle("sel",t==="groups");
@@ -5426,15 +5653,30 @@ function openItemDetail(item,mode,nav,defaultTab){
   }
   const vendorSel=body.querySelector("#d-vendor"), costInp=body.querySelector("#d-unitcost");
   if(costInp && !ro) costInp.addEventListener("input",()=>{ markDirty&&markDirty(); updateGmDisplay(); });
-  // Suggests the vendor's current Unit Costing average the moment a vendor is picked on a
-  // new item — only while the cost field is still untouched, so it never clobbers a
-  // deliberate manual figure someone already typed in.
-  if(isNew && vendorSel && costInp && !ro){
+  // Auto-fill the cost from the vendor. Two models:
+  //  • Warehouse vendor → cost is a pure function of the listing price (editable tiers). It
+  //    fills automatically and is not meant to be hand-maintained.
+  //  • Any other vendor → cost is suggested from that vendor's Unit Costing average, and only
+  //    while the cost field hasn't been deliberately typed over.
+  function applyWarehouseCost(){
+    if(!costInp) return;
+    const price=(body.querySelector("#d-price")||{}).value || (it.listing&&it.listing.price) || it.retail;
+    const c=warehouseCostForPrice(price);
+    if(c!=null){ costInp.value=c.toFixed(2); costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); }
+  }
+  function vendorIsWarehouse(){ return (vendorSel?vendorSel.value:it.vendor)==="Warehouse"; }
+  if(vendorSel && costInp && !ro){
     vendorSel.addEventListener("change",()=>{
-      const avg=vendorAvgCost(vendorSel.value);
-      if(avg!=null && (!costInp.value || costInp.dataset.autoFilled==="1")){ costInp.value=avg.toFixed(2); costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); }
+      if(vendorSel.value==="Warehouse"){ costInp.readOnly=false; applyWarehouseCost(); }
+      else { const avg=vendorAvgCost(vendorSel.value);
+        if(avg!=null && (!costInp.value || costInp.dataset.autoFilled==="1")){ costInp.value=avg.toFixed(2); costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); } }
     });
-    costInp.addEventListener("input",()=>{ if(costInp.dataset.autoFilled==="1" ) delete costInp.dataset.autoFilled; });
+    costInp.addEventListener("input",()=>{ if(costInp.dataset.autoFilled==="1") delete costInp.dataset.autoFilled; });
+    // If Warehouse is the (default) vendor, keep cost synced to price as price is typed.
+    const priceInp=body.querySelector("#d-price");
+    if(priceInp){ priceInp.addEventListener("input",()=>{ if(vendorIsWarehouse()) applyWarehouseCost(); }); }
+    // Fill once on open if this item is on the Warehouse vendor and has a price.
+    if(vendorIsWarehouse()) applyWarehouseCost();
   }
   const descTop=body.querySelector("#d-desc"); if(descTop && !ro) descTop.oninput=()=>{
     // Title reflects the item description automatically, same live-sync pattern as Price —
@@ -5505,6 +5747,12 @@ function openItemDetail(item,mode,nav,defaultTab){
     if(!desc){ status.textContent="Description is required."; return; }
     const cat=body.querySelector("#d-section").value;
     if(!cat){ status.textContent="Category is required (it determines which slot the item goes in)."; return; }
+    // Sub-category must be chosen (a real pick, or None) before the item can be added.
+    const subSelEl=body.querySelector("#d-subcat");
+    if(subSelEl){ const subVal=subSelEl.value; it.subCategory=subVal;
+      if(!subVal){ status.textContent="Please choose a Sub Category (pick None if it doesn't apply)."; subSelEl.style.borderColor="#c0392b"; subSelEl.focus(); return; }
+      subSelEl.style.borderColor="";
+    }
     if(isNew){ const req=aspectsFor(it).filter(a=>a.required);
       const missing=req.filter(a=>!(it.aspects&&it.aspects[a.name]&&String(it.aspects[a.name]).trim()));
       body.querySelectorAll(".af-asp").forEach(inp=>{ inp.style.borderColor=""; });
@@ -5931,156 +6179,200 @@ function openBulkAdd(){
   }
   { const wb=openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(wb) wb.onclick=()=>openMissingItem(); }
   refreshWaitingBadge();
-  const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",vendor:(DB.vendors[0]||""),unitCost:"",_costAutoFilled:false,qty:"1",slot:"",skus:[],created:false,error:"",images:[],aspects:{},_aspectDefs:[],descTemplateId:"",descBody:""});
+  const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",vendor:(DB.pinnedVendor||DB.vendors[0]||""),unitCost:"",retail:"",_costAutoFilled:false,qty:"1",slot:"",manualSlot:false,reserve:false,skus:[],created:false,error:"",images:[],_viewIdx:-1,aspects:{},_aspectDefs:[],descTemplateId:"",descBody:""});
   let rows=[blank()], createdItems=[], phase="edit";
-  const dlSec=`<datalist id="ba-sec">`+DB.sections.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
-  const dlVen=`<datalist id="ba-ven">`+DB.vendors.map(v=>`<option value="${esc(v)}"></option>`).join("")+`</datalist>`;
   const allSubs=[...new Set(Object.values(DB.subcats||{}).flat().map(s=>s.name))];
-  const dlSub=`<datalist id="ba-sub">`+allSubs.map(s=>`<option value="${esc(s)}"></option>`).join("")+`</datalist>`;
-  const dlCon=`<datalist id="ba-con">`+allConditions().map(c=>`<option value="${esc(c)}"></option>`).join("")+`</datalist>`;
-  const dlSlot=`<datalist id="ba-slot">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}"></option>`).join("")+`</datalist>`;
-  // The set of extra eBay-required fields shown as their own columns is the UNION across
-  // every row that currently has category-specific requirements known (populated via the
-  // magnifying-glass search) — a row whose category doesn't need a given field just shows
-  // an empty, non-required cell for it rather than the whole table needing separate layouts
-  // per category.
-  function dynamicAspectNames(){ const set=new Set(); rows.forEach(r=>(r._aspectDefs||[]).forEach(a=>set.add(a.name))); return [...set]; }
-  body.innerHTML=`${dlSec}${dlVen}${dlSub}${dlCon}${dlSlot}
-    <div style="padding:10px 14px 4px;font-size:12.5px;color:#333;">Fill a row and press <b>Enter</b> to start the next one (or use +). <b>Quantity</b> defaults to 1 — each unit gets its own Warehouse SKU, kept together in a slot. Leave <b>Warehouse SKU</b> on "Auto SKU" to let WIM pick the slot, or type one in to place it manually. Click the magnifying glass to pull real eBay category requirements for a row.</div>
-    <div class="resultwrap" style="margin:6px 14px;overflow:auto;"><table class="res" id="ba-table"><thead><tr id="ba-head"></tr></thead><tbody id="ba-tb"></tbody></table></div>
-    <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <button class="btn sm" id="ba-addrow">+ Add Record</button>
+  // (Native <datalist> dropdowns were removed — every combo field now uses wimCombo, which
+  // doesn't cover the textbox or swallow keystrokes like the native datalist did.)
+  body.innerHTML=`
+    <div style="padding:10px 14px 2px;font-size:12.5px;color:#333;">Add items as cards below. <b>Quantity</b> defaults to 1 — each unit gets its own Warehouse SKU, kept together in a slot. Leave <b>Warehouse SKU</b> on "Auto SKU" to let WIM pick the slot. Click the magnifying glass on a card to pull real eBay category fields.</div>
+    <div style="padding:2px 14px;display:flex;align-items:center;gap:10px;font-size:12px;color:#5b6470;border-bottom:1px solid #e2e6ec;">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="ba-selall"> Select all</label>
       <span style="flex:1;"></span>
-      <button class="btn primary" id="ba-create">Create</button>
-      <button class="btn" id="ba-okay">Okay</button></div>
-    <div class="err" id="ba-msg" style="padding:0 14px;"></div>`;
-  const tb=body.querySelector("#ba-tb"), msg=body.querySelector("#ba-msg"), createBtn=body.querySelector("#ba-create"), addBtn=body.querySelector("#ba-addrow");
-  function inputCell(val,field,list,extra){ return `<input class="txt" style="width:100%;" data-f="${field}" value="${esc(val)}" ${list?`list="${list}"`:''} ${extra||''}>`; }
-  // Manual, mouse-driven drag reorder for photo thumbnails within one row — same proven
-  // approach already used for Dashboard Widget Maintenance drag-and-drop, since native
-  // HTML5 drag-and-drop has been unreliable here before. Dropping a thumbnail onto another
-  // swaps their positions; dropping on position 0 makes that photo the new featured one.
-  let photoDrag=null;
-  function wirePhotoStrip(stripEl, r){
-    stripEl.querySelectorAll(".ba-thumb").forEach((el,idx)=>{
-      el.addEventListener("mousedown",(e)=>{
-        e.preventDefault();
-        photoDrag={ r, fromIdx:idx, startX:e.clientX, startY:e.clientY, moved:false, ghost:null };
-        document.addEventListener("mousemove",onPhotoDragMove);
-        document.addEventListener("mouseup",onPhotoDragUp);
-      });
-    });
-  }
-  function onPhotoDragMove(e){
-    if(!photoDrag) return;
-    const dx=e.clientX-photoDrag.startX, dy=e.clientY-photoDrag.startY;
-    if(!photoDrag.moved && Math.hypot(dx,dy)<5) return;
-    photoDrag.moved=true;
-    if(!photoDrag.ghost){ const g=document.createElement("div"); g.style.cssText="position:fixed;width:30px;height:30px;border:2px solid #3a78c2;border-radius:5px;background:#fff center/cover no-repeat;pointer-events:none;z-index:99999;opacity:.85;"; g.style.backgroundImage=`url(${photoDrag.r.images[photoDrag.fromIdx]})`; document.body.appendChild(g); photoDrag.ghost=g; }
-    photoDrag.ghost.style.left=(e.clientX-15)+"px"; photoDrag.ghost.style.top=(e.clientY-15)+"px";
-  }
-  function onPhotoDragUp(e){
-    document.removeEventListener("mousemove",onPhotoDragMove); document.removeEventListener("mouseup",onPhotoDragUp);
-    const d=photoDrag; photoDrag=null; if(!d) return;
-    if(d.ghost) d.ghost.remove();
-    if(!d.moved) return;
-    const el=document.elementFromPoint(e.clientX,e.clientY);
-    const thumbEl=el&&el.closest&&el.closest(".ba-thumb");
-    if(!thumbEl) return;
-    const toIdx=parseInt(thumbEl.dataset.idx,10);
-    if(isNaN(toIdx) || toIdx===d.fromIdx) return;
-    const imgs=d.r.images; const [moved]=imgs.splice(d.fromIdx,1); imgs.splice(toIdx,0,moved);
-    render();
-  }
-  function photoCell(r){
-    const wrap=document.createElement("div"); wrap.style.cssText="display:flex;gap:3px;align-items:center;flex-wrap:wrap;max-width:150px;";
-    r.images.forEach((src,idx)=>{
-      const t=document.createElement("div"); t.className="ba-thumb"; t.dataset.idx=idx;
-      t.style.cssText=`width:26px;height:26px;background:#fff center/cover no-repeat;cursor:grab;border:2px solid ${idx===0?'#e6c200':'#ccc'};border-radius:4px;flex-shrink:0;`;
-      t.style.backgroundImage=`url(${src})`; t.title=idx===0?"Featured photo — drag to reorder":"Drag to reorder or make featured";
-      wrap.appendChild(t);
-    });
-    const addBtn=document.createElement("div"); addBtn.style.cssText="width:26px;height:26px;border:1px dashed #b9c2cf;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#8a95a3;font-size:15px;flex-shrink:0;";
-    addBtn.textContent="+"; addBtn.title="Add photo(s)";
+      <span style="color:#8a95a3;">Sort by:</span>
+      <select class="cmb" id="ba-sortkey" style="height:26px;font-size:12px;width:150px;"><option value="">(entry order)</option><option value="desc">Item Description</option><option value="section">Category</option><option value="condition">Condition</option><option value="vendor">Vendor</option><option value="unitCost">Unit Cost</option><option value="qty">Quantity</option></select>
+      <button class="btn sm" id="ba-sortdir" title="Toggle ascending/descending">▲</button>
+    </div>
+    <div id="ba-cards" style="padding:10px 14px;overflow:auto;flex:1;"></div>
+    <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid #e2e6ec;">
+      <button class="btn sm" id="ba-addrow">+ Add Item</button>
+      <button class="btn sm" id="ba-delsel" style="display:none;border-color:#c0392b;color:#c0392b;">Delete selected</button>
+      <span style="flex:1;"></span>
+      <button class="btn primary" id="ba-create">Create All</button>
+      <button class="btn" id="ba-okay">Cancel</button></div>
+    <div class="err" id="ba-msg" style="padding:0 14px 8px;"></div>`;
+  const tb=body.querySelector("#ba-cards"), msg=body.querySelector("#ba-msg"), createBtn=body.querySelector("#ba-create"), addBtn=body.querySelector("#ba-addrow");
+  let sortKey="", sortDir=1; const selected=new Set();
+  function photoPanel(r){
+    if(typeof r._viewIdx!=="number" || r._viewIdx>=r.images.length) r._viewIdx = r.images.length?0:-1;
+    const wrap=document.createElement("div"); wrap.style.cssText="flex-shrink:0;width:130px;";
+    const shown=r._viewIdx>=0?r.images[r._viewIdx]:null;
+    const isFeatured=r._viewIdx===0;
+    const big=document.createElement("div");
+    big.style.cssText=`width:130px;height:130px;border:0.5px solid #9aa3b0;border-radius:8px;background:#f4f6f9 center/contain no-repeat;position:relative;${shown?'':'display:flex;align-items:center;justify-content:center;color:#9aa3ad;'}`;
+    if(shown){ big.style.backgroundImage=`url(${shown})`; big.innerHTML=`<span style="position:absolute;top:5px;right:5px;background:${isFeatured?'#e6f1fb':'#eef0f3'};color:${isFeatured?'#0c447c':'#5f6b7a'};font-size:10px;padding:2px 7px;border-radius:6px;font-weight:600;">${isFeatured?'Featured':'Secondary'}</span>`; }
+    else big.textContent="No photos";
+    wrap.appendChild(big);
+    const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:6px;margin-top:6px;";
+    const addB=document.createElement("button"); addB.className="btn sm"; addB.style.flex="1"; addB.textContent="+ Add photos";
     const file=document.createElement("input"); file.type="file"; file.accept="image/*"; file.multiple=true; file.style.display="none";
-    file.onchange=async ()=>{ const files=Array.from(file.files||[]); for(const f of files){ try{ const d=await compressImage(f); if(!r.images.includes(d)) r.images.push(d); }catch(e){} } file.value=""; render(); };
-    addBtn.onclick=()=>file.click();
-    wrap.appendChild(addBtn); wrap.appendChild(file);
-    wirePhotoStrip(wrap, r);
+    file.onchange=async ()=>{ const files=Array.from(file.files||[]); for(const f of files){ try{ const d=await compressImage(f); if(!r.images.includes(d)) r.images.push(d); }catch(e){} } file.value=""; if(r._viewIdx<0 && r.images.length) r._viewIdx=0; render(); };
+    addB.onclick=()=>file.click();
+    const delB=document.createElement("button"); delB.className="btn sm"; delB.style.cssText="width:30px;border-color:#c0392b;color:#c0392b;"; delB.textContent="🗑"; delB.title="Delete the photo shown above";
+    delB.onclick=()=>{ if(r._viewIdx>=0){ r.images.splice(r._viewIdx,1); r._viewIdx=r.images.length?Math.min(r._viewIdx,r.images.length-1):-1; render(); } };
+    btnRow.appendChild(addB); btnRow.appendChild(delB); btnRow.appendChild(file); wrap.appendChild(btnRow);
+    // Thumbnail strip — click to view, click an S tag to promote to featured.
+    const strip=document.createElement("div"); strip.style.cssText="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;";
+    r.images.forEach((src,idx)=>{
+      const feat=idx===0;
+      const t=document.createElement("div"); t.style.cssText=`width:38px;height:38px;background:#fff center/cover no-repeat;border:${idx===r._viewIdx?'2px solid #378add':'0.5px solid #ccc'};border-radius:5px;position:relative;cursor:pointer;flex-shrink:0;`;
+      t.style.backgroundImage=`url(${src})`; t.title=feat?"Featured":"Click tag to make featured";
+      const tag=document.createElement("span"); tag.textContent=feat?"F":"S";
+      tag.style.cssText=`position:absolute;top:-6px;right:-4px;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;border:0.5px solid ${feat?'#0c447c':'#b9c2cf'};background:${feat?'#e6f1fb':'#fff'};color:${feat?'#0c447c':'#5f6b7a'};cursor:pointer;`;
+      tag.title=feat?"This is the featured photo":"Make this the featured photo";
+      tag.onclick=(e)=>{ e.stopPropagation(); if(!feat){ const [img]=r.images.splice(idx,1); r.images.unshift(img); r._viewIdx=0; render(); } };
+      t.onclick=()=>{ r._viewIdx=idx; render(); };
+      t.appendChild(tag); strip.appendChild(t);
+    });
+    wrap.appendChild(strip);
+    if(r.images.length){ const hint=document.createElement("div"); hint.className="smallhint"; hint.style.cssText="font-size:10px;text-align:center;margin-top:5px;"; hint.textContent="click a photo to view · click S to feature"; wrap.appendChild(hint); }
     return wrap;
   }
-  function render(){
-    const dynCols=dynamicAspectNames();
-    const head=body.querySelector("#ba-head");
-    head.innerHTML=`<th style="width:34px;"></th><th style="width:90px;">Photos</th><th style="width:170px;">Item Description</th><th style="width:150px;">Category</th><th style="width:100px;">Condition</th><th style="width:120px;">Vendor</th><th style="width:80px;">Unit Cost</th><th style="width:50px;">Qty</th><th style="width:190px;">Description</th>`
-      + dynCols.map(n=>`<th style="width:110px;">${esc(n)}</th>`).join("")
-      + `<th style="width:140px;">Warehouse SKU</th><th style="width:34px;"></th>`;
-    tb.innerHTML="";
-    rows.forEach((r,i)=>{ const tr=document.createElement("tr");
-      if(r.created){
-        tr.innerHTML=`<td></td><td></td><td>${esc(r.desc)}<div class="smallhint">${esc(r.upc)||"—"}</div></td><td>${esc(r.section)||'<span class="smallhint">—</span>'}${r.subcat?`<div class="smallhint">${esc(r.subcat)}</div>`:''}</td><td>${esc(r.condition)||'<span class="smallhint">—</span>'}</td><td>${esc(r.vendor)||'<span class="smallhint">—</span>'}</td><td>${r.unitCost?"$"+esc(r.unitCost):'<span class="smallhint">—</span>'}</td><td class="cc">${esc(r.qty)}</td><td>${esc(r.descBody?r.descBody.slice(0,30):"")}</td>`
-          + dynCols.map(n=>`<td>${esc(r.aspects[n]||"")}</td>`).join("")
-          + `<td><b>${esc(r.skus.join(", "))}</b></td><td class="cc"><span class="badge ok">✓</span></td>`;
-        tr.style.cursor="pointer"; tr.title="Double-click to open this item"; tr.ondblclick=()=>{ if(r._items&&r._items[0]) openItemDetail(r._items[0],"edit"); };
-      } else {
-        const descOptions=descsForCat(r.section||"");
-        tr.innerHTML=`<td class="cc"><button class="btn sm ba-find" title="Search eBay to set sub category &amp; required fields">🔍</button></td><td></td>
-          <td><input class="txt" data-f="desc" value="${esc(r.desc)}" placeholder="Item Description (required)" style="width:100%;box-sizing:border-box;">
-            <input class="txt" data-f="upc" value="${esc(r.upc)}" placeholder="(Auto Filled)" style="width:100%;box-sizing:border-box;margin-top:2px;font-size:11px;color:#8a95a3;"></td>
-          <td><input class="txt" data-f="section" list="ba-sec" value="${esc(r.section)}" placeholder="Category" style="width:100%;box-sizing:border-box;">
-            <input class="txt" data-f="subcat" list="ba-sub" value="${esc(r.subcat)}" placeholder="Sub Category" style="width:100%;box-sizing:border-box;margin-top:2px;font-size:11px;"></td>
-          <td>${inputCell(r.condition,'condition','ba-con')}</td><td>${inputCell(r.vendor,'vendor','ba-ven')}</td><td><input class="txt ba-unitcost" style="width:100%;box-sizing:border-box;" value="${esc(r.unitCost)}" inputmode="decimal" placeholder="0.00"></td><td>${inputCell(r.qty,'qty','',' inputmode="numeric"')}</td>
-          <td><div style="position:relative;"><select class="cmb ba-desctpl" style="position:absolute;top:2px;right:2px;width:26px;height:20px;font-size:0;padding:0;opacity:0;cursor:pointer;z-index:2;"><option value="">(type below)</option>${descOptions.map(d=>`<option value="${d.id}">${esc(d.title)}</option>`).join("")}</select><span style="position:absolute;top:3px;right:4px;pointer-events:none;font-size:11px;color:#8a95a3;">▾</span>
-            <textarea class="txt ba-descbody" placeholder="Description" style="width:100%;box-sizing:border-box;min-height:34px;padding:6px 22px 6px 6px;font-size:11.5px;font-family:inherit;resize:none;overflow:hidden;display:block;">${esc(r.descBody||"")}</textarea></div></td>`
-          + dynCols.map(n=>`<td><input class="txt" style="width:100%;box-sizing:border-box;" data-asp="${esc(n)}" value="${esc(r.aspects[n]||"")}"></td>`).join("")
-          + `<td><input class="txt" data-f="slot" list="ba-slot" value="${esc(r.slot)}" placeholder="Auto SKU" style="width:100%;box-sizing:border-box;color:${r.slot?'inherit':'#8a95a3'};">${r.error?`<div class="smallhint" style="color:#c0392b;">${esc(r.error)}</div>`:''}</td>`;
-        const del=document.createElement("td"); del.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕";
-        x.onclick=()=>{ rows.splice(i,1); if(!rows.length) rows.push(blank()); render(); };
-        tr.appendChild(del); del.appendChild(x);
-        tr.querySelectorAll("input[data-f]").forEach(inp=>{ inp.oninput=()=>{ r[inp.dataset.f]=inp.value; if(inp.dataset.f==="slot") inp.style.color=inp.value?"inherit":"#8a95a3"; };
-          inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); addRow(true); } });
-        });
-        tr.querySelectorAll("input[data-asp]").forEach(inp=>{ inp.oninput=()=>{ r.aspects[inp.dataset.asp]=inp.value; }; });
-        const secInp=tr.querySelector('input[data-f="section"]'); if(secInp) attachAutofill(secInp, ()=>DB.sections);
-        const subInp=tr.querySelector('input[data-f="subcat"]'); if(subInp) attachAutofill(subInp, ()=>allSubs);
-        const conInp=tr.querySelector('input[data-f="condition"]'); if(conInp) attachAutofill(conInp, ()=>allConditions());
-        const venInp=tr.querySelector('input[data-f="vendor"]'); if(venInp) attachAutofill(venInp, ()=>DB.vendors);
-        const costInp=tr.querySelector(".ba-unitcost");
-        if(venInp && costInp){
-          venInp.addEventListener("change",()=>{
-            r.vendor=venInp.value;
-            const avg=vendorAvgCost(r.vendor);
-            if(avg!=null && (!costInp.value || r._costAutoFilled)){ costInp.value=avg.toFixed(2); r.unitCost=costInp.value; r._costAutoFilled=true; }
-          });
-        }
-        if(costInp) costInp.addEventListener("input",()=>{ r.unitCost=costInp.value; r._costAutoFilled=false; });
-        const dsel=tr.querySelector(".ba-desctpl"), dbody=tr.querySelector(".ba-descbody");
-        function autoGrow(){ dbody.style.height="auto"; dbody.style.height=Math.max(34,dbody.scrollHeight)+"px"; }
-        dsel.onchange=()=>{ r.descTemplateId=dsel.value||""; const d=DB.descriptions.find(x=>x.id===dsel.value); if(d){ r.descBody=d.body; dbody.value=d.body; autoGrow(); } dsel.value=""; };
-        dbody.oninput=()=>{ r.descBody=dbody.value; autoGrow(); };
-        autoGrow();
-        const photoTd=tr.children[1]; photoTd.appendChild(photoCell(r));
-        const mg=tr.querySelector('.ba-find'); if(mg) mg.onclick=async ()=>{
-          let sec=r.section.trim(); if(!DB.sections.includes(sec)) sec="General";
-          const tmp={ id:"ba-tmp", section:sec, subCategory:r.subcat||"", desc:r.desc.trim(), aspects:{}, listing:{} };
-          openEbayFind(tmp, async ()=>{
-            r.section=tmp.section; r.subcat=tmp.subCategory; if(tmp.desc) r.desc=tmp.desc;
-            r.aspects=Object.assign({}, tmp.aspects||{});
-            // Pull the category's own required-field definitions (not just this one
-            // item's values) so the dynamic columns reflect what THIS category actually
-            // requires, matching the same real lookup used for a single item.
-            try{ const sc=subcatObj(r.section, r.subcat); if(sc && sc.aspects && sc.aspects.length) r._aspectDefs=sc.aspects; }catch(e){}
-            render();
-          });
-        };
-      }
-      tb.appendChild(tr); });
+  // A label with an optional dropdown caret sitting AFTER the label text (not inside the box).
+  // Clicking the caret focuses the field, which opens its wimCombo dropdown.
+  function lbl(text, hasCaret){ return `<label style="font-size:11px;color:#5b6470;">${esc(text)}${hasCaret?` <span class="ba-caret" style="cursor:pointer;color:#8a95a3;font-size:11px;">▾</span>`:''}</label>`; }
+  function sortedRows(){ const withIdx=rows.map((r,i)=>({r,i}));
+    if(sortKey){ withIdx.sort((a,b)=>{ let av=(a.r[sortKey]||""), bv=(b.r[sortKey]||"");
+      if(sortKey==="unitCost"||sortKey==="qty"){ av=parseFloat(av)||0; bv=parseFloat(bv)||0; return (av-bv)*sortDir; }
+      return String(av).localeCompare(String(bv))*sortDir; }); }
+    return withIdx;
   }
-  function addRow(focusFirst){ if(phase==="done"){ phase="edit"; addBtn.textContent="+ Add Record"; createBtn.textContent="Create"; createBtn.onclick=doCreate; msg.textContent=""; }
+  function render(){
+    tb.innerHTML="";
+    const sel=body.querySelector("#ba-delsel"); if(sel) sel.style.display=selected.size?"":"none";
+    sortedRows().forEach(({r,i})=>{
+      const card=document.createElement("div");
+      card.style.cssText="background:#fff;border:0.5px solid #d5dae1;border-radius:12px;padding:14px;margin-bottom:10px;";
+      if(r.created){
+        card.style.opacity=".7";
+        card.innerHTML=`<div style="display:flex;gap:12px;align-items:center;"><span class="badge ok">✓ Created</span>
+          <b style="font-size:13px;">${esc(r.desc)}</b><span class="smallhint">${esc(r.upc)||""}</span>
+          <span style="flex:1;"></span><span class="smallhint">SKU: ${esc(r.skus.join(", "))}</span></div>`;
+        card.style.cursor="pointer"; card.title="Double-click to open this item"; card.ondblclick=()=>{ if(r._items&&r._items[0]) openItemDetail(r._items[0],"edit"); };
+        tb.appendChild(card); return;
+      }
+      const descOptions=descsForCat(r.section||"");
+      const dyn=(r._aspectDefs||[]);
+      card.innerHTML=`
+        <div style="display:flex;gap:16px;align-items:flex-start;">
+          <div class="ba-photo-slot"></div>
+          <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:12px 16px;">
+            <div style="display:flex;flex-direction:column;gap:9px;">
+              <div>${lbl("Item Description")}<input class="txt" data-f="desc" value="${esc(r.desc)}" placeholder="Item Description (required)" style="width:100%;box-sizing:border-box;height:30px;"></div>
+              <div>${lbl("Category",true)}<input class="txt" data-f="section" value="${esc(r.section)}" placeholder="Category" style="width:100%;box-sizing:border-box;height:30px;"></div>
+              <div>${lbl("Sub Category",true)}<input class="txt" data-f="subcat" value="${esc(r.subcat)}" placeholder="Sub Category" style="width:100%;box-sizing:border-box;height:30px;"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:9px;">
+              <div>${lbl("Listing Price")}<input class="txt ba-price" value="${esc(r.retail||"")}" placeholder="0.00" inputmode="decimal" style="width:100%;box-sizing:border-box;height:30px;"></div>
+              <div>${lbl("Cost")}<input class="txt ba-unitcost" value="${esc(r.unitCost)}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;height:30px;color:#6b7280;"></div>
+              <div>${lbl("Vendor",true)}<input class="txt" data-f="vendor" value="${esc(r.vendor)}" placeholder="Vendor" style="width:100%;box-sizing:border-box;height:30px;"></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:9px;">
+              <div>${lbl("Condition",true)}<input class="txt" data-f="condition" value="${esc(r.condition)}" placeholder="Condition" style="width:100%;box-sizing:border-box;height:30px;"></div>
+              <div style="display:flex;gap:14px;align-items:center;padding-top:2px;">
+                <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="ba-manual" ${r.manualSlot?"checked":""}> Manually slot</label>
+                <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="ba-reserve" ${r.reserve?"checked":""}> Reserve</label>
+              </div>
+              <div>${lbl("Quantity")}<input class="txt" data-f="qty" value="${esc(r.qty)}" inputmode="numeric" style="width:100%;box-sizing:border-box;height:30px;"></div>
+            </div>
+            <div style="grid-column:1 / -1;display:grid;grid-template-columns:2fr 1fr;gap:12px 16px;align-items:start;">
+              <div>${lbl("Description",true)} <span class="smallhint">(pick a template or type)</span>
+                <select class="cmb ba-desctpl" style="display:none;">${descOptions.map(d=>`<option value="${d.id}">${esc(d.title)}</option>`).join("")}</select>
+                <textarea class="txt ba-descbody" placeholder="Description" style="width:100%;box-sizing:border-box;min-height:58px;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(r.descBody||"")}</textarea></div>
+              <div>${lbl(r.manualSlot?"Warehouse SKU":"Warehouse SKU",true)}<input class="txt" data-f="slot" value="${esc(r.slot)}" placeholder="Auto SKU" style="width:100%;box-sizing:border-box;height:30px;color:${r.slot?'inherit':'#8a95a3'};">${r.error?`<div class="smallhint" style="color:#c0392b;">${esc(r.error)}</div>`:''}</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:center;">
+            <input type="checkbox" class="ba-selrow" ${selected.has(r)?"checked":""} title="Select this item">
+            <button class="btn sm ba-find" title="Search eBay to set category &amp; required fields">🔍</button>
+            <button class="btn sm ba-del" style="border-color:#c0392b;color:#c0392b;" title="Delete this item">🗑</button>
+          </div>
+        </div>
+        ${dyn.length?`<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
+          <div style="font-size:11px;color:#5b6470;margin-bottom:7px;">Category fields <span style="color:#8a95a3;">(from eBay for ${esc(r.section||"this category")})</span></div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div>${lbl(a.name)}<input class="txt ba-asp" data-asp="${esc(a.name)}" value="${esc(r.aspects[a.name]||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}`;
+
+      // Photo panel
+      card.querySelector(".ba-photo-slot").replaceWith(photoPanel(r));
+      // Text field wiring
+      card.querySelectorAll("input[data-f]").forEach(inp=>{ inp.oninput=()=>{ r[inp.dataset.f]=inp.value; if(inp.dataset.f==="slot") inp.style.color=inp.value?"inherit":"#8a95a3"; }; });
+      card.querySelectorAll("input.ba-asp").forEach(inp=>{ inp.oninput=()=>{ r.aspects[inp.dataset.asp]=inp.value; }; });
+      // Combo dropdowns (native WIM), and caret click focuses the field to open them.
+      const secInp=card.querySelector('input[data-f="section"]'); if(secInp) wimCombo(secInp, ()=>DB.sections, (v)=>{ r.section=v; });
+      const subInp=card.querySelector('input[data-f="subcat"]'); if(subInp) wimCombo(subInp, ()=>allSubs, (v)=>{ r.subcat=v; });
+      const conInp=card.querySelector('input[data-f="condition"]'); if(conInp) wimCombo(conInp, ()=>allConditions(), (v)=>{ r.condition=v; });
+      const venInp=card.querySelector('input[data-f="vendor"]');
+      const slotInp=card.querySelector('input[data-f="slot"]'); if(slotInp) wimCombo(slotInp, ()=>[...DB.slots].map(s=>s.id), (v)=>{ r.slot=v; slotInp.style.color=v?"inherit":"#8a95a3"; });
+      card.querySelectorAll(".ba-caret").forEach(c=>{ c.onclick=()=>{ const box=c.closest("div").querySelector("input, textarea, select"); if(box) box.focus(); }; });
+      const priceInp=card.querySelector(".ba-price"), costInp=card.querySelector(".ba-unitcost");
+      function applyVendorCost(){ if(!costInp) return;
+        if(r.vendor==="Warehouse"){ const c=warehouseCostForPrice(r.retail||""); if(c!=null){ costInp.value=c.toFixed(2); r.unitCost=costInp.value; r._costAutoFilled=true; } }
+        else { const avg=vendorAvgCost(r.vendor); if(avg!=null && (!costInp.value || r._costAutoFilled)){ costInp.value=avg.toFixed(2); r.unitCost=costInp.value; r._costAutoFilled=true; } } }
+      if(priceInp) priceInp.oninput=()=>{ r.retail=priceInp.value; if(r.vendor==="Warehouse") applyVendorCost(); };
+      if(venInp){ wimCombo(venInp, ()=>DB.vendors, (v)=>{ r.vendor=v; applyVendorCost(); }); }
+      if(costInp) costInp.addEventListener("input",()=>{ r.unitCost=costInp.value; r._costAutoFilled=false; });
+      if(r.vendor==="Warehouse" && r.retail) applyVendorCost();
+      // Checkboxes
+      const man=card.querySelector(".ba-manual"); if(man) man.onchange=()=>{ r.manualSlot=man.checked; };
+      const res=card.querySelector(".ba-reserve"); if(res) res.onchange=()=>{ r.reserve=res.checked; };
+      const selrow=card.querySelector(".ba-selrow"); if(selrow) selrow.onchange=()=>{ if(selrow.checked) selected.add(r); else selected.delete(r); const sb=body.querySelector("#ba-delsel"); if(sb) sb.style.display=selected.size?"":"none"; };
+      // Description template + autogrow
+      const dsel=card.querySelector(".ba-desctpl"), dbody=card.querySelector(".ba-descbody");
+      const dcaret=[...card.querySelectorAll(".ba-caret")].find(c=>c.closest("div").querySelector(".ba-descbody"));
+      if(dcaret && dsel){ dcaret.onclick=(e)=>{ e.stopPropagation();
+        // build a small wimCombo-style picker from templates
+        wimComboFromList(dcaret, descOptions.map(d=>d.title), (title)=>{ const d=descOptions.find(x=>x.title===title); if(d){ r.descBody=d.body; r.descTemplateId=d.id; dbody.value=d.body; autoGrow(); } }); }; }
+      function autoGrow(){ if(!dbody) return; dbody.style.height="auto"; dbody.style.height=Math.max(58,dbody.scrollHeight)+"px"; }
+      if(dbody){ dbody.oninput=()=>{ r.descBody=dbody.value; autoGrow(); }; autoGrow(); }
+      // eBay find
+      const mg=card.querySelector('.ba-find'); if(mg) mg.onclick=async ()=>{
+        let sec=(r.section||"").trim(); if(!DB.sections.includes(sec)) sec="NONE";
+        const tmp={ id:"ba-tmp", section:sec, subCategory:r.subcat||"", desc:(r.desc||"").trim(), aspects:{}, listing:{} };
+        openEbayFind(tmp, async ()=>{
+          r.section=tmp.section; r.subcat=tmp.subCategory; if(tmp.desc) r.desc=tmp.desc;
+          r.aspects=Object.assign({}, tmp.aspects||{});
+          try{ const defs=(DB.categoryAspects&&DB.categoryAspects[r.section])||[]; if(defs.length) r._aspectDefs=defs; }catch(e){}
+          render();
+        });
+      };
+      const delB=card.querySelector('.ba-del'); if(delB) delB.onclick=()=>{ selected.delete(r); rows.splice(rows.indexOf(r),1); if(!rows.length) rows.push(blank()); render(); };
+      tb.appendChild(card);
+    });
+  }
+  // A lightweight dropdown anchored to an element, used for the Description template caret.
+  function wimComboFromList(anchor, list, onPick){
+    const old=document.getElementById("ba-tpl-panel"); if(old) old.remove();
+    if(!list.length){ return; }
+    const p=document.createElement("div"); p.id="ba-tpl-panel";
+    p.style.cssText="position:fixed;z-index:99999;background:#fff;border:1px solid #9aa3b0;border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.16);max-height:220px;overflow:auto;font-size:12.5px;";
+    const r=anchor.getBoundingClientRect(); p.style.left=r.left+"px"; p.style.top=(r.bottom+3)+"px"; p.style.minWidth="180px";
+    list.forEach(o=>{ const row=document.createElement("div"); row.textContent=o; row.style.cssText="padding:5px 10px;cursor:pointer;";
+      row.onmouseenter=()=>row.style.background="#e2ebf9"; row.onmouseleave=()=>row.style.background="";
+      row.onmousedown=(e)=>{ e.preventDefault(); onPick(o); p.remove(); }; p.appendChild(row); });
+    document.body.appendChild(p);
+    const close=(e)=>{ if(!p.contains(e.target)&&e.target!==anchor){ p.remove(); document.removeEventListener("mousedown",close,true); } };
+    document.addEventListener("mousedown",close,true);
+  }
+  function addRow(focusFirst){ if(phase==="done"){ phase="edit"; addBtn.textContent="+ Add Item"; createBtn.textContent="Create All"; createBtn.onclick=doCreate; msg.textContent=""; }
     rows.push(blank()); render();
-    if(focusFirst){ const last=tb.querySelector("tr:last-child input[data-f]"); if(last) last.focus(); } }
+    const last=tb.querySelector("div:last-child input[data-f='desc']"); if(last){ last.focus(); last.scrollIntoView({block:"nearest"}); } }
   addBtn.onclick=addRow;
   const tbTopPlus=openWindows["bulk-add"].el.querySelector('[data-act="Add Record"]'); if(tbTopPlus) tbTopPlus.onclick=addRow;
+  { const sa=body.querySelector("#ba-selall"); if(sa) sa.onchange=()=>{ selected.clear(); if(sa.checked) rows.forEach(r=>{ if(!r.created) selected.add(r); }); render(); };
+    const sk=body.querySelector("#ba-sortkey"); if(sk) sk.onchange=()=>{ sortKey=sk.value; render(); };
+    const sd=body.querySelector("#ba-sortdir"); if(sd) sd.onclick=()=>{ sortDir*=-1; sd.textContent=sortDir>0?"▲":"▼"; render(); };
+    const ds=body.querySelector("#ba-delsel"); if(ds) ds.onclick=()=>{ if(!selected.size) return; rows=rows.filter(r=>!selected.has(r)); selected.clear(); if(!rows.length) rows.push(blank()); render(); };
+  }
   function doCreate(){
    try{
     let made=0, errors=0; const batch=[]; const _bulkItn=new Set();
@@ -6097,14 +6389,16 @@ function openBulkAdd(){
         if(!slotHasCat(slotById(slotV),cat)){ r.error="slot ≠ category"; errors++; return; }
         alloc=allocateInSlot(slotV,qty,null); if(!alloc){ r.error="slot can't fit "+qty; errors++; return; } }
       else { alloc=allocateMulti(qty,null,cat); if(alloc.length<qty){ r.error="no "+cat+" space ("+alloc.length+")"; errors++; return; } }
+      const listPrice=(r.retail!=null&&String(r.retail).trim())?String(r.retail).trim():"0.00";
       alloc.forEach(pl=>{ const rowVendor=r.vendor.trim(), rowCost=r.unitCost||(vendorAvgCost(rowVendor)!=null?vendorAvgCost(rowVendor).toFixed(2):"0.00");
         const it={ id:crypto.randomUUID(), upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
         vendor:rowVendor, condition:r.condition.trim(),
         section:cat,
-        unitCost:rowCost, retail:"0.00", onHand:"1", groups:[],
+        unitCost:rowCost, retail:listPrice, onHand:"1", groups:[],
         category:"", subCategory:sub, aspects:Object.assign({},r.aspects||{}),
-        listing:{status:"none",title:"",price:"",qty:"1",descriptionId:r.descTemplateId||null,descBody:r.descBody||""},
-        images:r.images.slice(), imageFeatured:0, image:r.images[0]||"", slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), manualSlot:!!manual,
+        listing:{status:"none",title:"",price:listPrice,qty:"1",descriptionId:r.descTemplateId||null,descBody:r.descBody||"",reserveItem:!!r.reserve},
+        images:r.images.slice(), imageFeatured:0, image:r.images[0]||"", slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), manualSlot:(r.manualSlot||!!manual),
+        reserveItem:!!r.reserve,
         sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null, storageBatchId:storageBatchId,
         caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0] };
         it.history=[{at:it.createdAt,desc:"Item created (SKU "+it.sku+", Bulk Add)",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
@@ -9831,17 +10125,21 @@ function parseEbaySellerHubResearch(raw){
 async function pullNewListings(after,silent){
   if(!EBAY.ready()){ if(!silent) uiAlert("Not connected to eBay yet — click Connect next to the mode badge (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
   if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
-  const prog=silent?null:uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;">Contacting eBay…</div>`,[]);
-  const set=t=>{ if(silent) return; const e=document.getElementById("pnl-prog"); if(e) e.textContent=t; };
+  const prog=silent?null:uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;min-width:280px;">Contacting eBay<span id="pnl-dots"></span></div>`,[]);
+  // Animated dots so a long pull never looks frozen.
+  let dotN=0, dotTimer=null, lastLabel="Contacting eBay";
+  if(!silent){ dotTimer=setInterval(()=>{ dotN=(dotN%3)+1; const d=document.getElementById("pnl-dots"); if(d) d.textContent=" "+".".repeat(dotN); },400); }
+  const set=t=>{ if(silent) return; lastLabel=t; const e=document.getElementById("pnl-prog"); if(e) e.innerHTML=esc(t)+`<span id="pnl-dots"></span>`; };
+  const stopDots=()=>{ if(dotTimer){ clearInterval(dotTimer); dotTimer=null; } };
   try{
     const inv=await EBAY.user("/sell/inventory/v1/inventory_item?limit=100&offset=0", EBAY_SCOPE_INV);
-    if(!inv.ok){ if(!silent){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); } return; }
+    if(!inv.ok){ stopDots(); if(!silent){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); } return; }
     const items=(JSON.parse(inv.body).inventoryItems)||[];
     const known=new Set(); DB.items.forEach(x=>{ if(x.listing&&x.listing.ebaySku) known.add(x.listing.ebaySku); if(x.sku) known.add(x.sku); if(x.upc) known.add(x.upc); });
     (DB.ebay.filedSkus||[]).forEach(s=>known.add(s));
     const candidates=[];
     for(let n=0;n<items.length;n++){ const ei=items[n]; const sku=ei.sku; if(known.has(sku)) continue;
-      set("Reading "+(n+1)+" of "+items.length+"…");
+      set("Reading listing "+(n+1)+" of "+items.length+" · "+candidates.length+" new so far");
       let price="", qty="1", offerId=null, categoryId="";
       try{ const off=await EBAY.user("/sell/inventory/v1/offer?sku="+encodeURIComponent(sku), EBAY_SCOPE_INV);
         if(off.ok){ const o=((JSON.parse(off.body).offers)||[])[0]; if(o){ offerId=o.offerId; price=(o.pricingSummary&&o.pricingSummary.price&&o.pricingSummary.price.value)||""; qty=(o.availableQuantity!=null?String(o.availableQuantity):"1"); categoryId=o.categoryId||""; } } }catch(e){}
@@ -9850,10 +10148,11 @@ async function pullNewListings(after,silent){
       candidates.push({ ebaySku:sku, offerId, title:p.title||sku, condEnum:ei.condition||"", condLabel:ebayCondLabel(ei.condition), price, qty, categoryId, images:(p.imageUrls||[]).slice(), thumb:(p.imageUrls||[])[0]||"",
         shipWeight:(pw.weight&&pw.weight.value)?String(pw.weight.value):"", shipLength:(pw.dimensions&&pw.dimensions.length)?String(pw.dimensions.length):"", shipWidth:(pw.dimensions&&pw.dimensions.width)?String(pw.dimensions.width):"", shipHeight:(pw.dimensions&&pw.dimensions.height)?String(pw.dimensions.height):"" });
     }
+    stopDots();
     DB.pulledListings=candidates.concat((DB.pulledListings||[]).filter(p=>p.simulated)); DB.ebay.lastPullAt=new Date().toISOString(); save();
     if(!silent) closeAllModals();
     if(after) after(candidates);
-  }catch(e){ if(!silent){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); } }
+  }catch(e){ stopDots(); if(!silent){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); } }
 }
 /* ============================================================ FIND BY PHOTO (eBay image search → price range) ============================================================ */
 function openFindByPhoto(){
