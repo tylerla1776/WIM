@@ -483,7 +483,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.25", BUILD_DATE="2026-10-18", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.26", BUILD_DATE="2026-10-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -589,6 +589,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.26","New System Health screen under Configuration -> Account Health -- one place showing the state of every outside service WIM depends on, so a usage limit or outage surfaces before it silently breaks something. It is deliberately honest about what each service actually exposes rather than faking numbers: eBay shows a live status with the tightest resource summarized and a button through to the full API Limits breakdown; Shippo and EasyPost show WIM own count of the rate calls it made this month (they do not publish a usage number, and the counter resets on the 1st) plus a live reachable check; Cloud Sync (Supabase) and the InventoryIQ Cloudflare Worker show reachable or unreachable; and eBay Picture Services is shown as informational since it has no capacity total to track (per-image size limits and 90-day auto-expiry, not a quota). A Refresh All button re-checks everything on demand, and it also checks once automatically when opened. Green means good; red or yellow is worth a look."],
   ["3.3.25","Configuration menu reorganized into collapsible sub-groups (batch 1 of the updates list). The everyday config apps -- Dashboard Widgets, Shipping Data, warehouse maintenance apps, Description Manager, and the admin ones like Supervisory Maintenance, Backup and Updates, Local Profiles, Simulation Mode, and About/Version -- still sit directly under Configuration. The rest are now tucked into three expandable groups, each with a plus button to open it: Account Health (eBay Compliance Log, eBay API Limits), Security (Manage Devices), and Setup (Photo Default, eBay Connection, Listing Configuration, InventoryIQ, and the Cloud Sync apps). Nothing was removed or lost -- every app is exactly where it was permission-wise, just grouped so the Configuration list is far shorter and easier to scan. A group only shows if you have access to at least one app inside it."],
   ["3.3.24","Two real fixes found while connecting to a live account. Publishing a listing: fixed the HTTP 400 where eBay rejected a listing for a missing package weight. Two things were wrong -- WIM was never actually including the weight and dimensions in what it sent to eBay at all (so even an item with a weight entered would still fail), and it did not check for a weight before trying to publish. Both fixed: weight (pounds) and dimensions (inches) are now sent, and if an item has no weight WIM stops before contacting eBay and tells you exactly what to do -- open the item, Shipping/Package section, enter a weight -- instead of a cryptic eBay error. This mainly affected scan-imported items, which come in with no weight by default. Messages: fixed opening a message from an actual eBay member failing with Missing the parameter conversationType. WIM was sending the parameter in the wrong format (conversationType instead of eBay required conversation_type), so eBay genuinely could not see it -- corrected on both the read and reply calls, verified against eBay own docs. And now that the parameter works, eBay own notifications actually attempt to load their real content instead of always showing a cannot-load message."],
   ["3.3.23","Sold-item price comparison paste is now forgiving of a whole-page paste. Before, it only worked if you carefully drag-selected just the results table from eBay Research Sold tab; a full Ctrl+A copy of the page brought in navigation junk (Deals, Gift Cards, Watchlist, etc.) and the parser found nothing. Now, when the precise method finds no rows, WIM falls back to scanning the whole paste structurally -- pulling out real listing rows (a title followed by a price and date) and ignoring the menu and page chrome on its own. So you can just select all, copy, paste, and let WIM sort out what is real."],
@@ -860,6 +861,7 @@ const POPOUT_APPS={
   simulation:{ title:"Simulation Mode", open:()=>openSimulationMode() },
   clouddatamigration:{ title:"Cloud Data Migration", open:()=>openCloudDataMigration() },
   ebayapilimits:{ title:"eBay API Limits", open:()=>openEbayApiLimits() },
+  systemhealth:{ title:"System Health", open:()=>openSystemHealth() },
   supervisorymaint:{ title:"Supervisory Maintenance", open:()=>openSupervisoryMaintenance() },
   findbyphoto:{ title:"Find by Photo", open:()=>openFindByPhoto() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
@@ -1213,6 +1215,9 @@ function migrate(d){
   if(!d.fulfillmentSettings) d.fulfillmentSettings={ autoCompleteDays:7 };
   if(!d.iqSettings) d.iqSettings={ baseUrl:"https://inventoryiq.tylerla17.workers.dev", token:"", photoBasePath:"G:\\My Drive\\WIM", autoDeleteAfterPublish:true };
   if(!Array.isArray(d.importedScans)) d.importedScans=[];
+  // Local API-usage counters for services with no public usage endpoint (Shippo, EasyPost,
+  // etc.). Keyed by month so it self-resets; the System Health screen reads these.
+  if(!d.apiUsage) d.apiUsage={ month:"", counts:{} };
   if(!Array.isArray(d.deletionAuditLog)) d.deletionAuditLog=[];
   if(!d.cachedFeedback) d.cachedFeedback={};
   if(!Array.isArray(d.feedbackSeenIds)) d.feedbackSeenIds=[];
@@ -2377,7 +2382,7 @@ function isLive(){ return SESSION.mode==="live"; }
 const TREE_LABEL_FEATURE={
   "Dashboard Widgets":"dashboard_widgets","Photo Default":"dashboard_widgets","Shipping Data":"shipping_data","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
   "eBay Connection":"ebay_connection_admin","InventoryIQ":"ebay_connection_admin","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
-  "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Local Profiles":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
+  "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Local Profiles":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","System Health":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
   "Warehouse Maintenance":"warehouse_maintenance_limited","Vendor Management":"vendor_maintenance","Condition Maintenance":"warehouse_maintenance_limited","Adjustment Configuration":"adjust_inventory",
   "Modify Users":"modify_users","Print Queue":"print_queue","Print Configuration":"print_configuration","Catalog Maintenance":"catalog_maintenance",
   "Item Maintenance":"item_maintenance_view","Group Maintenance":"group_maintenance","Unit Costing":"unit_costing","Find by Photo":"find_by_photo_view",
@@ -2402,7 +2407,7 @@ function nodeActions(node){ return filterActionsByAccess(nodeActionsRaw(node)); 
 // sub-groups (Account Health, Security, Setup). CONFIG_SUBGROUPS defines which apps live under
 // each group header; anything not in a subgroup shows directly under Configuration.
 const CONFIG_SUBGROUPS=[
-  { key:"cfg_acct_health", label:"Account Health", members:["eBay Compliance Log","eBay API Limits"] },
+  { key:"cfg_acct_health", label:"Account Health", members:["System Health","eBay API Limits","eBay Compliance Log"] },
   { key:"cfg_security", label:"Security", members:["Manage Devices"] },
   { key:"cfg_setup", label:"Setup", members:["Photo Default","eBay Connection","Listing Configuration","InventoryIQ","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"] },
 ];
@@ -2410,10 +2415,10 @@ function configSubgroupOf(action){ for(const g of CONFIG_SUBGROUPS){ if(g.member
 function nodeActionsRaw(node){
   if(node.key==="config"){ 
     if(isLive()){ const base=["Dashboard Widgets","Shipping Data","Description Manager","Category Maintenance"]; if(role()==="admin"){ base.push("Supervisory Maintenance"); base.push("Backup & Updates"); base.push("Local Profiles"); base.push("Simulation Mode"); } base.push("About / Version");
-      const grouped=[]; if(role()==="admin"){ grouped.push("eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
+      const grouped=[]; if(role()==="admin"){ grouped.push("System Health","eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
       return base.concat(grouped); }
     const base=["Dashboard Widgets","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager"]; if(role()==="admin"){ base.push("Supervisory Maintenance"); base.push("Backup & Updates"); base.push("Local Profiles"); base.push("Simulation Mode"); } base.push("About / Version");
-    const grouped=[]; if(role()==="admin"){ grouped.push("eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
+    const grouped=[]; if(role()==="admin"){ grouped.push("System Health","eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
     return base.concat(grouped); }
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
@@ -3368,6 +3373,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="Simulation Mode") return launchApp("simulation");
   if(k==="config"&&a==="Cloud Data Migration") return launchApp("clouddatamigration");
   if(k==="config"&&a==="eBay API Limits") return launchApp("ebayapilimits");
+  if(k==="config"&&a==="System Health") return launchApp("systemhealth");
   if(k==="config"&&a==="Supervisory Maintenance") return launchApp("supervisorymaint");
   if(k==="config"&&a==="Cloud Sync (Test)") return launchApp("cloudsync");
   if(k==="config"&&a==="Description Manager") return launchApp("descmgr");
@@ -7125,6 +7131,109 @@ function openSimulateSaleDialog(profileId,onDone){
 // something WIM tracks locally. Flattens the nested apiContext -> resources -> rates
 // response into one sortable table, worst-usage-first, so anything actually worth
 // worrying about surfaces immediately instead of being buried in a long list.
+// System Health — one screen showing the state of every external service WIM leans on, so a
+// limit or outage surfaces before it silently breaks something. Deliberately honest about what
+// each service actually exposes: eBay has a real quota API; Shippo/EasyPost don't publish usage
+// on their free tiers, so WIM shows its own local monthly call count plus a live reachability
+// ping; Supabase and the InventoryIQ Worker are shown as reachable/unreachable; EPS has no
+// quota to track at all, so it's informational.
+async function openSystemHealth(){
+  if(openWindows["system-health"]){ focusWin(openWindows["system-health"].el); return; }
+  const {body}=buildWindow({id:"system-health",title:"System Health",width:900,height:640,
+    toolbar:`<button class="btn sm primary" id="sh-refresh">Refresh All</button><span style="flex:1;"></span><span class="smallhint" id="sh-msg"></span>`});
+  const month=new Date().toISOString().slice(0,7);
+  const usage=(DB.apiUsage&&DB.apiUsage.month===month)?(DB.apiUsage.counts||{}):{};
+  // Known soft limits for the local-counter services (free-tier ballparks — shown as guidance,
+  // not gospel, since the providers can change them). Used only to color the usage bar.
+  const softLimits={ shippo:{ label:"Shippo", limit:null, note:"Free tier has no hard monthly call cap, but very high volume can be throttled." },
+                     easypost:{ label:"EasyPost", limit:null, note:"Free/test usage is limited; heavy live volume needs a paid plan." } };
+  let statuses={}; // service -> {state:'ok'|'down'|'unknown', detail}
+  function pill(state){ const c=state==="ok"?"#1f9d55":state==="down"?"#c0392b":"#9aa3ad"; const t=state==="ok"?"Reachable":state==="down"?"Unreachable":"Not checked"; return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:${c};">${t}</span>`; }
+  function render(){
+    const ebaySummary = statuses.ebay || {state:"unknown"};
+    body.innerHTML=`<div style="padding:16px;overflow:auto;height:100%;box-sizing:border-box;">
+      <div style="font-size:12.5px;color:#5b6470;margin-bottom:14px;">Every outside service WIM depends on, in one place. Green means reachable and within limits; anything red or yellow is worth a look before it interrupts work.</div>
+
+      <div class="hs-card" style="border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><b style="font-size:13.5px;">eBay API</b> ${pill(ebaySummary.state)}<span style="flex:1;"></span><button class="btn sm" id="sh-ebay-detail">Open eBay API Limits</button></div>
+        <div class="smallhint">${ebaySummary.detail||"eBay publishes real call quotas. Click through for the full per-resource breakdown with usage bars."}</div>
+      </div>
+
+      <div class="hs-card" style="border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;"><b style="font-size:13.5px;">Shipping rate providers</b><span style="flex:1;"></span><span class="smallhint">This month's usage (${month})</span></div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;font-size:12.5px;">Shippo</span> ${pill((statuses.shippo||{}).state)}</div>
+            <div style="font-size:20px;font-weight:700;margin:2px 0;">${usage.shippo||0}<span style="font-size:12px;font-weight:400;color:#6b7280;"> rate calls</span></div>
+            <div class="smallhint">${softLimits.shippo.note}</div>
+          </div>
+          <div style="flex:1;min-width:220px;">
+            <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;font-size:12.5px;">EasyPost</span> ${pill((statuses.easypost||{}).state)}</div>
+            <div style="font-size:20px;font-weight:700;margin:2px 0;">${usage.easypost||0}<span style="font-size:12px;font-weight:400;color:#6b7280;"> rate calls</span></div>
+            <div class="smallhint">${softLimits.easypost.note}</div>
+          </div>
+        </div>
+        <div class="smallhint" style="margin-top:8px;">These providers don't publish a usage number WIM can read, so this is WIM's own count of the rate calls it made this month — it resets on the 1st. Reachability is a live check.</div>
+      </div>
+
+      <div class="hs-card" style="border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><b style="font-size:13.5px;">Cloud Sync (Supabase)</b> ${pill((statuses.supabase||{}).state)}</div>
+        <div class="smallhint">${(statuses.supabase&&statuses.supabase.detail)||"Backbone for multi-device sync and backups. A red status here means sync/backup isn't working — the most important one to keep green. Free-tier storage/bandwidth caps live on the Supabase dashboard."}</div>
+      </div>
+
+      <div class="hs-card" style="border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><b style="font-size:13.5px;">InventoryIQ (Cloudflare Worker)</b> ${pill((statuses.iq||{}).state)}</div>
+        <div class="smallhint">${(statuses.iq&&statuses.iq.detail)||"The scan-import pipeline. Cloudflare's free tier allows 100,000 worker requests/day — plenty for scanning, but this ping confirms it's actually up."}</div>
+      </div>
+
+      <div class="hs-card" style="border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:4px;background:#f7f9fc;">
+        <div style="margin-bottom:2px;"><b style="font-size:13.5px;">eBay Picture Services (EPS)</b> <span style="font-size:11px;color:#6b7280;">— informational</span></div>
+        <div class="smallhint">Photo hosting has no capacity total to track — it works on per-image limits (12MB / 1600×1600 max) and photos auto-expire 90 days after a listing ends, so there's no storage quota that can be exceeded.</div>
+      </div>
+    </div>`;
+    body.querySelector("#sh-refresh").onclick=runChecks;
+    body.querySelector("#sh-ebay-detail").onclick=()=>{ try{ openEbayApiLimits(); }catch(e){} };
+  }
+  async function runChecks(){
+    const msg=body.querySelector("#sh-msg"); msg.style.color="#555"; msg.textContent="Checking services…";
+    // eBay — reachable + a quick quota sanity read.
+    try{
+      if(EBAY.ready()){ const rl=await EBAY.getRateLimits();
+        if(rl){ // find the tightest remaining headroom to summarize
+          let tightest=null;
+          const groups=(rl&&rl.rateLimits)||(Array.isArray(rl)?rl:[]);
+          (groups||[]).forEach(g=>{ (g.resources||[]).forEach(r=>{ (r.rates||[]).forEach(rt=>{
+            const used=(rt.limit!=null&&rt.remaining!=null)?(rt.limit-rt.remaining):null;
+            if(used!=null && rt.limit){ const pct=used/rt.limit; if(!tightest||pct>tightest.pct) tightest={pct,name:r.name||g.apiName||"a resource"}; }
+          }); }); });
+          statuses.ebay={state:"ok", detail: tightest?("Tightest resource: "+tightest.name+" at "+Math.round(tightest.pct*100)+"% used this window."):"Connected. Open the full screen for the per-resource breakdown."};
+        } else statuses.ebay={state:"ok", detail:"Connected."};
+      } else statuses.ebay={state:"unknown", detail:"Not connected to eBay right now."};
+    }catch(e){ statuses.ebay={state:"down", detail:"Couldn't read eBay quotas: "+(e&&e.message?e.message:e)}; }
+    // Shippo reachability — a tokened request; any HTTP answer means it's up.
+    try{ const tok=await carrierGetSecret2("shippo","token");
+      if(tok && WIM_IS_DESKTOP){ const r=await wimDesktop.invoke("shippo_get_rates",{ token:tok, fromCity:"Kansas City",fromState:"MO",fromZip:"64111",fromCountry:"US", toCity:"Chicago",toState:"IL",toZip:"60601",toCountry:"US", weightLb:"1",lengthIn:"6",widthIn:"4",heightIn:"2" }); statuses.shippo={state:(r&&(r.ok||r.status))?"ok":"down"}; countApiCall("shippo"); }
+      else statuses.shippo={state:"unknown"}; }
+    catch(e){ statuses.shippo={state:"down"}; }
+    // EasyPost reachability.
+    try{ const key=await carrierGetSecret2("easypost","key");
+      if(key && WIM_IS_DESKTOP){ const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:key, fromCity:"Kansas City",fromState:"MO",fromZip:"64111",fromCountry:"US", toCity:"Chicago",toState:"IL",toZip:"60601",toCountry:"US", weightLb:"1",lengthIn:"6",widthIn:"4",heightIn:"2" }); statuses.easypost={state:(r&&(r.ok||r.status))?"ok":"down"}; countApiCall("easypost"); }
+      else statuses.easypost={state:"unknown"}; }
+    catch(e){ statuses.easypost={state:"down"}; }
+    // Supabase reachability.
+    try{ if(DB.cloud&&DB.cloud.teamCode&&cloudSession){ await checkCloudReachability(); statuses.supabase={state:CLOUD_ONLINE?"ok":"down", detail:CLOUD_ONLINE?"Reachable — sync and backups are working.":"Unreachable right now — changes are queued locally and will sync when it's back."}; }
+      else statuses.supabase={state:"unknown", detail:"This device isn't connected to a cloud team, so there's nothing to sync."}; }
+    catch(e){ statuses.supabase={state:"down"}; }
+    // InventoryIQ Worker ping.
+    try{ if(DB.iqSettings&&DB.iqSettings.token&&WIM_IS_DESKTOP){ const r=await wimDesktop.invoke("iq_fetch_scans",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token }); statuses.iq={state:r&&r.ok?"ok":(r&&r.status===401?"down":"down"), detail:r&&r.ok?"Reachable and authenticating.":(r&&r.status===401?"Reachable, but the token was rejected (401).":"Couldn't reach the Worker (HTTP "+(r&&r.status)+").")}; }
+      else statuses.iq={state:"unknown", detail:"No InventoryIQ token set — configure it under Setup → InventoryIQ."}; }
+    catch(e){ statuses.iq={state:"down"}; }
+    msg.style.color="#1f7244"; msg.textContent="Checked "+new Date().toLocaleTimeString()+".";
+    render();
+  }
+  render();
+  runChecks();
+}
 function openEbayApiLimits(){
   if(openWindows["ebay-api-limits"]){ focusWin(openWindows["ebay-api-limits"].el); return; }
   const {body}=buildWindow({id:"ebay-api-limits",title:"eBay API Limits",width:920,height:600,
@@ -8062,13 +8171,25 @@ function openShippingComparison(){
 // Fetches one comparison record's Shippo and EasyPost rates for real, using the item's
 // actual weight/dimensions and the real ship-to address from its order — only runs if a
 // weight was actually entered, since a real rate quote genuinely needs one.
+// Increments a local per-service usage counter for the current month, auto-resetting when the
+// month rolls over. Used by the System Health screen for services with no usage API to query.
+function countApiCall(service){
+  try{
+    const mo=new Date().toISOString().slice(0,7); // YYYY-MM
+    if(!DB.apiUsage) DB.apiUsage={ month:mo, counts:{} };
+    if(DB.apiUsage.month!==mo){ DB.apiUsage.month=mo; DB.apiUsage.counts={}; }
+    DB.apiUsage.counts[service]=(DB.apiUsage.counts[service]||0)+1;
+    // Lightweight save — don't block the caller on it.
+    save();
+  }catch(e){}
+}
 async function fetchOneComparisonRate(rec, onDone){
   if(!rec.weight){ uiAlert("This item has no weight entered — open it and fill in Shipping weight & dimensions first."); return; }
   const from=DB.shipFrom;
   try{
     const shippoTok=await carrierGetSecret2("shippo","token");
     if(shippoTok){
-      const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok,
+      countApiCall("shippo"); const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok,
         fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
         toCity:rec.shipToCity, toState:rec.shipToState, toZip:rec.shipToZip, toCountry:rec.shipToCountry||"US",
         weightLb:rec.weight, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
@@ -8079,7 +8200,7 @@ async function fetchOneComparisonRate(rec, onDone){
   try{
     const epKey=await carrierGetSecret2("easypost","key");
     if(epKey){
-      const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:epKey,
+      countApiCall("easypost"); const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:epKey,
         fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
         toCity:rec.shipToCity, toState:rec.shipToState, toZip:rec.shipToZip, toCountry:rec.shipToCountry||"US",
         weightLb:rec.weight, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
@@ -8154,7 +8275,7 @@ function openShippingInformation(it){
     try{
       const shippoTok=await carrierGetSecret2("shippo","token");
       if(shippoTok){
-        const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok, fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
+        countApiCall("shippo"); const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok, fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
           toCity:shipTo.city||"", toState:shipTo.stateOrProvince||"", toZip:shipTo.postalCode||"", toCountry:shipTo.countryCode||"US",
           weightLb:weight, lengthIn:length, widthIn:width, heightIn:height });
         if(r.ok){ shippoShipment=JSON.parse(r.body); (shippoShipment.rates||[]).forEach(rt=>{ rows.push({provider:"Shippo",service:(rt.provider||"")+" "+(rt.servicelevel&&rt.servicelevel.name||""),amount:rt.amount,purchasable:true,source:"shippo",rateId:rt.object_id}); }); }
