@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.46", BUILD_DATE="2026-11-08", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.49", BUILD_DATE="2026-11-11", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.49","Two serious bug fixes found while auditing the workflow. FIRST: a simulated test item could be published as a REAL, purchasable listing on the live eBay account. Listing had no simulation check at all -- Mark Shipped had one, listing did not -- which meant the exact Simulation Mode test path (make a test item, send it for review, hit List) would have created a genuine eBay listing. The guard now lives inside the publish function itself rather than in each button that calls it, so no future screen can forget it. Simulated items get a fake SIM- listing id and walk the whole workflow normally without ever touching eBay. The same guard was added to delisting and to the photo upload. SECOND: Delist in Supervisor Review never actually ended the eBay listing -- it only flipped WIM own flags. The item would show up in the warehouse Delisted list while the listing stayed LIVE on eBay, so a buyer could still buy an item WIM believed had been pulled. Delist now really withdraws the offer from eBay first, and only marks the item delisted if eBay confirms; if the withdraw fails it tells you plainly and changes nothing, so WIM never claims something is off eBay when it is not."],
+  ["3.3.48","Added a Check for Cancellations button directly on the Shipping screen Ready to Ship tab -- right where someone is about to ship, which is exactly where it matters. It asks eBay about every order waiting to go out, one at a time (eBay only reveals a cancellation on a per-order lookup, never on a bulk one). If it finds any that have been cancelled, a popup warns you loudly, names each item, the reason it was cancelled and the buyer, and tells you not to ship. Those items are then pulled automatically out of Shipping and into Cancellations, Refunds, Returns, where you can restock them back into inventory -- so a cancelled order physically cannot be shipped by mistake afterwards. If nothing has been cancelled it tells you that plainly too, so you know the check really ran and it is safe to ship. Worth building the habit of clicking this before each shipping run."],
+  ["3.3.47","Made all three item cards consistent, matching the Bulk Add card. Import Scans and Supervisor Review cards now have the same full photo panel (featured/secondary thumbnails you can click to promote), the Find on eBay button, a Cost and Vendor field, a proper Description box, and the collapsible Listing Fields section -- Supervisor Review shows them already filled in from what the warehouse user entered. The List and Reject buttons are now softer, lighter colors instead of bold solid green and red. Every card now has its Save button in the bottom right corner: grayed out when nothing has changed, and the moment you edit something it becomes a blue Save with a gray Revert next to it, so you can either keep or undo the change -- both give a quick subtle flash so you can see it took. View landing page now opens the item in its own pop-out window instead of taking over. The Supervisor Review card now shows User: followed by the name of the person who sent the item for listing, right beside the item number and warehouse SKU. And the big one: if photos are added to an item during supervisor review, hitting List now uploads them to eBay Picture Services first, so they are actually attached to the listing instead of quietly never reaching eBay. If any photo fails to upload, listing stops and tells you which one, rather than publishing a listing with missing photos."],
   ["3.3.46","New Productivity tree (supervisor and above, in both Warehouse and Live mode) with its first application: Listing Accuracy. It answers the question you actually care about -- when someone sends an item to be listed, was it right? Every person who has sent items to Supervisor Review gets two numbers, because one number would hide the truth. Approval Rate is the percent of their submissions that were not rejected. Clean Rate is stricter: the percent that were listed with NO rejection AND no supervisor edits at all. Someone who never gets rejected but whose prices a supervisor quietly fixes every single time will show 100 percent approval and a poor clean rate -- which is exactly the problem that a single accuracy number would have buried. Errors are split into two kinds so you can tell them apart: Rejected (sent back) and Supervisor Override (silently corrected). There are breakdowns of why items get rejected and which fields supervisors keep having to fix, both per person and across the whole team, so you can see whether the issue is prices, photos, descriptions or categories. View it over the last 7 days, last month, last quarter, all time, or any custom date range, and print any of it. It all reads from the audit trail that Supervisor Review has been recording since v3.3.42."],
   ["3.3.45","Import Scans is now card-based like the rest of the app, instead of a plain table of lines. Each scanned item is a card showing its photo, how many photos have been taken so far (green when they are in, red when they are still missing), and its Item number. The description, listing price, condition, category, sub category and vendor are all editable right on the card with a Save changes button -- no need to open the item just to fix a field. Each card has a Photo folder button that opens that item folder in your shared drive, a View landing page button, and the same collapsible Price Compare panel as everywhere else so you can research what the thing is actually worth while you are building the listing."],
   ["3.3.44","Price Compare is now available right on the item cards, not just the item landing page. The whole tool was pulled out into one shared component and dropped onto the Bulk Add and Supervisor Review cards as a collapsible Price Compare section, sitting under Listing Fields and closed by default. It is the same panel you already know: Active and Sold tabs, the price range and median, filter by condition, load more results, delete rows that got pulled in wrong, and the copy/paste fallback for sold listings when the API is not available. It is a research view -- it never sets a price, you read it and decide. On a Bulk Add card it searches from whatever you have typed in the Item Description (it will ask you to type one first). Because it is now one shared component instead of three copies, the landing page and the cards can never drift apart. Also expanded the dropdown hit areas on every item card: you can now click the field NAME itself -- Condition, Category, Vendor, Sub Category, Description, Price Compare, Listing Fields -- instead of having to hit the tiny caret arrow. And Supervisor Review cards now have a View landing page button."],
@@ -4835,6 +4838,24 @@ async function ensureMerchantLocation(onStep){
   }catch(e){ return { ok:false, error:"Could not reach eBay while creating the location: "+(e&&e.message?e.message:e) }; }
 }
 async function publishToEbay(it,onStep){
+  // SAFETY: a simulated item must NEVER reach the real eBay account. This guard lives here — not
+  // in each caller — because publishToEbay has several callers (item detail, Supervisor Review,
+  // Ready to List, photo re-sync, bulk publish) and any one of them forgetting the check would
+  // publish a fake test item as a real, purchasable listing. Simulated items instead get a fake
+  // SIM- listing id and walk the rest of the workflow exactly like a real one.
+  if(it.simulated){
+    onStep&&onStep("Simulated item — skipping the real eBay call.");
+    if(!it.listing) it.listing={status:"none"};
+    it.listing.status="listed";
+    it.listing.listedAt=new Date().toISOString();
+    it.listing.ebayListingId="SIM-"+Date.now();
+    it.listing.offerId="SIM-OFFER-"+Date.now();
+    it.listing.publishMethod="simulated";
+    if(!it.listing.listedBy) it.listing.listedBy=(SESSION.user?SESSION.user.id:null);
+    addHistory(it,"[Simulated] Listed — no real eBay call was made");
+    save();
+    return { ok:true, simulated:true, listingId:it.listing.ebayListingId };
+  }
   if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to the mode badge." };
   const missing=ebayListingPrereqs(it);
   if(missing.length) return { ok:false, error:"Missing before publishing:\n• "+missing.join("\n• ") };
@@ -4936,6 +4957,13 @@ async function bulkRepriceOffers(items, computeNewPrice, onStep){
   return { ok:true, results, skipped };
 }
 async function delistFromEbay(it,onStep){
+  // Same safety rule as publishToEbay: a simulated item never touches the real account.
+  if(it.simulated){
+    if(!it.listing) it.listing={status:"none"};
+    it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString();
+    addHistory(it,"[Simulated] Delisted — no real eBay call was made"); save();
+    return { ok:true, simulated:true };
+  }
   if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to the mode badge." };
   if(!it.listing || !it.listing.offerId) return { ok:false, error:"This item wasn't published through WIM's eBay integration (no offer on record), so there's nothing on eBay for WIM to withdraw. If it's listed manually, use the local status toggle below instead." };
   onStep&&onStep("Withdrawing the eBay offer…");
@@ -5613,6 +5641,121 @@ function mountPriceCompare(opts){
   return { render: compareTab };
 }
 
+// Uploads an item's photos to eBay Picture Services and records the resulting URLs on the
+// listing, so publishing attaches them. Photos that are already hosted HTTPS URLs (e.g. pulled
+// from Find by Photo) pass straight through — there's nothing to upload for those.
+// Returns { uploaded, failed, urls, details }.
+async function uploadItemPhotosToEbay(it, onStep){
+  const imgs=(it.images||[]);
+  if(!imgs.length) return { uploaded:0, failed:0, urls:[], details:[] };
+  // Simulated items never upload to eBay Picture Services either.
+  if(it.simulated){
+    onStep&&onStep("Simulated item — skipping the photo upload to eBay.");
+    return { uploaded:imgs.length, failed:0, urls:[], details:[], simulated:true };
+  }
+  const urls=[], details=[]; let failed=0;
+  for(let i=0;i<imgs.length;i++){
+    if(/^https?:\/\//i.test(imgs[i])){ urls.push(imgs[i]); continue; }
+    onStep && onStep("Uploading photo "+(i+1)+" of "+imgs.length+" to eBay…");
+    try{
+      const r=await EBAY.uploadPicture(imgs[i], (it.desc||"WIM")+" "+(i+1));
+      if(r && r.ok && r.body) urls.push(r.body);
+      else { failed++; details.push("Photo "+(i+1)+" (HTTP "+(r&&r.status)+"): "+((r&&r.body)||"no response").slice(0,200)); }
+    }catch(e){ failed++; details.push("Photo "+(i+1)+": "+(e&&e.message?e.message:e)); }
+  }
+  if(!it.listing) it.listing={status:"none"};
+  it.listing.ebayImageUrls=urls;
+  addHistory(it,"Uploaded "+urls.length+" photo(s) to eBay"+(failed?(" ("+failed+" failed)"):""));
+  save();
+  return { uploaded:urls.length, failed, urls, details };
+}
+/* ===================== SHARED ITEM-CARD SAVE FOOTER =====================
+ * Every item card (Bulk Add, Import Scans, Supervisor Review) gets the same footer: a Save
+ * button pinned bottom-right, grayed out while nothing has changed. The moment a field is
+ * edited it turns into a blue Save plus a gray Revert. Either one gives a quick subtle flash so
+ * you can see it took, rather than wondering whether the click registered.
+ *   makeCardFooter(card, { onSave, onRevert }) -> { markDirty, clean }
+ */
+function makeCardFooter(card, opts){
+  const bar=document.createElement("div");
+  bar.style.cssText="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:0.5px solid #eef0f3;";
+  const revert=document.createElement("button");
+  revert.className="btn sm"; revert.textContent="Revert";
+  revert.style.cssText="display:none;color:#5b6470;";
+  const save=document.createElement("button");
+  save.className="btn sm"; save.textContent="Save";
+  const setClean=()=>{ save.disabled=true; save.style.cssText="background:#eef0f3;border-color:#dfe3e8;color:#a6aeb8;cursor:default;"; revert.style.display="none"; };
+  const setDirty=()=>{ save.disabled=false; save.style.cssText="background:#2a6fd4;border-color:#2a6fd4;color:#fff;font-weight:600;"; revert.style.display=""; };
+  setClean();
+  const flash=(msg,color)=>{ // a subtle, quick confirmation that the click did something
+    card.style.transition="background .12s"; card.style.background=color;
+    setTimeout(()=>{ card.style.background="#fff"; },260);
+    if(msg) wimToast(msg,"success");
+  };
+  save.onclick=()=>{ if(save.disabled) return; opts.onSave&&opts.onSave(); flash("Saved \u2713","#EAF5EE"); };
+  revert.onclick=()=>{ opts.onRevert&&opts.onRevert(); flash(null,"#F3F4F6"); };
+  bar.appendChild(revert); bar.appendChild(save); card.appendChild(bar);
+  return { markDirty:setDirty, clean:setClean };
+}
+/* ===================== SHARED ITEM PHOTO PANEL =====================
+ * The Bulk Add photo panel, but for a SAVED item — so Supervisor Review and Import Scans get the
+ * identical thing: big featured photo with a Featured/Secondary tag, add/delete buttons, a strip
+ * of clickable thumbnails (click one to view it, click its S tag to promote it to featured), and
+ * the Find on eBay button. onChange() should re-render the card.
+ */
+function itemPhotoPanel(it, onChange){
+  if(!Array.isArray(it.images)) it.images=it.image?[it.image]:[];
+  if(typeof it._viewIdx!=="number" || it._viewIdx>=it.images.length) it._viewIdx = it.images.length?0:-1;
+  const wrap=document.createElement("div"); wrap.style.cssText="flex-shrink:0;width:130px;";
+  const shown=it._viewIdx>=0?it.images[it._viewIdx]:null;
+  const isFeatured=it._viewIdx===0;
+  const big=document.createElement("div");
+  big.style.cssText=`width:130px;height:130px;border:0.5px solid #9aa3b0;border-radius:8px;background:#f4f6f9 center/contain no-repeat;position:relative;${shown?'':'display:flex;align-items:center;justify-content:center;color:#9aa3ad;'}`;
+  if(shown){ big.style.backgroundImage=`url(${shown})`;
+    big.innerHTML=`<span style="position:absolute;top:5px;right:5px;background:${isFeatured?'#e6f1fb':'#eef0f3'};color:${isFeatured?'#0c447c':'#5f6b7a'};font-size:10px;padding:2px 7px;border-radius:6px;font-weight:600;">${isFeatured?'Featured':'Secondary'}</span>`; }
+  else big.textContent="No photos";
+  wrap.appendChild(big);
+
+  const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:6px;margin-top:6px;";
+  const addB=document.createElement("button"); addB.className="btn sm"; addB.style.flex="1"; addB.textContent="+ Add photos";
+  const file=document.createElement("input"); file.type="file"; file.accept="image/*"; file.multiple=true; file.style.display="none";
+  file.onchange=async ()=>{ const files=Array.from(file.files||[]);
+    for(const f of files){ try{ const d=await compressImage(f); if(!it.images.includes(d)) it.images.push(d); }catch(e){} }
+    file.value=""; if(it._viewIdx<0 && it.images.length) it._viewIdx=0;
+    it.image=it.images[0]||""; save(); onChange&&onChange(); };
+  addB.onclick=()=>file.click();
+  const delB=document.createElement("button"); delB.className="btn sm"; delB.style.cssText="width:30px;border-color:#c0392b;color:#c0392b;"; delB.textContent="🗑"; delB.title="Delete the photo shown above";
+  delB.onclick=()=>{ if(it._viewIdx>=0){ it.images.splice(it._viewIdx,1);
+    it._viewIdx=it.images.length?Math.min(it._viewIdx,it.images.length-1):-1;
+    it.image=it.images[0]||""; save(); onChange&&onChange(); } };
+  btnRow.appendChild(addB); btnRow.appendChild(delB); btnRow.appendChild(file); wrap.appendChild(btnRow);
+
+  const findB=document.createElement("button"); findB.className="btn sm";
+  findB.style.cssText="width:100%;margin-top:6px;padding:7px 0;font-weight:600;border-color:#378add;color:#0c447c;";
+  findB.innerHTML="🔍 Find on eBay"; findB.title="Search eBay to set category & required listing fields";
+  findB.onclick=()=>openEbayFind(it, ()=>{ save(); onChange&&onChange(); });
+  wrap.appendChild(findB);
+
+  const strip=document.createElement("div"); strip.style.cssText="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;";
+  it.images.forEach((src,idx)=>{
+    const feat=idx===0;
+    const t=document.createElement("div");
+    t.style.cssText=`width:38px;height:38px;background:#fff center/cover no-repeat;border:${idx===it._viewIdx?'2px solid #378add':'0.5px solid #ccc'};border-radius:5px;position:relative;cursor:pointer;flex-shrink:0;`;
+    t.style.backgroundImage=`url(${src})`;
+    const tag=document.createElement("span"); tag.textContent=feat?"F":"S";
+    tag.style.cssText=`position:absolute;top:-6px;right:-4px;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;border:0.5px solid ${feat?'#0c447c':'#b9c2cf'};background:${feat?'#e6f1fb':'#fff'};color:${feat?'#0c447c':'#5f6b7a'};cursor:pointer;`;
+    tag.title=feat?"This is the featured photo":"Make this the featured photo";
+    tag.onclick=(e)=>{ e.stopPropagation(); if(!feat){ const [img]=it.images.splice(idx,1); it.images.unshift(img);
+      it._viewIdx=0; it.image=it.images[0]||""; save(); onChange&&onChange(); } };
+    t.onclick=()=>{ it._viewIdx=idx; onChange&&onChange(); };
+    t.appendChild(tag); strip.appendChild(t);
+  });
+  wrap.appendChild(strip);
+  if(it.images.length){ const hint=document.createElement("div"); hint.className="smallhint";
+    hint.style.cssText="font-size:10px;text-align:center;margin-top:5px;";
+    hint.textContent="click a photo to view · click S to feature"; wrap.appendChild(hint); }
+  return wrap;
+}
 function openItemDetail(item,mode,nav,defaultTab){
   let isNew=mode==="new"; const isCat=mode==="catalog", ro=isCat;
   // Open existing-item landing pages in their own OS window (when floating is on), so each level is its own window and closes cleanly.
@@ -6428,47 +6571,79 @@ async function openImportScans(){
       card.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">This scan's item record is missing — it may have been deleted. <b>${esc(r.desc||"")}</b></div>`;
       return card;
     }
-    const hasPhotos=(r.photoCount||0)>0;
+    const hasPhotos=(it.images||[]).length>0 || (r.photoCount||0)>0;
     const subs=subcatsOf(it.section||"");
+    const dyn=aspectsFor(it)||[];
+    const L=it.listing||{};
     card.innerHTML=`
       <div style="display:flex;gap:16px;align-items:flex-start;">
-        <div style="flex-shrink:0;width:120px;">
-          <div style="width:120px;height:120px;border:0.5px solid #d5dae1;border-radius:8px;background:#f4f6f9 center/contain no-repeat;${it.image?"":"display:flex;align-items:center;justify-content:center;color:#9aa3ad;font-size:24px;"}" ${it.image?`data-bg="${esc(it.image)}"`:""}>${it.image?"":"📦"}</div>
-          <div style="text-align:center;margin-top:6px;font-size:11px;font-weight:700;color:${hasPhotos?'#1f9d55':'#c0392b'};">${hasPhotos?(r.photoCount+" photo(s)"):"No photos yet"}</div>
-          <button class="btn sm is-folder" style="width:100%;margin-top:6px;">📁 Photo folder</button>
-        </div>
+        <div class="is-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
-          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · scanned ${r.importedAt?fmtDay(r.importedAt):"—"}</div>
+          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · scanned ${r.importedAt?fmtDay(r.importedAt):"—"} · <b style="color:${hasPhotos?'#1f9d55':'#c0392b'};">${hasPhotos?((it.images||[]).length+" photo(s)"):"No photos yet"}</b></div>
           <div><label style="font-size:11px;color:#5b6470;">Item Description</label><input class="txt is-f" data-f="desc" value="${esc(it.desc||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
-          <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt is-f" data-f="price" value="${esc(String((it.listing&&it.listing.price)||it.retail||""))}" inputmode="decimal" placeholder="0.00" style="width:100%;height:30px;box-sizing:border-box;"></div>
-          <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt is-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt is-f" data-f="price" value="${esc(String(L.price||it.retail||""))}" inputmode="decimal" placeholder="0.00" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Cost</label><input class="txt is-f" data-f="unitCost" value="${esc(it.unitCost||"")}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb is-f" data-f="section" style="width:100%;height:30px;font-size:12px;">${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${it.section===s?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
           <div><label style="font-size:11px;color:#5b6470;">Sub Category</label><select class="cmb is-f" data-f="subCategory" style="width:100%;height:30px;font-size:12px;"><option value="">— none —</option>${subs.map(s=>`<option value="${esc(s.name)}" ${it.subCategory===s.name?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div>
           <div><label style="font-size:11px;color:#5b6470;">Vendor</label><input class="txt is-f" data-f="vendor" value="${esc(it.vendor||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt is-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Warehouse SKU</label><input class="txt" value="${esc(it.sku||"")}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
+          <div></div>
+          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Description</label><textarea class="txt is-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
-          <button class="btn sm is-save" style="display:none;">Save changes</button>
-          <button class="btn is-open" style="font-weight:600;">View landing page</button>
+          <button class="btn sm is-open">View landing page</button>
+          <button class="btn sm is-folder">📁 Photo folder</button>
         </div>
       </div>
+      ${dyn.length?`<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
+        <div class="is-lf-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isFieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Fields</b> <span style="color:#8a95a3;">(from eBay for ${esc(it.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}</span></div>
+        <div class="is-lf-body" style="display:${it._isFieldsOpen?'grid':'none'};grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt is-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}
       <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
         <div class="is-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isCompareOpen?'90':'0'}deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— see what similar items are listed and sold for</span></div>
         <div class="is-pc-body" style="display:${it._isCompareOpen?'block':'none'};"></div>
       </div>`;
-    const bg=card.querySelector("[data-bg]"); if(bg) bg.style.backgroundImage=`url(${bg.dataset.bg})`;
-    const saveBtn=card.querySelector(".is-save");
-    card.querySelectorAll(".is-f").forEach(f=>{ const show=()=>{ saveBtn.style.display=""; }; f.addEventListener("input",show); f.addEventListener("change",show); });
-    saveBtn.onclick=()=>{
-      const g=k=>{ const el=card.querySelector(`.is-f[data-f="${k}"]`); return el?el.value:""; };
-      it.desc=g("desc"); it.condition=g("condition"); it.section=g("section"); it.subCategory=g("subCategory"); it.vendor=g("vendor");
-      if(!it.listing) it.listing={status:"none"};
-      it.listing.price=g("price"); it.retail=g("price");
-      r.desc=it.desc; r.category=it.section;
-      addHistory(it,"Edited from Import Scans");
-      save(); wimRefreshAll(); wimToast("Saved \u2713","success"); render();
+
+    card.querySelector(".is-photo-slot").replaceWith(itemPhotoPanel(it, ()=>render()));
+
+    const snapshot=JSON.parse(JSON.stringify({ desc:it.desc, condition:it.condition, section:it.section,
+      subCategory:it.subCategory, vendor:it.vendor, unitCost:it.unitCost,
+      price:(it.listing&&it.listing.price)||it.retail, descBody:(it.listing&&it.listing.descBody)||"",
+      aspects:it.aspects||{} }));
+    const footer=makeCardFooter(card, {
+      onSave:()=>{
+        const g=k=>{ const el=card.querySelector(`.is-f[data-f="${k}"]`); return el?el.value:""; };
+        it.desc=g("desc"); it.condition=g("condition"); it.section=g("section");
+        it.subCategory=g("subCategory"); it.vendor=g("vendor"); it.unitCost=g("unitCost");
+        if(!it.listing) it.listing={status:"none"};
+        it.listing.price=g("price"); it.retail=g("price"); it.listing.descBody=g("descBody");
+        if(!it.aspects) it.aspects={};
+        card.querySelectorAll(".is-asp").forEach(a=>{ it.aspects[a.dataset.asp]=a.value; });
+        r.desc=it.desc; r.category=it.section;
+        addHistory(it,"Edited from Import Scans");
+        save(); wimRefreshAll(); render();
+      },
+      onRevert:()=>{
+        it.desc=snapshot.desc; it.condition=snapshot.condition; it.section=snapshot.section;
+        it.subCategory=snapshot.subCategory; it.vendor=snapshot.vendor; it.unitCost=snapshot.unitCost;
+        if(!it.listing) it.listing={status:"none"};
+        it.listing.price=snapshot.price; it.retail=snapshot.price; it.listing.descBody=snapshot.descBody;
+        it.aspects=JSON.parse(JSON.stringify(snapshot.aspects));
+        render();
+      }
+    });
+    card.querySelectorAll(".is-f, .is-asp").forEach(f=>{
+      f.addEventListener("input",()=>footer.markDirty());
+      f.addEventListener("change",()=>footer.markDirty());
+    });
+
+    card.querySelector(".is-open").onclick=()=>{
+      if(typeof popOutItem==="function" && popOutItem(it,"edit")) return;
+      openScanForListing(r);
     };
-    card.querySelector(".is-open").onclick=()=>openScanForListing(r);
     card.querySelector(".is-folder").onclick=()=>{ if(WIM_IS_DESKTOP) wimDesktop.invoke("open_url",{url:"file:///"+importScanFolderPath(r).replace(/\\/g,"/")}).catch(()=>{}); };
+    const lfHdr=card.querySelector(".is-lf-hdr");
+    if(lfHdr) lfHdr.onclick=()=>{ it._isFieldsOpen=!it._isFieldsOpen; render(); };
     const pcHdr=card.querySelector(".is-pc-hdr");
     if(pcHdr) pcHdr.onclick=()=>{ it._isCompareOpen=!it._isCompareOpen; render(); };
     if(it._isCompareOpen){
@@ -8593,6 +8768,7 @@ function openShipping(){
         <button class="btn sm ${tab==='readyToShip'?'primary':''}" id="sh-tab-rts">Ready to Ship${fulfillmentItems('readyToShip').length?' ('+fulfillmentItems('readyToShip').length+')':''}</button>
         <button class="btn sm ${tab==='shipped'?'primary':''}" id="sh-tab-shipped">Shipped${fulfillmentItems('shipped').length?' ('+fulfillmentItems('shipped').length+')':''}</button>
         <button class="btn sm ${tab==='completed'?'primary':''}" id="sh-tab-completed">Completed${fulfillmentItems('completed').length?' ('+fulfillmentItems('completed').length+')':''}</button>
+        ${tab==="readyToShip" && items.length?`<button class="btn sm" id="sh-checkcancel" title="Ask eBay whether any of these orders have been cancelled — do this before you ship" style="border-color:#b06000;color:#8A5E10;">⚠ Check for Cancellations</button><span class="smallhint" id="sh-cancelmsg"></span>`:``}
         ${adminBar}
       </div>
       ${tab==="readyToShip" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
@@ -8617,6 +8793,43 @@ function openShipping(){
     body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(shSort.key===k) shSort.dir*=-1; else shSort={key:k,dir:1}; render(); });
     const tb=body.querySelector("#sh-tb");
     body.querySelector("#sh-tab-rts").onclick=()=>{ tab="readyToShip"; picked.clear(); render(); };
+    // Check for Cancellations — the safety net before anything gets shipped. eBay only reveals a
+    // cancellation on a per-order lookup, so this walks the Ready to Ship list one order at a time.
+    // Anything confirmed CANCELED is pulled straight out of Shipping (checkOrderCancellations sets
+    // stage="cancelled"), so it physically cannot be shipped by mistake afterwards.
+    const ccBtn=body.querySelector("#sh-checkcancel");
+    if(ccBtn) ccBtn.onclick=async ()=>{
+      const msg=body.querySelector("#sh-cancelmsg");
+      if(!EBAY.ready()){ uiAlert("Not connected to eBay — click Connect next to the mode badge, then try again."); return; }
+      const before=fulfillmentItems("readyToShip").map(i=>i.id);
+      ccBtn.disabled=true; ccBtn.textContent="Checking…";
+      try{
+        const r=await checkOrderCancellations((i,n)=>{ if(msg){ msg.style.color="#555"; msg.textContent="Checking order "+i+" of "+n+"…"; } });
+        // Which of the ones we were about to ship just got pulled out?
+        const nowCancelled=DB.items.filter(it=>before.includes(it.id) && it.fulfillment && it.fulfillment.cancelled);
+        if(r.found && nowCancelled.length){
+          const lines=nowCancelled.map(it=>{
+            const f=it.fulfillment||{};
+            return "• "+esc(it.desc||it.sku||"item")+(f.cancelReason?"  —  "+esc(f.cancelReason):"")+(f.buyer?"  ("+esc(f.buyer)+")":"");
+          }).join("<br>");
+          // uiModal (not uiAlert) because uiAlert escapes its message — this needs real markup.
+          uiModal("Cancelled orders found", `<div style="font-size:13px;max-width:460px;">
+            <div style="font-weight:700;color:#c0392b;margin-bottom:8px;">⚠ ${nowCancelled.length} order${nowCancelled.length===1?" was":"s were"} cancelled on eBay — do not ship!</div>
+            <div style="margin-bottom:8px;line-height:1.6;">${lines}</div>
+            <div style="color:#5b6470;">${nowCancelled.length===1?"It has":"They have"} been moved out of Shipping into <b>Cancellations, Refunds, Returns</b>, where you can restock ${nowCancelled.length===1?"it":"them"} back into inventory.</div>
+          </div>`, [{label:"OK",primary:true}]);
+        } else if(r.found){
+          uiAlert("Found "+r.found+" cancelled order(s). They've been moved into Cancellations, Refunds, Returns.");
+        } else {
+          uiAlert("Checked "+r.checked+" order"+(r.checked===1?"":"s")+" — none have been cancelled. Safe to ship.");
+        }
+        if(msg) msg.textContent="";
+        picked.clear(); render(); wimRefreshAll();
+      }catch(e){
+        uiAlert("Couldn't check for cancellations: "+(e&&e.message?e.message:e));
+        ccBtn.disabled=false; ccBtn.textContent="⚠ Check for Cancellations";
+      }
+    };
     body.querySelector("#sh-tab-shipped").onclick=()=>{ tab="shipped"; picked.clear(); render(); };
     body.querySelector("#sh-tab-completed").onclick=()=>{ tab="completed"; picked.clear(); render(); };
     if(role()==="admin"){
@@ -9715,7 +9928,7 @@ function openSupervisorReview(){
       : (L.listedBy?userLabel(L.listedBy):"—");
     const whoLabel = tab==="waiting" ? "Sent by" : "Listed by";
     const when = tab==="waiting" ? L.sentForReviewAt : (L.listedAt||L.publishedAt);
-    // If this was rejected before and re-sent, show what it was rejected for and what changed.
+    // Prior-rejection banner: what it was bounced for, and what actually changed since.
     let banner="";
     if(tab==="waiting" && L.wasRejected && L.rejected){
       const diff=reviewDiff(L.rejectedSnapshot, L.submitSnapshot||reviewSnapshot(it));
@@ -9729,55 +9942,71 @@ function openSupervisorReview(){
       </div>`;
     }
     const subs=subcatsOf(it.section||"");
+    const dyn=aspectsFor(it)||[];
     card.innerHTML=`${banner}
       <div style="display:flex;gap:16px;align-items:flex-start;">
-        <div style="flex-shrink:0;width:120px;">
-          <div style="width:120px;height:120px;border:0.5px solid #d5dae1;border-radius:8px;background:#f4f6f9 center/contain no-repeat;${it.image?"":"display:flex;align-items:center;justify-content:center;color:#9aa3ad;font-size:24px;"}" ${it.image?`data-bg="${esc(it.image)}"`:""}>${it.image?"":"📦"}</div>
-          <div class="smallhint" style="text-align:center;margin-top:5px;">${(it.images||[]).length||0} photo(s)</div>
-          <div class="smallhint" style="text-align:center;margin-top:6px;font-size:11px;"><b>${esc(whoLabel)}:</b><br>${esc(who)}</div>
-          <div class="smallhint" style="text-align:center;font-size:10.5px;">${when?new Date(when).toLocaleString():""}</div>
-        </div>
+        <div class="sr-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
-          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · SKU ${esc(it.sku||"")}</div>
+          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · SKU ${esc(it.sku||"")} · <b style="color:#5b6470;">User: ${esc(who)}</b>${when?` · ${new Date(when).toLocaleString()}`:""}</div>
           <div><label style="font-size:11px;color:#5b6470;">Item Description</label><input class="txt sr-f" data-f="desc" value="${esc(it.desc||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt sr-f" data-f="price" value="${esc(price)}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
-          <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt sr-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Cost</label><input class="txt sr-f" data-f="unitCost" value="${esc(it.unitCost||"")}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb sr-f" data-f="section" style="width:100%;height:30px;font-size:12px;">${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${it.section===s?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
           <div><label style="font-size:11px;color:#5b6470;">Sub Category</label><select class="cmb sr-f" data-f="subCategory" style="width:100%;height:30px;font-size:12px;"><option value="">— none —</option>${subs.map(s=>`<option value="${esc(s.name)}" ${it.subCategory===s.name?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div>
+          <div><label style="font-size:11px;color:#5b6470;">Vendor</label><input class="txt sr-f" data-f="vendor" value="${esc(it.vendor||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt sr-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Quantity</label><input class="txt" value="${esc(String(groupQty(it)))}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
-          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Listing Description</label><textarea class="txt sr-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
-          <div style="grid-column:1 / -1;padding-top:10px;border-top:0.5px solid #e2e6ec;">
-            <div class="sr-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._srCompareOpen?'90':'0'}deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— check this against what similar items list and sell for</span></div>
-            <div class="sr-pc-body" style="display:${it._srCompareOpen?'block':'none'};"></div>
-          </div>
+          <div><label style="font-size:11px;color:#5b6470;">Warehouse SKU</label><input class="txt" value="${esc(it.sku||"")}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
+          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Description</label><textarea class="txt sr-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
         </div>
-        <div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0;">
-          <button class="btn sm sr-save" style="display:none;">Save changes</button>
+        <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
           ${tab==="waiting"
-            ? `<button class="btn sr-list" style="background:#1f7244;border-color:#1f7244;color:#fff;font-weight:600;">✓ List</button>
-               <button class="btn sr-reject" style="background:#c0392b;border-color:#c0392b;color:#fff;font-weight:600;">✕ Reject</button>`
-            : `<button class="btn sr-delist" style="background:#b06000;border-color:#b06000;color:#fff;font-weight:600;">Delist</button>`}
+            ? `<button class="btn sm sr-list" style="background:#E6F4EA;border-color:#9AD3AE;color:#1F7244;font-weight:600;">✓ List</button>
+               <button class="btn sm sr-reject" style="background:#FDECEA;border-color:#F0B0A8;color:#B03A2E;font-weight:600;">✕ Reject</button>`
+            : `<button class="btn sm sr-delist" style="background:#FBF0E2;border-color:#E8C89A;color:#8A5E10;font-weight:600;">Delist</button>`}
           <button class="btn sm sr-open">View landing page</button>
         </div>
+      </div>
+      ${dyn.length?`<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
+        <div class="sr-lf-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._srFieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Fields</b> <span style="color:#8a95a3;">(from eBay for ${esc(it.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}</span></div>
+        <div class="sr-lf-body" style="display:${it._srFieldsOpen?'grid':'none'};grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt sr-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}
+      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
+        <div class="sr-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._srCompareOpen?'90':'0'}deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— check this against what similar items list and sell for</span></div>
+        <div class="sr-pc-body" style="display:${it._srCompareOpen?'block':'none'};"></div>
       </div>`;
-    const bg=card.querySelector("[data-bg]"); if(bg) bg.style.backgroundImage=`url(${bg.dataset.bg})`;
+
+    // Photo panel — same Featured/Secondary strip + Find on eBay as Bulk Add.
+    card.querySelector(".sr-photo-slot").replaceWith(itemPhotoPanel(it, ()=>render()));
 
     // --- editing: a supervisor override is an ERROR against whoever submitted it ---
     const before=reviewSnapshot(it);
-    const saveBtn=card.querySelector(".sr-save");
-    card.querySelectorAll(".sr-f").forEach(f=>{
-      f.addEventListener("input",()=>{ saveBtn.style.display=""; });
-      f.addEventListener("change",()=>{ saveBtn.style.display=""; });
+    const snapshot=JSON.parse(JSON.stringify({ desc:it.desc, condition:it.condition, section:it.section,
+      subCategory:it.subCategory, vendor:it.vendor, unitCost:it.unitCost,
+      price:(it.listing&&it.listing.price)||it.retail, descBody:(it.listing&&it.listing.descBody)||"",
+      aspects:it.aspects||{} }));
+    const footer=makeCardFooter(card, {
+      onSave:()=>{ applyEdits(); save(); wimRefreshAll(); render(); },
+      onRevert:()=>{ // put everything back exactly as it was
+        it.desc=snapshot.desc; it.condition=snapshot.condition; it.section=snapshot.section;
+        it.subCategory=snapshot.subCategory; it.vendor=snapshot.vendor; it.unitCost=snapshot.unitCost;
+        if(!it.listing) it.listing={status:"none"};
+        it.listing.price=snapshot.price; it.retail=snapshot.price; it.listing.descBody=snapshot.descBody;
+        it.aspects=JSON.parse(JSON.stringify(snapshot.aspects));
+        render();
+      }
     });
-    function collect(){
-      const g=k=>{ const el=card.querySelector(`.sr-f[data-f="${k}"]`); return el?el.value:""; };
-      return { desc:g("desc"), price:g("price"), condition:g("condition"), section:g("section"), subCategory:g("subCategory"), descBody:g("descBody") };
-    }
+    card.querySelectorAll(".sr-f, .sr-asp").forEach(f=>{
+      f.addEventListener("input",()=>footer.markDirty());
+      f.addEventListener("change",()=>footer.markDirty());
+    });
     function applyEdits(){
-      const v=collect();
-      it.desc=v.desc; it.condition=v.condition; it.section=v.section; it.subCategory=v.subCategory;
+      const g=k=>{ const el=card.querySelector(`.sr-f[data-f="${k}"]`); return el?el.value:""; };
+      it.desc=g("desc"); it.condition=g("condition"); it.section=g("section");
+      it.subCategory=g("subCategory"); it.vendor=g("vendor"); it.unitCost=g("unitCost");
       if(!it.listing) it.listing={status:"none"};
-      it.listing.price=v.price; it.retail=v.price; it.listing.descBody=v.descBody;
+      it.listing.price=g("price"); it.retail=g("price"); it.listing.descBody=g("descBody");
+      if(!it.aspects) it.aspects={};
+      card.querySelectorAll(".sr-asp").forEach(a=>{ it.aspects[a.dataset.asp]=a.value; });
       const after=reviewSnapshot(it);
       const diffs=reviewDiff(before,after);
       diffs.forEach(d=>{
@@ -9787,11 +10016,18 @@ function openSupervisorReview(){
       });
       return diffs;
     }
-    saveBtn.onclick=()=>{ const d=applyEdits(); save(); wimRefreshAll();
-      wimToast(d.length?("Saved — "+d.length+" change(s) recorded"):"Saved \u2713","success"); render(); };
 
-    card.querySelector(".sr-open").onclick=()=>openItemDetail(it,"edit");
-    // Price Compare — real items here, so it saves its pulled comps normally.
+    // View landing page — its own pop-out window.
+    // View landing page — opens the item in its own pop-out window (popOutItem is the purpose-built
+    // path for this; falls back to an in-app window when pop-outs aren't available).
+    card.querySelector(".sr-open").onclick=()=>{
+      if(typeof popOutItem==="function" && popOutItem(it,"edit")) return;
+      openItemDetail(it,"edit");
+    };
+
+    // Listing Fields + Price Compare toggles
+    const lfHdr=card.querySelector(".sr-lf-hdr");
+    if(lfHdr) lfHdr.onclick=()=>{ it._srFieldsOpen=!it._srFieldsOpen; render(); };
     const srPc=card.querySelector(".sr-pc-hdr");
     if(srPc) srPc.onclick=()=>{ it._srCompareOpen=!it._srCompareOpen; render(); };
     if(it._srCompareOpen){
@@ -9799,17 +10035,21 @@ function openSupervisorReview(){
       if(pcBody) mountPriceCompare({ item:it, container:pcBody, markDirty:()=>{}, save });
     }
 
-    // --- LIST: claim the item first so two supervisors can't list it at once ---
+    // --- LIST: claim → apply edits → upload photos to EPS → publish ---
     const listBtn=card.querySelector(".sr-list");
     if(listBtn) listBtn.onclick=async ()=>{
       const msg=body.querySelector("#sr-msg");
       listBtn.disabled=true; listBtn.textContent="Listing…";
-      // Cloud claim: a short-lived lock so a second supervisor gets told, not silently collided
-      // with. No-ops harmlessly when this device isn't cloud-connected.
       const claim=await claimForReview(it);
       if(!claim.ok){ msg.style.color="#c0392b"; msg.textContent=claim.error; listBtn.disabled=false; listBtn.textContent="✓ List"; return; }
-      applyEdits(); // any un-saved edits count as overrides too, and go live with the listing
-      const r=await publishToEbay(it,(s)=>{ listBtn.textContent=""; msg.style.color="#555"; msg.textContent=s; });
+      applyEdits(); // unsaved edits count as overrides and go live with the listing
+      // Photos added during review must reach eBay's EPS, or they'd never appear on the listing.
+      if((it.images||[]).length){
+        const up=await uploadItemPhotosToEbay(it,(s)=>{ msg.style.color="#555"; msg.textContent=s; });
+        if(up.failed){ msg.style.color="#c0392b"; msg.textContent=up.failed+" photo(s) failed to upload: "+up.details.join(" · ");
+          await releaseFromReview(it); listBtn.disabled=false; listBtn.textContent="✓ List"; return; }
+      }
+      const r=await publishToEbay(it,(s)=>{ msg.style.color="#555"; msg.textContent=s; });
       await releaseFromReview(it);
       if(!r.ok){ msg.style.color="#c0392b"; msg.textContent=r.error; listBtn.disabled=false; listBtn.textContent="✓ List"; return; }
       it.listing.readyToList=false; it.listing.status="listed";
@@ -9823,14 +10063,10 @@ function openSupervisorReview(){
       render();
     };
 
-    // --- REJECT: reason + optional comment, back to warehouse ---
     const rejBtn=card.querySelector(".sr-reject");
     if(rejBtn) rejBtn.onclick=()=>openRejectDialog(it,()=>render());
-
-    // --- DELIST: forced comment, back to warehouse ---
     const delBtn=card.querySelector(".sr-delist");
     if(delBtn) delBtn.onclick=()=>openDelistDialog(it,()=>render());
-
     return card;
   }
   render();
@@ -9867,26 +10103,41 @@ function openRejectDialog(it,after){
   return m;
 }
 // Pulling a live listing back down. A comment is required — the warehouse needs to know why.
+// This ACTUALLY withdraws the offer from eBay first (delistFromEbay); it used to only flip local
+// flags, which meant the listing stayed live and a buyer could still purchase an item WIM thought
+// had been pulled.
 function openDelistDialog(it,after){
-  uiModal("Delist item",`
+  const m=uiModal("Delist item",`
     <div style="font-size:13px;min-width:380px;">
       <div style="margin-bottom:8px;">Taking <b>${esc(it.desc||it.sku||"")}</b> off eBay and sending it back to the warehouse.</div>
       <label style="font-size:11px;color:#5b6470;">Why is it being delisted? (required)</label>
       <textarea class="txt" id="dl-comment" style="width:100%;min-height:70px;box-sizing:border-box;padding:6px;font-size:12.5px;font-family:inherit;" placeholder="e.g. Photos don't show the damage on the spine"></textarea>
       <div class="err" id="dl-err" style="margin-top:4px;"></div>
     </div>`,
-    [{label:"Delist",primary:true,onClick:(close)=>{
+    [{label:"Delist",primary:true,onClick:(box)=>{
         const comment=(document.getElementById("dl-comment").value||"").trim();
-        if(!comment){ const e=document.getElementById("dl-err"); if(e){ e.style.color="#c0392b"; e.textContent="A comment is required so the warehouse knows why."; } return false; }
-        if(!it.listing) it.listing={status:"none"};
-        it.listing.delisted={ comment, at:new Date().toISOString(),
-          by:(SESSION.user?SESSION.user.id:null), byLabel:(SESSION.user?userLabel(SESSION.user.id):"system") };
-        it.listing.status="none"; it.listing.readyToList=false;
-        setItemStatus(it,"active");
-        logReview({ type:"delist", itemId:it.id, sku:it.sku, comment });
-        addHistory(it,"DELISTED: "+comment);
-        save(); wimRefreshAll(); wimToast("Delisted — sent back to warehouse","success");
-        after&&after();
+        const err=document.getElementById("dl-err");
+        if(!comment){ if(err){ err.style.color="#c0392b"; err.textContent="A comment is required so the warehouse knows why."; } return false; }
+        // Withdraw it from eBay for real before touching anything locally.
+        if(err){ err.style.color="#555"; err.textContent="Withdrawing the listing from eBay…"; }
+        delistFromEbay(it,(s)=>{ if(err) err.textContent=s; }).then(res=>{
+          if(!res.ok){
+            if(err){ err.style.color="#c0392b"; err.textContent="eBay wouldn't withdraw this listing: "+res.error+" — the item has NOT been delisted."; }
+            return; // leave the modal open; nothing changed locally, so WIM stays truthful
+          }
+          if(!it.listing) it.listing={status:"none"};
+          it.listing.delisted={ comment, at:new Date().toISOString(),
+            by:(SESSION.user?SESSION.user.id:null), byLabel:(SESSION.user?userLabel(SESSION.user.id):"system") };
+          it.listing.status="none"; it.listing.readyToList=false;
+          setItemStatus(it,"active");
+          logReview({ type:"delist", itemId:it.id, sku:it.sku, comment });
+          addHistory(it,"DELISTED: "+comment);
+          save(); wimRefreshAll();
+          wimToast(res.simulated?"Delisted (simulated)":"Delisted from eBay — sent back to warehouse","success");
+          try{ m.close(); }catch(e){}
+          after&&after();
+        });
+        return false; // keep the modal open until eBay actually confirms
       }},
      {label:"Cancel"}]);
 }
