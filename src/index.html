@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.50", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.51", BUILD_DATE="2026-11-13", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.51","MAJOR FIX -- Price Compare was completely broken everywhere, including on the item landing page. When it was pulled out into a shared component in v3.3.44 it kept referencing a variable that only existed in the old screen it came from, so it threw an error the instant it opened and just blanked out. That was my mistake in that refactor. It is a proper parameter now and Price Compare works again on the landing page, Bulk Add, Import Scans and Supervisor Review. CANCEL FINALLY CLOSES THE WHOLE WINDOW. The real reason this kept coming back after being fixed twice: there were TWO separate close paths that had drifted apart, and Cancel was using the one that was never fixed. On top of that, the close call itself is asynchronous, so wrapping it in a try/catch always LOOKED successful even when it silently failed -- so the backup methods never ran. There is now exactly one close function that every Cancel, OK, X, Save-and-close and Delete goes through, and it properly waits on each method and falls back to the next if it fails. Opening the Listing Fields or Price Compare drawer on a card no longer redraws the whole list and throws you back to the top of the page -- the drawer just opens where it is. Category is no longer locked on an existing item: you can change it, and WIM automatically flags the item as manually slotted so it can stay in the slot it is physically in, instead of forcing you to delete and recreate the item. Package weight now defaults to 1 lb instead of being blank and blocking the listing. And Price Compare has a PriceCharting button that opens a pre-filled search for the item, alongside the eBay one."],
   ["3.3.50","Communication overhaul. Replying to a buyer now goes through eBay documented Trading API instead of a REST endpoint that was built on guesswork and never actually confirmed to send. Oddly, the with-photo path was already using the documented call while plain text replies -- by far the most common thing anyone does -- used the unproven one. Both now use the same proven path, and when eBay refuses a message it shows eBay own error text instead of a bare status code. The inbox now has folders: All, Buyers, and eBay Notifications, and it opens on Buyers by default so real customers are not buried under eBay automated notices (like the ones it fires every time WIM connects). Each folder shows its own unread count, so you can see that three real buyers are waiting while forty notices sit in their own folder. Each conversation now has a claim checkbox in the corner: click it to mark that you are handling that customer, and everyone else sees your name on it, so two people do not answer the same person. Click again to release it. Honest limitation: like everything else in WIM right now, claims live on ONE machine -- until cloud sync is wired up, a claim made at the packing station will not show at the front desk. It is written to start working across stations the moment sync lands."],
   ["3.3.49","Two serious bug fixes found while auditing the workflow. FIRST: a simulated test item could be published as a REAL, purchasable listing on the live eBay account. Listing had no simulation check at all -- Mark Shipped had one, listing did not -- which meant the exact Simulation Mode test path (make a test item, send it for review, hit List) would have created a genuine eBay listing. The guard now lives inside the publish function itself rather than in each button that calls it, so no future screen can forget it. Simulated items get a fake SIM- listing id and walk the whole workflow normally without ever touching eBay. The same guard was added to delisting and to the photo upload. SECOND: Delist in Supervisor Review never actually ended the eBay listing -- it only flipped WIM own flags. The item would show up in the warehouse Delisted list while the listing stayed LIVE on eBay, so a buyer could still buy an item WIM believed had been pulled. Delist now really withdraws the offer from eBay first, and only marks the item delisted if eBay confirms; if the withdraw fails it tells you plainly and changes nothing, so WIM never claims something is off eBay when it is not."],
   ["3.3.48","Added a Check for Cancellations button directly on the Shipping screen Ready to Ship tab -- right where someone is about to ship, which is exactly where it matters. It asks eBay about every order waiting to go out, one at a time (eBay only reveals a cancellation on a per-order lookup, never on a bulk one). If it finds any that have been cancelled, a popup warns you loudly, names each item, the reason it was cancelled and the buyer, and tells you not to ship. Those items are then pulled automatically out of Shipping and into Cancellations, Refunds, Returns, where you can restock them back into inventory -- so a cancelled order physically cannot be shipped by mistake afterwards. If nothing has been cancelled it tells you that plainly too, so you know the check really ran and it is safe to ship. Worth building the habit of clicking this before each shipping run."],
@@ -1437,7 +1438,10 @@ function migrate(d){
     if(it.listing.reserveItem==null) it.listing.reserveItem=false;
     if(it.storedAt===undefined) it.storedAt=it.createdAt||new Date().toISOString(); // existing items: already stored, not a new pending backlog
     if(!it.aspectTypes || typeof it.aspectTypes!=="object") it.aspectTypes={};
-    if(it.shipWeight===undefined) it.shipWeight="";
+    // Default the package weight to 1 lb. eBay refuses to publish without a weight, and nothing in
+    // this warehouse goes over a pound — so making every user type "1" on every item was pure
+    // friction. They can still change it.
+    if(it.shipWeight===undefined || it.shipWeight==="") it.shipWeight="1";
     if(it.shipLength===undefined) it.shipLength="";
     if(it.shipWidth===undefined) it.shipWidth="";
     if(it.shipHeight===undefined) it.shipHeight="";
@@ -2312,6 +2316,32 @@ document.addEventListener("keydown",(e)=>{
   DB.meta.appZoom[group]=cur; save();
   applyZoom(bodyEl,cur); showZoomToast(cur);
 });
+// THE one function that closes a popped-out OS window. Every Cancel, OK, and X in a pop-out ends
+// up here, so there is exactly one place this can be right or wrong.
+//
+// Tauri's window close() is ASYNC — it returns a promise. Wrapping it in a plain try/catch (which
+// is what earlier versions did) always LOOKED like it succeeded, because it never throws
+// synchronously; if the promise later rejected, the window silently stayed open and the fallbacks
+// never ran. That is the recurring "Cancel leaves an empty floating window" bug. Awaiting each
+// attempt in turn is what actually fixes it.
+async function closePopoutWindow(){
+  const T = window.__TAURI__ || {};
+  // 1) Tauri v2: getCurrentWindow()
+  try{
+    const W=T.window;
+    const cw=W && (W.getCurrentWindow ? W.getCurrentWindow() : (W.appWindow || (W.getCurrent && W.getCurrent())));
+    if(cw && cw.close){ await cw.close(); return true; }
+  }catch(e){ /* fall through to the next method */ }
+  // 2) Tauri v2: getCurrentWebviewWindow()
+  try{
+    const WV=T.webviewWindow;
+    const cur=WV && WV.getCurrentWebviewWindow && WV.getCurrentWebviewWindow();
+    if(cur && cur.close){ await cur.close(); return true; }
+  }catch(e){ /* fall through */ }
+  // 3) Last resort — plain browser close.
+  try{ window.close(); return true; }catch(e){}
+  return false;
+}
 function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top,popoutKey,zoomGroup}){
   const win=document.createElement("div"); win.className="window"; win.dataset.wid=id;
   win.dataset.zoomgroup=zoomGroup||id;
@@ -2333,18 +2363,15 @@ function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top
   applyZoom(body, DB.meta.appZoom[win.dataset.zoomgroup]||80);
   const winbtnList=ctr.querySelectorAll(".winbtn:not([data-popout])"); const [minB,maxB,closeB]=winbtnList;
   const doClose=()=>{ win.remove(); delete openWindows[id]; renderTaskbar(); if(onClose)onClose();
-    if(WIM_POPOUT_MODE && !modalsEl.querySelector(".window")){
-      // This is a popped-out OS window and its last in-page window just closed — close the real
-      // Tauri window too, or an empty shell is left behind. Try every known API shape, then fall
-      // back to window.close() so Cancel always actually closes the window.
-      let closed=false;
-      try{ const W=window.__TAURI__&&window.__TAURI__.window;
-        const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent())));
-        if(cw&&cw.close){ cw.close(); closed=true; }
-      }catch(e){}
-      if(!closed){ try{ const WV=window.__TAURI__&&window.__TAURI__.webviewWindow; const cur=WV&&WV.getCurrentWebviewWindow&&WV.getCurrentWebviewWindow(); if(cur&&cur.close){ cur.close(); closed=true; } }catch(e){} }
-      if(!closed){ try{ window.close(); }catch(e){} }
-    }
+    if(!WIM_POPOUT_MODE) return;
+    // A popped-out OS window whose content just closed must close the OS window too, or the user
+    // is left with an empty floating shell they have to X out by hand.
+    //
+    // Why the previous attempts at this DIDN'T work: Tauri's close() returns a PROMISE. It never
+    // throws synchronously, so a try/catch around it always looked like success — the code set
+    // "closed = true" and never ran the fallback. If that promise then rejected quietly, nothing
+    // closed at all. The fix is to actually AWAIT each attempt and fall through on failure.
+    closePopoutWindow();
   };
   let prev=null;
   const toggleMax=()=>{ if(win.dataset.max==="1"){ Object.assign(win.style, prev); win.dataset.max="0"; }
@@ -5361,6 +5388,12 @@ function mountPriceCompare(opts){
   const tabbody = opts.container;
   const markDirty = opts.markDirty || function(){};
   const save = opts.save || window.save;
+  // Read-only (a sold/catalog item, or a Bulk Add draft row): the panel still shows comps, it just
+  // can't pull new ones. This used to be a variable borrowed from openItemDetail's scope — when the
+  // panel was extracted into this factory, that reference was left behind and every single call to
+  // it threw "ro is not defined" the instant it opened. That is why Price Compare stopped working
+  // EVERYWHERE, including on the item landing page. It's a real parameter now.
+  const ro = !!opts.readOnly;
 
   function compareStats(items){ const ps=(items||[]).map(x=>parseFloat(x.price)).filter(n=>!isNaN(n));
     if(!ps.length) return null; const sum=ps.reduce((a,b)=>a+b,0);
@@ -5517,7 +5550,7 @@ function mountPriceCompare(opts){
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Condition</div><select class="cmb" id="cmps-condfilter" style="margin-top:2px;"><option value="">All (${allRows.length})</option>${conds.map(c=>`<option value="${esc(c)}" ${soldCondFilter===c?'selected':''}>${esc(c)} (${allRows.filter(r=>r.condition===c).length})</option>`).join("")}</select></div>
         <div class="smallhint">${rows.length} of ${allRows.length} shown · sorted by most recently sold</div>
         <span style="flex:1;"></span>
-        <div style="text-align:right;"><button class="btn sm" id="cmps-update" ${ro?'disabled':''}>Pull Sold Listings</button> <button class="btn sm" id="cmps-research" ${ro?'disabled':''} title="Copies this item's search text and opens eBay's Product Research tool">Open Product Research</button>
+        <div style="text-align:right;"><button class="btn sm" id="cmps-update" ${ro?'disabled':''}>Pull Sold Listings</button> <button class="btn sm" id="cmps-research" ${ro?'disabled':''} title="Copies this item's search text and opens eBay's Product Research tool">Open Product Research</button> <button class="btn sm" id="cmps-pricecharting" title="Look this item up on PriceCharting">PriceCharting</button>
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
@@ -5530,6 +5563,15 @@ function mountPriceCompare(opts){
       if(!EBAY.ready()){ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); return; }
       upd.disabled=true; await pullSoldCompare(); upd.disabled=false;
       if(it.compareSold && it.compareSold.error){ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); }
+    };
+    // PriceCharting — auto-fills the search URL from the item's description and opens it, the same
+    // way the eBay research link works. Especially useful for the comics/games side of the business,
+    // where PriceCharting is the better source than eBay's own comps.
+    const pcBtn=tabbody.querySelector("#cmps-pricecharting");
+    if(pcBtn) pcBtn.onclick=()=>{
+      const q=(qText()||it.desc||"").trim();
+      if(!q){ uiAlert("Add a description to the item first — PriceCharting needs something to search for."); return; }
+      openExternal("https://www.pricecharting.com/search-products?q="+encodeURIComponent(q)+"&type=prices");
     };
     const rsrch=tabbody.querySelector("#cmps-research");
     if(rsrch) rsrch.onclick=()=>{
@@ -5765,7 +5807,7 @@ function openItemDetail(item,mode,nav,defaultTab){
      && ((window.__TAURI__&&window.__TAURI__.webviewWindow&&window.__TAURI__.webviewWindow.WebviewWindow)||(window.__TAURI__&&window.__TAURI__.window&&window.__TAURI__.window.WebviewWindow))){
     if(popOutItem(item, mode, nav)) return;
   }
-  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:(DB.pinnedVendor||""),condition:"New",section:(DB.sections[1]||DB.sections[0]||""),
+  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:(DB.pinnedVendor||""),condition:"New",shipWeight:"1",section:(DB.sections[1]||DB.sections[0]||""),
     unitCost:"0.000",retail:"0.00",onHand:"1",groups:[],category:"FRUIT",subCategory:"",image:"",slot:"",placement:null,sku:"",
     manualSlot:false,sold:false,createdAt:null,soldAt:null,soldBy:null,caseCost:"0.00",casePack:"",base:"0.00",mixMatch:"None - 0",
     posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}, item||{}):item;
@@ -5782,8 +5824,16 @@ function openItemDetail(item,mode,nav,defaultTab){
     + `<span class="tbar-sep"></span>${pendingStorageBadgeHtml("d-waiting")}`
     + navHtml;
   const {body,close:_closeWin}=buildWindow({id:wid,title:isCat?"Catalog Item (sold)":(isNew?"Add Inventory":"Item Maintenance"),width:1000,height:720,toolbar:tbar,center:false,left:135,top:48,zoomGroup:"itemdetail"});
-  const close=()=>{ try{ _closeWin(); }catch(e){}
-    if(WIM_ITEMDETAIL_WIN){ try{ const W=window.__TAURI__&&window.__TAURI__.window; const cw=W&&(W.getCurrentWindow?W.getCurrentWindow():(W.appWindow||(W.getCurrent&&W.getCurrent()))); if(cw&&cw.close) cw.close(); }catch(e){} } };
+  // ONE close path. This used to carry its own duplicate copy of the Tauri close logic (with the
+  // same broken fire-and-forget bug), while the Cancel button bypassed it entirely and called the
+  // raw buildWindow close instead — two divergent paths, which is why "Cancel leaves an empty
+  // window" kept coming back no matter how many times one of them got fixed. Everything now funnels
+  // through here, and buildWindow's close already calls closePopoutWindow() for pop-outs.
+  const close=()=>{
+    try{ _closeWin(); }catch(e){}
+    // A popped-out item window is its own OS window — closing the item must close the window.
+    if(WIM_ITEMDETAIL_WIN || WIM_ACTION_WIN || WIM_POPOUT_MODE) closePopoutWindow();
+  };
   let dirty=false;
   let dupeAcknowledged=false;
   const secOpts=DB.sections.map(s=>`<option ${s===it.section?'selected':''}>${esc(s)}</option>`).join("");
@@ -5801,7 +5851,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" readonly title="Item Number is auto-generated from the category and locked" ${isNew?'placeholder="(auto-generated on save)"':''} style="background:#f1f3f7;color:#5b6470;cursor:default;"></div>
         <div class="ff"><label class="blue" style="text-align:left;">Item Description</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
         <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}><option value="" ${!it.vendor?'selected':''}>None</option>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
-        <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${(ro||(!isNew&&!it.manualSlot))?'disabled':''}>${secOpts}</select></div>
+        <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${ro?'disabled':''}>${secOpts}</select></div>
         <div class="ff"><label style="text-align:left;">Sub Category</label><select class="cmb" id="d-subcat" ${dis}></select></div>
         <div class="ff"><label style="text-align:left;">Condition</label><input class="txt" id="d-condition" list="con-${it.id}" value="${esc(it.condition||"")}" ${dis}></div>
       </div>
@@ -6044,7 +6094,20 @@ function openItemDetail(item,mode,nav,defaultTab){
     updateGmDisplay();
   }
   if(secSel) secSel.addEventListener("change",async ()=>{
+    const prevSection=it.section;
     it.section=secSel.value; it.subCategory=""; fillSubcats(); renderListing(); markDirty&&markDirty();
+    // Changing the category of an item that's ALREADY slotted used to be forbidden outright — the
+    // only way to fix a miscategorised item was to delete and recreate it, which is far too rigid.
+    // It's allowed now. The catch is that slots belong to categories, so an item sitting in a Books
+    // slot that becomes a Comics item would conflict. Flagging it as manually slotted resolves that:
+    // a manually-slotted item is allowed to live in any slot regardless of category, so its physical
+    // location stays valid and nothing has to be moved.
+    if(!isNew && prevSection && prevSection!==it.section && it.sku && !it.manualSlot){
+      it.manualSlot=true;
+      const ms=body.querySelector("#d-manual"); if(ms) ms.classList.add("on"); // it's a .chk span toggle, not a real checkbox
+      addHistory(it,"Category changed from "+prevSection+" to "+it.section+" — item auto-flagged as manually slotted so it can stay in slot "+it.sku);
+      wimToast("Category changed — item marked as manually slotted so it can stay in its current slot","success");
+    }
     // Pull this category's eBay listing fields live if we don't already have them cached.
     const cat=secSel.value;
     if(cat && !(DB.categoryAspects&&DB.categoryAspects[cat]&&DB.categoryAspects[cat].length) && categoryEbayId(cat) && EBAY.ready()){
@@ -6097,7 +6160,7 @@ function openItemDetail(item,mode,nav,defaultTab){
     body.querySelector("#d-tab-compare").classList.toggle("sel",t==="compare");
     if(t==="groups"){ lwrap=null; groupsTab(); }
     else if(t==="history"){ lwrap=null; historyTab(); }
-    else if(t==="compare"){ lwrap=null; mountPriceCompare({ item:it, container:tabbody, markDirty:()=>markDirty&&markDirty(), save }); }
+    else if(t==="compare"){ lwrap=null; mountPriceCompare({ item:it, container:tabbody, markDirty:()=>markDirty&&markDirty(), save, readOnly:ro }); }
     else { tabbody.innerHTML='<div id="d-listingwrap"></div>'; lwrap=tabbody.querySelector("#d-listingwrap"); renderListing(); } }
   body.querySelector("#d-tab-groups").onclick=()=>showTab("groups");
   body.querySelector("#d-tab-history").onclick=()=>showTab("history");
@@ -6350,13 +6413,13 @@ function openItemDetail(item,mode,nav,defaultTab){
       } else {
         // Multiple units created at once, or sent straight to Live — no single item to stay
         // on, so this still closes and opens the first one fresh.
-        _closeWin();
+        close();
         if(made.length){ setTimeout(()=>{ openItemDetail(made[0],"edit"); },30); }
         if(sendToLive){ wimToast("Created & sent to Live \u2192 Ready to List \u2713","success"); }
         else if(made.length){ wimToast("Created \u2713","success"); }
       }
     }
-    else if(!keepOpen){ _closeWin(); }
+    else if(!keepOpen){ close(); }
     else { dirty=false; updateBtn(); status.style.color="#1f7244"; status.textContent="Saved \u2713"; wimToast("Saved \u2713","success"); flashSaved(); showTab(curTab); }
   }
   function flashSaved(){ try{ ["#d-desc","#d-price","#d-cost","#d-section","#d-condition","#d-onhand"].forEach(sel=>{ const e=body.querySelector(sel); if(e){ e.style.transition="background-color .15s"; const prev=e.style.backgroundColor; e.style.backgroundColor="#e2f3e6"; setTimeout(()=>{ e.style.backgroundColor=prev||""; },450); } }); }catch(e){} }
@@ -6378,7 +6441,7 @@ function openItemDetail(item,mode,nav,defaultTab){
   const wts=openWindows[wid].el.querySelector('#d-waiting'); if(wts) wts.onclick=()=>openMissingItem();
   function confirmCloseItem(proceed){ if(dirty){ uiModal("Save changes?","<div style=\"font-size:13px;\">You have unsaved changes. Save them?</div>",[{label:"Yes, save",primary:true,onClick:()=>doSave(false)},{label:"No, discard",onClick:proceed},{label:"Keep editing"}]); } else proceed(); }
   body._confirmClose=confirmCloseItem;
-  body.querySelector("#d-close").onclick=()=>confirmCloseItem(_closeWin);
+  body.querySelector("#d-close").onclick=()=>confirmCloseItem(close);
   // Turns this same, still-open window from "new item" into "real, saved item" in place —
   // no closing or reopening anything. Regenerates just the pieces that actually depend on
   // isNew (the status bar buttons, the added-on-date line, and the Photos/Publish section),
@@ -6391,13 +6454,13 @@ function openItemDetail(item,mode,nav,defaultTab){
     if(statusBtns){
       statusBtns.innerHTML=`${(!isNew&&!isLive())?'<button class="btn" id="d-send2list">Send to Listing</button> ':''}<button class="btn primary" id="d-save">Save</button> <button class="btn" id="d-close">Cancel</button>`;
       bottomBtn=body.querySelector("#d-save"); bottomBtn.onclick=()=>doSave(true); updateBtn();
-      const newClose=body.querySelector("#d-close"); if(newClose) newClose.onclick=()=>confirmCloseItem(_closeWin);
+      const newClose=body.querySelector("#d-close"); if(newClose) newClose.onclick=()=>confirmCloseItem(close);
       const newS2l=body.querySelector("#d-send2list"); if(newS2l) newS2l.onclick=()=>{ if(!it.listing) it.listing={status:"none"}; it.listing.readyToList=true; addHistory(it,"Sent to Listing (Ready to List)"); save(); wimRefreshAll(); uiAlert("Sent to Live → Discrepancies → Ready to List."); };
     }
     renderListing();
   }
-  const db=openWindows[wid].el.querySelector('[data-act="Delete"]'); if(db) db.onclick=()=>{ if(isNew){ _closeWin(); return; }
-    openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); _closeWin(); }); };
+  const db=openWindows[wid].el.querySelector('[data-act="Delete"]'); if(db) db.onclick=()=>{ if(isNew){ close(); return; }
+    openDeleteDialog(it, ()=>{ refreshSearchWindows(); refreshInvoices(); close(); }); };
   const simSellBtn2=openWindows[wid].el.querySelector('[data-act="Sell (Simulate)"]'); if(simSellBtn2) simSellBtn2.onclick=()=>{
     const buyer=DEMO_BUYERS[Math.floor(Math.random()*DEMO_BUYERS.length)];
     uiConfirm("Simulate a sale of this item to \""+buyer.name+"\" ("+buyer.city+", "+buyer.state+")? This creates a real, trackable fulfillment record — tagged as simulated so it's distinguishable from real sales — and sends it straight to Ready to Ship, same as a genuine sale.", ()=>{
@@ -6409,7 +6472,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         stage:"readyToShip", soldAt:new Date().toISOString(), isPickup:false, simulated:true
       };
       addHistory(it,"Sold (SIMULATED) to "+buyer.name+" — sent to Ready to Ship for testing"); save(); wimRefreshAll();
-      uiAlert("Simulated sale created. Find it in Fulfillment → Recently Sold / Ready to Ship — it'll carry a SIMULATED tag throughout."); _closeWin();
+      uiAlert("Simulated sale created. Find it in Fulfillment → Recently Sold / Ready to Ship — it'll carry a SIMULATED tag throughout."); close();
     });
   };
   const pbtn=openWindows[wid].el.querySelector('[data-act="Print"]'); if(pbtn) pbtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first — labels print once a Warehouse SKU is assigned."); return; } openPrintMenu(it); };
@@ -6643,13 +6706,29 @@ async function openImportScans(){
       openScanForListing(r);
     };
     card.querySelector(".is-folder").onclick=()=>{ if(WIM_IS_DESKTOP) wimDesktop.invoke("open_url",{url:"file:///"+importScanFolderPath(r).replace(/\\/g,"/")}).catch(()=>{}); };
+    // Expand/collapse in place — see the note on the Supervisor Review card: re-rendering the whole
+    // list just to open one drawer threw the user back to the top of the page.
     const lfHdr=card.querySelector(".is-lf-hdr");
-    if(lfHdr) lfHdr.onclick=()=>{ it._isFieldsOpen=!it._isFieldsOpen; render(); };
+    if(lfHdr) lfHdr.onclick=()=>{
+      it._isFieldsOpen=!it._isFieldsOpen;
+      const b=card.querySelector(".is-lf-body"); if(b) b.style.display=it._isFieldsOpen?"grid":"none";
+      const car=lfHdr.querySelector("span"); if(car) car.style.transform="rotate("+(it._isFieldsOpen?90:0)+"deg)";
+    };
     const pcHdr=card.querySelector(".is-pc-hdr");
-    if(pcHdr) pcHdr.onclick=()=>{ it._isCompareOpen=!it._isCompareOpen; render(); };
+    if(pcHdr) pcHdr.onclick=()=>{
+      it._isCompareOpen=!it._isCompareOpen;
+      const b=card.querySelector(".is-pc-body"); if(!b) return;
+      b.style.display=it._isCompareOpen?"block":"none";
+      const car=pcHdr.querySelector("span"); if(car) car.style.transform="rotate("+(it._isCompareOpen?90:0)+"deg)";
+      if(it._isCompareOpen && !b.dataset.mounted){
+        b.dataset.mounted="1";
+        mountPriceCompare({ item:it, container:b, markDirty:()=>{}, save, readOnly:false });
+      }
+    };
     if(it._isCompareOpen){
       const pcBody=card.querySelector(".is-pc-body");
-      if(pcBody) mountPriceCompare({ item:it, container:pcBody, markDirty:()=>{}, save });
+      if(pcBody && !pcBody.dataset.mounted){ pcBody.dataset.mounted="1";
+        mountPriceCompare({ item:it, container:pcBody, markDirty:()=>{}, save, readOnly:false }); }
     }
     return card;
   }
@@ -6872,23 +6951,34 @@ function openBulkAdd(){
       // Photo panel
       card.querySelector(".ba-photo-slot").replaceWith(photoPanel(r));
       // Listing Fields collapse toggle (default collapsed so the card stays compact)
-      const lfHdr=card.querySelector(".ba-lf-hdr"); if(lfHdr) lfHdr.onclick=()=>{ r._fieldsOpen=!r._fieldsOpen; render(); };
+      const lfHdr=card.querySelector(".ba-lf-hdr"); if(lfHdr) lfHdr.onclick=()=>{
+        r._fieldsOpen=!r._fieldsOpen;
+        const b=card.querySelector(".ba-lf-body"); if(b) b.style.display=r._fieldsOpen?"grid":"none";
+        const car=card.querySelector(".ba-lf-caret"); if(car) car.style.transform="rotate("+(r._fieldsOpen?90:0)+"deg)";
+      };
       // Price Compare — the same research panel as the item landing page. A Bulk Add row isn't a
       // saved item yet, so it gets an item-shaped view of the row; the panel stores its pulled
       // comps on the row itself and saves nothing (there's nothing to persist until Create All).
       const pcHdr=card.querySelector(".ba-pc-hdr");
-      if(pcHdr) pcHdr.onclick=()=>{ r._compareOpen=!r._compareOpen; render(); };
+      const mountBaCompare=(pcBody)=>{
+        if(!(r.desc||"").trim()){
+          pcBody.innerHTML=`<div class="note">Type an Item Description first — Price Compare searches eBay using it.</div>`;
+          return;
+        }
+        const draft=r._compareItem || (r._compareItem={});
+        draft.desc=r.desc; draft.section=r.section; draft.condition=r.condition; draft.subCategory=r.subcat;
+        mountPriceCompare({ item:draft, container:pcBody, markDirty:()=>{}, save:()=>{}, readOnly:false });
+      };
+      if(pcHdr) pcHdr.onclick=()=>{
+        r._compareOpen=!r._compareOpen;
+        const b=card.querySelector(".ba-pc-body"); if(!b) return;
+        b.style.display=r._compareOpen?"block":"none";
+        const car=card.querySelector(".ba-pc-caret"); if(car) car.style.transform="rotate("+(r._compareOpen?90:0)+"deg)";
+        if(r._compareOpen && !b.dataset.mounted){ b.dataset.mounted="1"; mountBaCompare(b); }
+      };
       if(r._compareOpen){
         const pcBody=card.querySelector(".ba-pc-body");
-        if(pcBody){
-          if(!(r.desc||"").trim()){
-            pcBody.innerHTML=`<div class="note">Type an Item Description first — Price Compare searches eBay using it.</div>`;
-          } else {
-            const draft=r._compareItem || (r._compareItem={});
-            draft.desc=r.desc; draft.section=r.section; draft.condition=r.condition; draft.subCategory=r.subcat;
-            mountPriceCompare({ item:draft, container:pcBody, markDirty:()=>{}, save:()=>{} });
-          }
-        }
+        if(pcBody && !pcBody.dataset.mounted){ pcBody.dataset.mounted="1"; mountBaCompare(pcBody); }
       }
       // Text field wiring
       card.querySelectorAll("input[data-f]").forEach(inp=>{ inp.oninput=()=>{ r[inp.dataset.f]=inp.value; if(inp.dataset.f==="slot") inp.style.color=inp.value?"inherit":"#8a95a3"; }; });
@@ -10026,14 +10116,32 @@ function openSupervisorReview(){
       openItemDetail(it,"edit");
     };
 
-    // Listing Fields + Price Compare toggles
+    // Listing Fields + Price Compare toggles.
+    // These expand/collapse IN PLACE. They used to call render(), which rebuilt the entire
+    // paginated list — so opening a section on the 6th card threw you back to the top of the page
+    // and you had to scroll down and find your place again. Nothing outside this card changes when
+    // you open a drawer, so nothing outside this card should be redrawn.
     const lfHdr=card.querySelector(".sr-lf-hdr");
-    if(lfHdr) lfHdr.onclick=()=>{ it._srFieldsOpen=!it._srFieldsOpen; render(); };
+    if(lfHdr) lfHdr.onclick=()=>{
+      it._srFieldsOpen=!it._srFieldsOpen;
+      const b=card.querySelector(".sr-lf-body"); if(b) b.style.display=it._srFieldsOpen?"grid":"none";
+      const car=lfHdr.querySelector("span"); if(car) car.style.transform="rotate("+(it._srFieldsOpen?90:0)+"deg)";
+    };
     const srPc=card.querySelector(".sr-pc-hdr");
-    if(srPc) srPc.onclick=()=>{ it._srCompareOpen=!it._srCompareOpen; render(); };
+    if(srPc) srPc.onclick=()=>{
+      it._srCompareOpen=!it._srCompareOpen;
+      const b=card.querySelector(".sr-pc-body"); if(!b) return;
+      b.style.display=it._srCompareOpen?"block":"none";
+      const car=srPc.querySelector("span"); if(car) car.style.transform="rotate("+(it._srCompareOpen?90:0)+"deg)";
+      if(it._srCompareOpen && !b.dataset.mounted){
+        b.dataset.mounted="1";
+        mountPriceCompare({ item:it, container:b, markDirty:()=>{}, save, readOnly:false });
+      }
+    };
     if(it._srCompareOpen){
       const pcBody=card.querySelector(".sr-pc-body");
-      if(pcBody) mountPriceCompare({ item:it, container:pcBody, markDirty:()=>{}, save });
+      if(pcBody && !pcBody.dataset.mounted){ pcBody.dataset.mounted="1";
+        mountPriceCompare({ item:it, container:pcBody, markDirty:()=>{}, save, readOnly:false }); }
     }
 
     // --- LIST: claim → apply edits → upload photos to EPS → publish ---
