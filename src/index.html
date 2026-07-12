@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.40", BUILD_DATE="2026-11-02", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.41", BUILD_DATE="2026-11-03", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.41","Fixed auto-update. The updater was rejecting every update with a signature failure, because the public key inside WIM no longer matched the private key GitHub signs the builds with -- the two halves of the keypair had drifted apart. WIM now carries the correct public key. IMPORTANT: this version has to be installed manually one time on each workstation, because every existing install still trusts the OLD key and so cannot auto-update itself to this one. After this one manual install, auto-updates work normally again from here on, on every machine -- as long as the signing key is never regenerated. Also fixed the misleading error message that caused all this confusion: a failed update used to always say Could not check for updates, even when the check had actually succeeded and it was the INSTALL that failed. It now says what really happened -- signature rejected, update server unreachable, WIM still running so the file is locked, or install failed -- and no longer pointlessly retries a rejected signature three times."],
   ["3.3.40","Fixed eBay error 25002 (Location information not found) when publishing a listing. Root cause: WIM stored one inventory-location key and sent it blindly, but eBay keeps completely separate location stores for Sandbox vs Production, and keys do not carry across accounts either -- so a key created on one account/environment silently stops existing when the connection changes. Publishing now verifies the stored location against the live account right before creating the offer and self-heals if it is stale: it re-enables the location if it was disabled, adopts an existing location already on the account if there is one, or -- if the account has none at all -- creates one automatically named WIM Warehouse from the Ship From address in Shipping Data. Only if Ship From is empty does it stop with a clear message telling you exactly where to fill it in. The healed choice is saved, so it happens once per account, not on every publish."],
   ["3.3.39","Fixes from the third feedback round. Fixed Add Inventory crashing on open (Cannot access bottomBtn before initialization) -- the Warehouse cost auto-fill was firing during the page build and touching the Save button before it existed; the open-time fill is now silent and no longer trips over itself. Fixed Cancel (and the X) not closing a popped-out window -- it removed the page contents but left an empty window shell behind; the close now reliably shuts the whole window through every supported method. In Bulk Add: the Find on eBay button is now a big, full-width button directly under the Add photos / delete buttons on each card instead of a small icon off to the side, so it is easy to see; adding photos naturally pushes it down. The category-fields section that made cards huge is now a collapsible section that defaults to CLOSED -- click the Listing Fields header (renamed from Category Fields) to expand it and fill in the eBay fields, click again to collapse. Cards stay compact until you choose to open the fields."],
   ["3.3.38","Batch 8 finished: Force Log Out is now real. The admin-only Force Log Out screen shows every device on the team with when it was last seen and whether it is active right now, and each one has a Log out button. Logging out a device sends it a signal through the cloud; the device sees it on its next check-in (within about a minute of normal use), signs itself off, and returns to the login screen with a clear message. You can also log THIS device out from here. It is built on the same proven device round-trip the pause/resume feature already uses. One setup step is required first: the three little server functions this relies on need to be added to the cloud database once -- run the included FORCE_LOGOUT_SETUP.sql file in the Supabase SQL editor (paste, Run, done). Until that is run, the screen still loads and lists devices but sending a logout will report that the server function is not deployed yet, rather than silently failing. Honest note on timing: logout happens on the device next heartbeat, not truly instantly -- making it instant would need a always-connected socket this app does not use, and the check-in interval is short enough that in practice it is within about a minute."],
@@ -2441,20 +2442,46 @@ function runUpdateCheck(el){
   const stop=()=>{ if(timer){ clearInterval(timer); timer=null; } };
   const animate=(label)=>{ stop(); el.style.color="#888"; el.textContent=label+" ."; dots=1; timer=setInterval(()=>{ dots=(dots%3)+1; el.textContent=label+" "+".".repeat(dots); },420); };
   const done=(text,color)=>{ stop(); el.style.color=color||"#888"; el.textContent=text; };
+  const errText=(e)=>String((e&&e.message)?e.message:e||"");
   animate("Checking for updates");
   (async()=>{
     let lastErr=null;
     for(let attempt=1; attempt<=3; attempt++){
+      let upd=null;
+      // --- the CHECK phase: reaching the update feed ---
+      try{ upd=await window.__TAURI__.updater.check(); }
+      catch(e){ lastErr=e;
+        if(attempt<3){ await new Promise(r=>setTimeout(r,2500)); animate("Checking for updates"); continue; }
+        done("Couldn't reach the update server","#b06000");
+        console.warn("update CHECK failed:", errText(e)); return;
+      }
+      if(!upd){ done("WIM is up to date","#1f7244"); return; }
+      // --- the INSTALL phase: downloading and swapping in the new build ---
+      animate("Installing update "+(upd.version||""));
       try{
-        const upd=await window.__TAURI__.updater.check();
-        if(!upd){ done("WIM is up to date","#1f7244"); return; }
-        animate("Installing update "+(upd.version||""));
         await upd.downloadAndInstall();
         done("Update installed — restart WIM to finish","#1f5fbf"); return;
-      }catch(e){ lastErr=e; if(attempt<3){ await new Promise(r=>setTimeout(r,2500)); animate("Checking for updates"); } }
+      }catch(e){
+        lastErr=e; const msg=errText(e);
+        // A rejected signature is a definitive answer, not a transient hiccup — retrying a
+        // failed cryptographic check just fails again three times and hides the real cause.
+        // Say exactly what happened so it's diagnosable instead of looking like a network blip.
+        if(/signature/i.test(msg)){
+          done("Update rejected: signature didn't match — install this version manually once","#c0392b");
+          console.warn("update INSTALL failed (signature):", msg); return;
+        }
+        // A locked wim.exe (another WIM window still running) is the other common one.
+        if(/(os error 5|access is denied|denied|in use|being used)/i.test(msg)){
+          done("Couldn't install: close all WIM windows, then try again","#b06000");
+          console.warn("update INSTALL failed (file locked):", msg); return;
+        }
+        if(attempt<3){ await new Promise(r=>setTimeout(r,2500)); animate("Checking for updates"); continue; }
+        done("Found an update but couldn't install it","#c0392b");
+        console.warn("update INSTALL failed:", msg); return;
+      }
     }
     done("Couldn't check for updates right now","");
-    console.warn("update check failed:", lastErr&&lastErr.message?lastErr.message:lastErr);
+    console.warn("update check failed:", errText(lastErr));
   })();
 }
 function showLogin(msg){
