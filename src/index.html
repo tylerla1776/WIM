@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.39", BUILD_DATE="2026-11-01", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.40", BUILD_DATE="2026-11-02", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.40","Fixed eBay error 25002 (Location information not found) when publishing a listing. Root cause: WIM stored one inventory-location key and sent it blindly, but eBay keeps completely separate location stores for Sandbox vs Production, and keys do not carry across accounts either -- so a key created on one account/environment silently stops existing when the connection changes. Publishing now verifies the stored location against the live account right before creating the offer and self-heals if it is stale: it re-enables the location if it was disabled, adopts an existing location already on the account if there is one, or -- if the account has none at all -- creates one automatically named WIM Warehouse from the Ship From address in Shipping Data. Only if Ship From is empty does it stop with a clear message telling you exactly where to fill it in. The healed choice is saved, so it happens once per account, not on every publish."],
   ["3.3.39","Fixes from the third feedback round. Fixed Add Inventory crashing on open (Cannot access bottomBtn before initialization) -- the Warehouse cost auto-fill was firing during the page build and touching the Save button before it existed; the open-time fill is now silent and no longer trips over itself. Fixed Cancel (and the X) not closing a popped-out window -- it removed the page contents but left an empty window shell behind; the close now reliably shuts the whole window through every supported method. In Bulk Add: the Find on eBay button is now a big, full-width button directly under the Add photos / delete buttons on each card instead of a small icon off to the side, so it is easy to see; adding photos naturally pushes it down. The category-fields section that made cards huge is now a collapsible section that defaults to CLOSED -- click the Listing Fields header (renamed from Category Fields) to expand it and fill in the eBay fields, click again to collapse. Cards stay compact until you choose to open the fields."],
   ["3.3.38","Batch 8 finished: Force Log Out is now real. The admin-only Force Log Out screen shows every device on the team with when it was last seen and whether it is active right now, and each one has a Log out button. Logging out a device sends it a signal through the cloud; the device sees it on its next check-in (within about a minute of normal use), signs itself off, and returns to the login screen with a clear message. You can also log THIS device out from here. It is built on the same proven device round-trip the pause/resume feature already uses. One setup step is required first: the three little server functions this relies on need to be added to the cloud database once -- run the included FORCE_LOGOUT_SETUP.sql file in the Supabase SQL editor (paste, Run, done). Until that is run, the screen still loads and lists devices but sending a logout will report that the server function is not deployed yet, rather than silently failing. Honest note on timing: logout happens on the device next heartbeat, not truly instantly -- making it instant would need a always-connected socket this app does not use, and the check-in interval is short enough that in practice it is within about a minute."],
   ["3.3.37","Batch 8, part 2: Dashboard Widget Maintenance drag preview. When you drag a widget now, the thing following your cursor is a real preview of that actual widget -- the same tile with sample data you see on the dashboard -- instead of just its name in a little box. And as you drag over the dashboard, the widget you are about to drop in front of visibly slides aside to open a gap with a blue drop marker, so you can see exactly where it will land before you let go. Dropping, reordering, dragging back to the list to remove, and the corner X all work exactly as before."],
@@ -3833,11 +3834,11 @@ function openChangePassword(){
   };
   [o,n,c].forEach(el=>el.addEventListener("keydown",e=>{ if(e.key==="Enter") body.querySelector("#cp2-ok").click(); }));
 }
-// Placeholder — Force Log Out needs real "who's currently logged in, on which device"
-// tracking, which doesn't exist yet (this is different from the device registry, which
-// tracks devices, not active login sessions on them). Real, separate infrastructure,
-// not yet built — this is here so the permission system and menu are already correct
-// once it is.
+// Force Log Out (admin only): lists every device on the team with when it was last seen and
+// whether it's active now, and lets an admin sign any of them off remotely. The target device
+// honors the request on its next heartbeat (within about a minute) and returns to login. Built
+// on the same device round-trip the pause/resume feature uses. Requires the one-time server
+// functions in FORCE_LOGOUT_SETUP.sql to have been run.
 function openForceLogout(){
   const id="force-logout"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Force Log Out",width:680,height:480,
@@ -4651,6 +4652,61 @@ async function refreshAspectDefsIfStale(it, onStep){
     await fetchCategoryAspects(cat, onStep);
   }catch(e){ /* best-effort — publishing continues either way, just possibly with stale data */ }
 }
+// eBay error 25002 ("Location information not found") happens when the stored
+// merchantLocationKey doesn't exist on the eBay account/environment currently connected —
+// Sandbox and Production keep completely separate location stores, and keys don't carry
+// across accounts either. Rather than fail the publish, verify the key against the live
+// account and self-heal: adopt an existing location if the account has one, or create one
+// from the Ship From address (Shipping Data screen).
+async function ensureMerchantLocation(onStep){
+  const stored=DB.ebay.merchantLocationKey;
+  // 1) Verify the stored key actually exists on THIS account.
+  if(stored){
+    try{
+      const g=await EBAY.user("/sell/inventory/v1/location/"+encodeURIComponent(stored), EBAY_SCOPE_INV);
+      if(g.ok){
+        let loc={}; try{ loc=JSON.parse(g.body); }catch(e){}
+        if(loc && loc.merchantLocationStatus==="DISABLED"){
+          onStep&&onStep("Re-enabling the inventory location…");
+          try{ await EBAY.postUser("/sell/inventory/v1/location/"+encodeURIComponent(stored)+"/enable","",EBAY_SCOPE_INV); }catch(e){}
+        }
+        return { ok:true, key:stored };
+      }
+      // Anything but a clean 200 means this key can't be trusted on this account — heal below.
+    }catch(e){ /* network hiccup — fall through and try to heal anyway */ }
+  }
+  // 2) The stored key is stale (different account or environment). Adopt an existing location.
+  onStep&&onStep("Inventory location not found on this eBay account — checking for one to use…");
+  try{
+    const r=await EBAY.user("/sell/inventory/v1/location?limit=100", EBAY_SCOPE_INV);
+    if(r.ok){
+      const locs=(JSON.parse(r.body).locations)||[];
+      const usable=locs.find(l=>l.merchantLocationStatus!=="DISABLED")||locs[0];
+      if(usable){
+        DB.ebay.merchantLocationKey=usable.merchantLocationKey;
+        DB.ebay.merchantLocationName=usable.name||usable.merchantLocationKey;
+        save();
+        onStep&&onStep("Using this account's location \""+(usable.name||usable.merchantLocationKey)+"\".");
+        return { ok:true, key:usable.merchantLocationKey, healed:true };
+      }
+    }
+  }catch(e){ /* fall through to creation */ }
+  // 3) No location exists on this account at all — create one from Ship From.
+  const sf=DB.shipFrom||{};
+  const hasAddr=(sf.country||"US") && (sf.zip || (sf.city&&sf.state));
+  if(!hasAddr){
+    return { ok:false, error:"This eBay account has no inventory location, and WIM can't create one because Ship From is empty. Fill in City/State/Zip under Shipping Data → Ship From (or create a location in Configuration → eBay Connection → Listing setup), then publish again." };
+  }
+  onStep&&onStep("Creating an inventory location on this eBay account…");
+  const key="WIM-"+Date.now();
+  const payload={ name:"WIM Warehouse", location:{ address:{ city:sf.city||undefined, stateOrProvince:sf.state||undefined, postalCode:sf.zip||undefined, country:(sf.country||"US") } }, locationTypes:["WAREHOUSE"], merchantLocationStatus:"ENABLED" };
+  try{
+    const c=await EBAY.postUser("/sell/inventory/v1/location/"+encodeURIComponent(key), JSON.stringify(payload), EBAY_SCOPE_INV);
+    if(!c.ok) return { ok:false, error:"Couldn't create an inventory location on this account (HTTP "+c.status+"): "+(c.body||"").slice(0,250) };
+    DB.ebay.merchantLocationKey=key; DB.ebay.merchantLocationName="WIM Warehouse"; save();
+    return { ok:true, key, healed:true, created:true };
+  }catch(e){ return { ok:false, error:"Could not reach eBay while creating the location: "+(e&&e.message?e.message:e) }; }
+}
 async function publishToEbay(it,onStep){
   if(!EBAY.ready()) return { ok:false, error:"Not connected to eBay — click Connect next to the mode badge." };
   const missing=ebayListingPrereqs(it);
@@ -4666,6 +4722,11 @@ async function publishToEbay(it,onStep){
 
   let offerId=it.listing&&it.listing.offerId;
   if(!offerId){
+    // Verify the inventory location actually exists on THIS account before sending it —
+    // this is what produced eBay error 25002 ("Location information not found") when the
+    // stored key came from a different account or environment.
+    const locCheck=await ensureMerchantLocation(onStep);
+    if(!locCheck.ok) return { ok:false, error:locCheck.error };
     onStep&&onStep("Creating the eBay offer…");
     const sc=subcatObj(it.section,it.subCategory);
     const price=(it.listing&&it.listing.price)||it.retail;
@@ -9334,9 +9395,9 @@ function openSubcatManager(cat){
     else { const sc=subcatObj(cat,sel); if(!sc){ sel=null; return render(); }
       det.innerHTML=`<div style="font-size:14px;font-weight:600;margin-bottom:10px;">${esc(sc.name)}</div>
         <div class="ff" style="grid-template-columns:130px 1fr;margin-bottom:8px;"><label class="fld">eBay category name</label><input class="txt" id="sc-ename" value="${esc(sc.ebayName||"")}" placeholder="e.g. Movies & TV > DVDs"></div>
-        <div class="ff" style="grid-template-columns:130px 1fr;margin-bottom:8px;"><label class="fld">eBay category ID</label><input class="txt" id="sc-eid" value="${esc(sc.ebayId||"")}" placeholder="filled automatically in a later update"></div>
+        <div class="ff" style="grid-template-columns:130px 1fr;margin-bottom:8px;"><label class="fld">eBay category ID</label><input class="txt" id="sc-eid" value="${esc(sc.ebayId||"")}" placeholder="filled automatically by Find on eBay"></div>
         <div class="col-title" style="text-align:left;margin-top:10px;">Listing fields (aspects)</div>
-        <div class="smallhint" style="margin-bottom:6px;">These show on the item's landing page for this sub category. In a later update the magnifying-glass search fills these from eBay automatically.</div>
+        <div class="smallhint" style="margin-bottom:6px;">These show on the item's landing page for this sub category. Use the Find on eBay / magnifying-glass search to fill them from eBay automatically.</div>
         <div id="sc-aspects"></div>
         <div style="display:flex;gap:6px;margin-top:6px;"><input class="txt" id="sc-aname" placeholder="Add a field (e.g. Genre)" style="flex:1;"><label class="chkrow" style="white-space:nowrap;"><span class="chk" id="sc-areq"></span> required</label><button class="btn sm" id="sc-aadd">Add field</button></div>
         <div style="display:flex;gap:8px;margin-top:14px;"><button class="btn primary" id="sc-save">Save</button>${sc.name!==cat?'<button class="btn" id="sc-del">Delete sub category</button>':''}</div>
