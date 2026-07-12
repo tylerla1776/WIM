@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.49", BUILD_DATE="2026-11-11", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.50", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.50","Communication overhaul. Replying to a buyer now goes through eBay documented Trading API instead of a REST endpoint that was built on guesswork and never actually confirmed to send. Oddly, the with-photo path was already using the documented call while plain text replies -- by far the most common thing anyone does -- used the unproven one. Both now use the same proven path, and when eBay refuses a message it shows eBay own error text instead of a bare status code. The inbox now has folders: All, Buyers, and eBay Notifications, and it opens on Buyers by default so real customers are not buried under eBay automated notices (like the ones it fires every time WIM connects). Each folder shows its own unread count, so you can see that three real buyers are waiting while forty notices sit in their own folder. Each conversation now has a claim checkbox in the corner: click it to mark that you are handling that customer, and everyone else sees your name on it, so two people do not answer the same person. Click again to release it. Honest limitation: like everything else in WIM right now, claims live on ONE machine -- until cloud sync is wired up, a claim made at the packing station will not show at the front desk. It is written to start working across stations the moment sync lands."],
   ["3.3.49","Two serious bug fixes found while auditing the workflow. FIRST: a simulated test item could be published as a REAL, purchasable listing on the live eBay account. Listing had no simulation check at all -- Mark Shipped had one, listing did not -- which meant the exact Simulation Mode test path (make a test item, send it for review, hit List) would have created a genuine eBay listing. The guard now lives inside the publish function itself rather than in each button that calls it, so no future screen can forget it. Simulated items get a fake SIM- listing id and walk the whole workflow normally without ever touching eBay. The same guard was added to delisting and to the photo upload. SECOND: Delist in Supervisor Review never actually ended the eBay listing -- it only flipped WIM own flags. The item would show up in the warehouse Delisted list while the listing stayed LIVE on eBay, so a buyer could still buy an item WIM believed had been pulled. Delist now really withdraws the offer from eBay first, and only marks the item delisted if eBay confirms; if the withdraw fails it tells you plainly and changes nothing, so WIM never claims something is off eBay when it is not."],
   ["3.3.48","Added a Check for Cancellations button directly on the Shipping screen Ready to Ship tab -- right where someone is about to ship, which is exactly where it matters. It asks eBay about every order waiting to go out, one at a time (eBay only reveals a cancellation on a per-order lookup, never on a bulk one). If it finds any that have been cancelled, a popup warns you loudly, names each item, the reason it was cancelled and the buyer, and tells you not to ship. Those items are then pulled automatically out of Shipping and into Cancellations, Refunds, Returns, where you can restock them back into inventory -- so a cancelled order physically cannot be shipped by mistake afterwards. If nothing has been cancelled it tells you that plainly too, so you know the check really ran and it is safe to ship. Worth building the habit of clicking this before each shipping run."],
   ["3.3.47","Made all three item cards consistent, matching the Bulk Add card. Import Scans and Supervisor Review cards now have the same full photo panel (featured/secondary thumbnails you can click to promote), the Find on eBay button, a Cost and Vendor field, a proper Description box, and the collapsible Listing Fields section -- Supervisor Review shows them already filled in from what the warehouse user entered. The List and Reject buttons are now softer, lighter colors instead of bold solid green and red. Every card now has its Save button in the bottom right corner: grayed out when nothing has changed, and the moment you edit something it becomes a blue Save with a gray Revert next to it, so you can either keep or undo the change -- both give a quick subtle flash so you can see it took. View landing page now opens the item in its own pop-out window instead of taking over. The Supervisor Review card now shows User: followed by the name of the person who sent the item for listing, right beside the item number and warehouse SKU. And the big one: if photos are added to an item during supervisor review, hitting List now uploads them to eBay Picture Services first, so they are actually attached to the listing instead of quietly never reaching eBay. If any photo fails to upload, listing stops and tells you which one, rather than publishing a listing with missing photos."],
@@ -10719,6 +10720,45 @@ const EBAY={
   // star rating (eBay genuinely doesn't have per-item star ratings the way Amazon/Etsy
   // do). This goes through the older Trading API (XML), not the modern REST APIs used
   // everywhere else — a structurally different call, routed through ebay_trading_call.
+  // --- Buyer messaging via the Trading API (XML), NOT the REST Message API. ---
+  // The REST reply path WIM had before was built from guessed endpoint conventions and was never
+  // verified to actually send. These two calls are fully documented, and — crucially — they support
+  // PHOTO ATTACHMENTS through MessageMedia nodes, which is what buyers constantly ask for ("can I
+  // see more pictures?"). eBay takes a hosted URL, not a file, so photos go up to eBay Picture
+  // Services first (uploadPicture) and their EPS URLs get attached here.
+  //
+  // Which call to use depends on the relationship:
+  //   RTQ            — replying to a question about an ACTIVE LISTING (needs the item id + the
+  //                    original message id to reply to).
+  //   AAQToPartner   — messaging a buyer you have an ORDER with (valid up to 90 days after the
+  //                    order was created).
+  async sendBuyerMessage({ itemId, parentMessageId, recipientId, body, media, displayToPublic }){
+    if(!WIM_IS_DESKTOP) throw new Error("Sending messages runs in the desktop app.");
+    if(!recipientId) throw new Error("No recipient — WIM couldn't work out which eBay member to send this to.");
+    const mediaXml=(media||[]).map(m=>
+      `<MessageMedia><MediaName>${esc(m.name||"photo")}</MediaName><MediaURL>${esc(m.url)}</MediaURL></MessageMedia>`).join("");
+    // A reply to a listing question uses RTQ; anything else goes to the order partner call.
+    const useRTQ = !!(itemId && parentMessageId);
+    const callName = useRTQ ? "AddMemberMessageRTQ" : "AddMemberMessageAAQToPartner";
+    const inner =
+      (itemId?`<ItemID>${esc(itemId)}</ItemID>`:"")+
+      `<MemberMessage>`+
+        `<Body>${esc(body||"")}</Body>`+
+        (useRTQ?`<DisplayToPublic>${displayToPublic?"true":"false"}</DisplayToPublic>`:"")+
+        (useRTQ?"":`<QuestionType>General</QuestionType>`)+
+        mediaXml+
+        (parentMessageId?`<ParentMessageID>${esc(parentMessageId)}</ParentMessageID>`:"")+
+        `<RecipientID>${esc(recipientId)}</RecipientID>`+
+      `</MemberMessage>`;
+    const xml=`<?xml version="1.0" encoding="utf-8"?><${callName}Request xmlns="urn:ebay:apis:eBLBaseComponents">${inner}</${callName}Request>`;
+    const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName, siteId:"0", xmlBody:xml });
+    if(!r.ok){
+      // Surface eBay's own error text — the Trading API buries it in the XML even on HTTP 200.
+      const m=/<LongMessage>([^<]*)<\/LongMessage>/.exec(r.body||"") || /<ShortMessage>([^<]*)<\/ShortMessage>/.exec(r.body||"");
+      throw new Error((m?m[1]:("HTTP "+r.status))+"\n\nCall: "+callName+"\n"+(r.body||"").slice(0,400));
+    }
+    return { ok:true, call:callName };
+  },
   async getFeedback(){
     if(!WIM_IS_DESKTOP) throw new Error("Feedback runs in the desktop app.");
     const xml=`<?xml version="1.0" encoding="utf-8"?><GetFeedbackRequest xmlns="urn:ebay:apis:eBLBaseComponents"><DetailLevel>ReturnAll</DetailLevel></GetFeedbackRequest>`;
@@ -11753,14 +11793,16 @@ function openCommunication(focusUsername){
   const {body}=buildWindow({id:"comm",title:"Messages",width:1020,height:640,popoutKey:"comm",
     toolbar:`<button class="btn sm primary" id="cm-compose">Compose</button><button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-templates">Templates</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
   let convos=[], current=null, lastRaw="";
-  let folder="inbox", searchQ="";
+  let folder="buyers", searchQ=""; // default to real buyers — eBay's own notifications flood the All view
   if(!Array.isArray(DB.sentMessages)) DB.sentMessages=[];
   if(!DB.messageDrafts || typeof DB.messageDrafts!=="object") DB.messageDrafts={};
   body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
       <div style="flex:0 0 168px;display:flex;flex-direction:column;border-right:1px solid var(--line);background:#f4f6f9;min-height:0;">
         <div style="padding:10px 12px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#8a919c;">Folders</div>
         <div id="cm-folders" style="flex:1;overflow:auto;">
-          <div class="cm-folder-item" data-folder="inbox">${I.tree_inbox||"📥"} <span>Inbox</span><span class="cm-fcount" id="cm-fc-inbox"></span></div>
+          <div class="cm-folder-item" data-folder="inbox">${I.tree_inbox||"📥"} <span>All</span><span class="cm-fcount" id="cm-fc-inbox"></span></div>
+          <div class="cm-folder-item" data-folder="buyers" style="padding-left:22px;">💬 <span>Buyers</span><span class="cm-fcount" id="cm-fc-buyers"></span></div>
+          <div class="cm-folder-item" data-folder="ebay" style="padding-left:22px;">🔔 <span>eBay Notifications</span><span class="cm-fcount" id="cm-fc-ebay"></span></div>
           <div class="cm-folder-item" data-folder="outbox">${I.tree_sent||"📤"} <span>Sent</span></div>
           <div class="cm-folder-item" data-folder="drafts">${I.tree_draft||"📝"} <span>Drafts</span><span class="cm-fcount" id="cm-fc-drafts"></span></div>
         </div>
@@ -11775,6 +11817,13 @@ function openCommunication(focusUsername){
   function paintFolderTabs(){ body.querySelectorAll(".cm-folder-item").forEach(b=>{ b.classList.toggle("active",b.dataset.folder===folder); });
     const inC=body.querySelector("#cm-fc-inbox"); if(inC){ const n=parseInt(DB.lastInboxUnread,10)||0; inC.textContent=n?n:""; }
     const drC=body.querySelector("#cm-fc-drafts"); if(drC){ const n=Object.keys(DB.messageDrafts||{}).length; drC.textContent=n?n:""; }
+    // Per-folder unread counts, so you can see at a glance that (say) 3 real buyers are waiting
+    // while 40 eBay notices sit in their own folder, instead of one big meaningless number.
+    const isNote=(c)=>fld(c,["conversationType"],"")==="FROM_EBAY";
+    const byC=body.querySelector("#cm-fc-buyers");
+    if(byC){ const n=convos.filter(c=>!isNote(c)&&effectiveUnread(c)).length; byC.textContent=n?n:""; }
+    const ebC=body.querySelector("#cm-fc-ebay");
+    if(ebC){ const n=convos.filter(c=>isNote(c)&&effectiveUnread(c)).length; ebC.textContent=n?n:""; }
   }
   paintFolderTabs();
   body.querySelectorAll(".cm-folder-item").forEach(b=>b.onclick=()=>{ folder=b.dataset.folder; current=null; paintFolderTabs(); paintList(); threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a message to read it.</div>`; });
@@ -11829,25 +11878,55 @@ function openCommunication(focusUsername){
   // clear the dot themselves the way any real mail client allows, without eBay necessarily
   // having marked it read yet. Marked-unread does the reverse. Both persist per conversation.
   if(!DB.msgReadState || typeof DB.msgReadState!=="object") DB.msgReadState={};
+  // "I've got this one" — so two people don't both answer the same customer. Stored per
+  // conversation with who claimed it and when. NOTE: like everything else in WIM right now this
+  // lives on THIS machine only — until item/cloud sync lands, a claim made at the packing station
+  // won't be visible at the front desk. It's written to be sync-ready so it starts working across
+  // stations the moment sync does.
+  if(!DB.msgClaims || typeof DB.msgClaims!=="object") DB.msgClaims={};
+  // Self-initializing: paintList can run before the init line above executes, so never assume
+  // DB.msgClaims already exists (this is exactly the kind of ordering bug that bites later).
+  function claimsMap(){ if(!DB.msgClaims || typeof DB.msgClaims!=="object") DB.msgClaims={}; return DB.msgClaims; }
+  function claimOf(cid){ return cid ? claimsMap()[cid] : null; }
+  function toggleClaim(cid){
+    if(!cid) return;
+    const m=claimsMap(); const cur=m[cid];
+    const me=SESSION.user?SESSION.user.id:null;
+    const meLabel=SESSION.user?userLabel(me):"someone";
+    if(cur && cur.by===me) delete m[cid];                      // un-claim my own
+    else m[cid]={ by:me, byLabel:meLabel, at:new Date().toISOString() };  // take it, or take over
+    save();
+  }
   function effectiveUnread(c){ const cid=fld(c,["conversationId","id","threadId"],""); const st=DB.msgReadState[cid]; if(st==="read") return false; if(st==="unread") return true; return unreadOf(c); }
   function recomputeUnreadBadge(){ try{ DB.lastInboxUnread=convos.filter(c=>effectiveUnread(c)).length; save(); if(typeof renderTree==="function") renderTree(); }catch(e){} }
   function paintList(){
     listEl.innerHTML="";
-    if(folder==="inbox"){
-      let list=convos; if(searchQ) list=list.filter(c=>(counterparty(c)+" "+subjectOf(c)+" "+snippetOf(c)).toLowerCase().includes(searchQ));
+    if(folder==="inbox"||folder==="buyers"||folder==="ebay"){
+      // eBay tags its own automated notices with conversationType FROM_EBAY. WIM already knew
+      // which was which — it just dumped them all in one list. Now they're separable, and the
+      // default view is Buyers so real customers aren't buried under connection notices.
+      const isEbayNote=(c)=>fld(c,["conversationType"],"")==="FROM_EBAY";
+      let list=convos;
+      if(folder==="buyers") list=list.filter(c=>!isEbayNote(c));
+      else if(folder==="ebay") list=list.filter(c=>isEbayNote(c));
+      if(searchQ) list=list.filter(c=>(counterparty(c)+" "+subjectOf(c)+" "+snippetOf(c)).toLowerCase().includes(searchQ));
       if(!convos.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">No conversations came back.</div>`; renderRawButton(); return; }
-      if(!list.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">No matches.</div>`; return; }
+      if(!list.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">${searchQ?"No matches.":(folder==="buyers"?"No buyer messages.":(folder==="ebay"?"No eBay notifications.":"Nothing here."))}</div>`; return; }
       const buckets=["Today","Yesterday","Last 7 days","Last 30 days","Earlier"];
       const grouped={}; list.forEach(c=>{ const b=dateBucket(c); (grouped[b]=grouped[b]||[]).push(c); });
       buckets.forEach(b=>{ if(!grouped[b]||!grouped[b].length) return;
         const hdr=document.createElement("div"); hdr.textContent=b; hdr.style.cssText="padding:5px 14px;font-size:10.5px;font-weight:700;color:#8a919c;background:#f6f7f9;border-bottom:1px solid #eef0f4;text-transform:uppercase;letter-spacing:.4px;"; listEl.appendChild(hdr);
         grouped[b].forEach((c)=>{ const i=convos.indexOf(c); const isUnread=effectiveUnread(c); const cid=fld(c,["conversationId","id","threadId"],""); const row=document.createElement("div");
           row.style.cssText="padding:11px 14px;border-bottom:1px solid #f0f2f6;cursor:pointer;"+(current===i?"background:#e2ebf9;":"");
-          row.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:99px;background:${isUnread?'#3f74d6':'transparent'};flex:0 0 auto;"></span><span style="font-weight:${isUnread?'700':'600'};font-size:13px;color:#28313f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(counterparty(c))}</span>${DB.messageDrafts[cid]?'<span class="badge warn" style="font-size:9px;">draft</span>':''}<span style="flex:1;"></span><span style="font-size:10.5px;color:#9aa3ad;">${esc(dateOf(c))}</span><span class="cm-readtoggle" data-cid="${esc(cid)}" title="${isUnread?'Mark as read':'Mark as unread'}" style="cursor:pointer;font-size:11px;color:#9aa3ad;padding-left:4px;">${isUnread?'✓':'○'}</span></div>
+          const cl=claimOf(cid);
+          const mine=cl && SESSION.user && cl.by===SESSION.user.id;
+          row.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="cm-claim" data-cid="${esc(cid)}" title="${cl?("Being handled by "+esc(cl.byLabel)+" — click to "+(mine?"release":"take over")):"Nobody's on this — click to take it"}" style="flex:0 0 auto;cursor:pointer;width:15px;height:15px;border-radius:4px;border:1.5px solid ${cl?(mine?'#1f7244':'#b06000'):'#c3cad3'};background:${cl?(mine?'#1f7244':'#F6E7CC'):'#fff'};color:#fff;font-size:10px;line-height:12px;text-align:center;">${cl?(mine?'✓':'•'):''}</span><span style="width:7px;height:7px;border-radius:99px;background:${isUnread?'#3f74d6':'transparent'};flex:0 0 auto;"></span><span style="font-weight:${isUnread?'700':'600'};font-size:13px;color:#28313f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(counterparty(c))}</span>${DB.messageDrafts[cid]?'<span class="badge warn" style="font-size:9px;">draft</span>':''}<span style="flex:1;"></span><span style="font-size:10.5px;color:#9aa3ad;">${esc(dateOf(c))}</span><span class="cm-readtoggle" data-cid="${esc(cid)}" title="${isUnread?'Mark as read':'Mark as unread'}" style="cursor:pointer;font-size:11px;color:#9aa3ad;padding-left:4px;">${isUnread?'✓':'○'}</span></div>
             <div style="font-size:12px;color:#3b434f;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(subjectOf(c))}</div>
-            <div style="font-size:11.5px;color:#8a919c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(snippetOf(c))}</div>`;
+            <div style="font-size:11.5px;color:#8a919c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(snippetOf(c))}</div>
+            ${cl?`<div style="font-size:10.5px;margin-top:3px;color:${mine?'#1f7244':'#8A5E10'};font-weight:600;">${mine?"You're handling this":esc(cl.byLabel)+" is handling this"}</div>`:''}`;
           row.onclick=()=>{ current=i; if(cid){ DB.msgReadState[cid]="read"; save(); recomputeUnreadBadge(); } paintList(); openThread(c); };
           const tog=row.querySelector(".cm-readtoggle"); if(tog) tog.onclick=(e)=>{ e.stopPropagation(); if(cid){ DB.msgReadState[cid]= isUnread?"read":"unread"; save(); recomputeUnreadBadge(); paintList(); } };
+          const clBox=row.querySelector(".cm-claim"); if(clBox) clBox.onclick=(e)=>{ e.stopPropagation(); toggleClaim(cid); paintList(); };
           listEl.appendChild(row); });
       });
       renderRawButton();
@@ -11967,10 +12046,20 @@ function openCommunication(focusUsername){
             else { replyMsg.style.color="#c0392b"; replyMsg.innerHTML="Couldn't send with attachment (HTTP "+mr.status+"). <button class=\"btn sm\" id=\"cm-reply-raw\" style=\"margin-left:6px;\">Show details</button>"; const rb=replyMsg.querySelector("#cm-reply-raw"); if(rb) rb.onclick=()=>showCopyable("Send-with-attachment error (send this to support)", mr.body||"(empty)"); sendBtn.disabled=false; return; }
           } else { replyMsg.style.color="#c0392b"; replyMsg.textContent="Photo upload failed — nothing sent."; sendBtn.disabled=false; return; }
         } else {
-          const payload=JSON.stringify({ body:text });
-          const r=await EBAY.postUser("/commerce/message/v1/conversation/"+encodeURIComponent(cid)+"/message?conversation_type="+encodeURIComponent(convType), payload, EBAY_SCOPE_MSG);
-          if(r.ok){ replyMsg.style.color="#1f7244"; replyMsg.textContent="Sent."; }
-          else { replyMsg.style.color="#c0392b"; replyMsg.innerHTML="Couldn't send (HTTP "+r.status+"). <button class=\"btn sm\" id=\"cm-reply-raw\" style=\"margin-left:6px;\">Show details</button>"; const rb=replyMsg.querySelector("#cm-reply-raw"); if(rb) rb.onclick=()=>showCopyable("Send-reply error (send this to support)", r.body||"(empty)"); sendBtn.disabled=false; return; }
+          // Text-only replies now go through the SAME documented Trading API call the
+          // with-photo path uses. They previously used a REST endpoint built from guessed
+          // conventions that was never confirmed to actually send — which meant the most
+          // common case (a plain reply) was the least proven one. One path, one behaviour.
+          try{
+            await EBAY.sendBuyerMessage({ itemId:itemIdOf(c)||"", recipientId:counterparty(c), body:text, media:[] });
+            replyMsg.style.color="#1f7244"; replyMsg.textContent="Sent.";
+          }catch(err){
+            replyMsg.style.color="#c0392b";
+            replyMsg.innerHTML="Couldn't send. <button class=\"btn sm\" id=\"cm-reply-raw\" style=\"margin-left:6px;\">Show details</button>";
+            const rb=replyMsg.querySelector("#cm-reply-raw");
+            if(rb) rb.onclick=()=>showCopyable("Send-reply error (send this to support)", (err&&err.message)||"(empty)");
+            sendBtn.disabled=false; return;
+          }
         }
         DB.sentMessages.push({ to:counterparty(c), text, at:new Date().toISOString(), attachmentNote:attachNote||null });
         delete DB.messageDrafts[cid]; save();
