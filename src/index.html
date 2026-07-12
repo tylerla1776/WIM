@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.41", BUILD_DATE="2026-11-03", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.43", BUILD_DATE="2026-11-05", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.43","Fixed Import Scans doing nothing. The Import New Scans button never actually worked -- it lives in the window toolbar, but the code looked for it inside the window body, and the toolbar is a SIBLING of the body, not a child of it. So the button was never found and never got a click handler: pressing it ran no code at all, which is why nothing imported and no error ever appeared. Same for the status message area, which is why there was no feedback either. Both are now found correctly. Test Connection worked the whole time because it sits on a different screen whose button really is inside its body -- which is exactly why the two disagreed. Also made the messages honest: nothing pending in InventoryIQ, all pending scans already imported before, and InventoryIQ not set up yet are now three distinct messages instead of all silently reading as no new scans."],
+  ["3.3.42","Supervisor Review (part 1 of the listing-accuracy project). Ready to List and the old Listing Review were two parallel queues doing the same job -- they are now ONE screen called Supervisor Review, so Send Listing feeds exactly one place. It has two tabs: Waiting to Review (what warehouse sent) and Recently Listed (everything that went live in the last 7 days, including items a Product Lister listed directly, so you can spot-check anyone work). Both tabs show a total count and are paginated 20 per page. Each item is a full card like Bulk Add -- photo, description, price, condition, category, sub category, listing description -- all editable, with a Save changes button. Every card says WHO sent it (or who listed it). Green List publishes to eBay; red Reject opens a popup for a reason (Photo Quality, Wrong Price, Wrong Description, Incomplete Listing, Other) plus an optional comment. Rejected items go back to the warehouse under a new Rejected discrepancy showing the reason and comment. On Recently Listed, Delist pulls an item back off eBay -- a comment is REQUIRED -- and sends it to a new Delisted discrepancy so warehouse users know it came down and why. If a rejected item is fixed and re-sent, its review card shows a red banner with the original rejection reason, the comment, and a before/after of every field that changed since -- so you can see at a glance whether the problem was actually fixed (e.g. Price: 3.00 -> 12.99), or whether nothing changed at all. Every submit, list, reject, supervisor edit, and delist is recorded to an audit log behind the scenes -- that log is what the Listing Accuracy report will read in the next update. Listing an item now also takes a cloud claim on it first, so once item sync goes live two supervisors cannot list the same item out from under each other."],
   ["3.3.41","Fixed auto-update. The updater was rejecting every update with a signature failure, because the public key inside WIM no longer matched the private key GitHub signs the builds with -- the two halves of the keypair had drifted apart. WIM now carries the correct public key. IMPORTANT: this version has to be installed manually one time on each workstation, because every existing install still trusts the OLD key and so cannot auto-update itself to this one. After this one manual install, auto-updates work normally again from here on, on every machine -- as long as the signing key is never regenerated. Also fixed the misleading error message that caused all this confusion: a failed update used to always say Could not check for updates, even when the check had actually succeeded and it was the INSTALL that failed. It now says what really happened -- signature rejected, update server unreachable, WIM still running so the file is locked, or install failed -- and no longer pointlessly retries a rejected signature three times."],
   ["3.3.40","Fixed eBay error 25002 (Location information not found) when publishing a listing. Root cause: WIM stored one inventory-location key and sent it blindly, but eBay keeps completely separate location stores for Sandbox vs Production, and keys do not carry across accounts either -- so a key created on one account/environment silently stops existing when the connection changes. Publishing now verifies the stored location against the live account right before creating the offer and self-heals if it is stale: it re-enables the location if it was disabled, adopts an existing location already on the account if there is one, or -- if the account has none at all -- creates one automatically named WIM Warehouse from the Ship From address in Shipping Data. Only if Ship From is empty does it stop with a clear message telling you exactly where to fill it in. The healed choice is saved, so it happens once per account, not on every publish."],
   ["3.3.39","Fixes from the third feedback round. Fixed Add Inventory crashing on open (Cannot access bottomBtn before initialization) -- the Warehouse cost auto-fill was firing during the page build and touching the Save button before it existed; the open-time fill is now silent and no longer trips over itself. Fixed Cancel (and the X) not closing a popped-out window -- it removed the page contents but left an empty window shell behind; the close now reliably shuts the whole window through every supported method. In Bulk Add: the Find on eBay button is now a big, full-width button directly under the Add photos / delete buttons on each card instead of a small icon off to the side, so it is easy to see; adding photos naturally pushes it down. The category-fields section that made cards huge is now a collapsible section that defaults to CLOSED -- click the Listing Fields header (renamed from Category Fields) to expand it and fill in the eBay fields, click again to collapse. Cards stay compact until you choose to open the fields."],
@@ -862,7 +864,9 @@ const POPOUT_APPS={
   listingcfg:{ title:"Listing Configuration", open:()=>openListingConfig() },
   listednosku:{ title:"Listed, no SKU", open:()=>openListedNoSku() },
   cloudsync:{ title:"Cloud Sync (Test)", open:()=>openCloudSyncTest() },
-  listingreview:{ title:"Listing Review", open:()=>openListingReview() },
+  supervisorreview:{ title:"Supervisor Review", open:()=>openSupervisorReview() },
+  rejecteditems:{ title:"Rejected", open:()=>openRejectedItems() },
+  delisteditems:{ title:"Delisted", open:()=>openDelistedItems() },
   cancelledorders:{ title:"Cancelled Orders", open:()=>openCancelledOrders() },
   crr:{ title:"Cancellations, Refunds, Returns", open:()=>openCancellationsRefundsReturns() },
   refunds:{ title:"Refunds", open:()=>openRefunds() },
@@ -904,7 +908,7 @@ const POPOUT_APPS={
   activesummary:{ title:"Active Summary", open:()=>openActiveSummary() },
   invoices:{ title:"Invoice Records", open:()=>openInvoices() },
   discrepancies:{ title:"Discrepancies", open:()=>openDiscrepancies() },
-  readytolist:{ title:"Ready to List", open:()=>openReadyToList() },
+  readytolist:{ title:"Supervisor Review", open:()=>openSupervisorReview() },
   comm:{ title:"Communication", open:()=>openCommunication() },
   reviews:{ title:"Reviews", open:()=>openReviews() },
   listingreport:{ title:"Listing Report", open:()=>openListingReport() }
@@ -1199,7 +1203,9 @@ function migrate(d){
       { key:"list_items", label:"List Items", category:"Product Lister" },
       { key:"bulk_list_items", label:"Bulk List Items", category:"Product Lister" },
       { key:"sku_not_listed", label:"SKU not Listed", category:"Product Lister" },
-      { key:"ready_to_list", label:"Ready to List", category:"Product Lister" },
+      { key:"ready_to_list", label:"Supervisor Review", category:"Product Lister" },
+      { key:"rejected_items", label:"Rejected", category:"Warehouse" },
+      { key:"delisted_items", label:"Delisted", category:"Warehouse" },
       { key:"cancelled_orders", label:"Cancelled Orders", category:"Product Lister" },
       { key:"missing_item", label:"Waiting on Storage", category:"Warehouse" },
       { key:"refunds", label:"Refunds", category:"Product Lister" },
@@ -1210,7 +1216,7 @@ function migrate(d){
       { key:"create_new_users", label:"Create New Users", category:"Supervisor" },
       { key:"financials", label:"Financials", category:"Supervisor" },
       { key:"productivity_widgets", label:"Productivity Widgets/Reporting", category:"Supervisor" },
-      { key:"listing_review", label:"Listing Review", category:"Supervisor" },
+      { key:"listing_report", label:"Listing Accuracy", category:"Supervisor" },
       { key:"force_logout", label:"Force Log Out", category:"Admin" },
       { key:"supervisory_maintenance", label:"Supervisory Maintenance", category:"Admin" },
       { key:"cloud_backup_settings", label:"Cloud Backup Settings", category:"Admin" },
@@ -1297,6 +1303,7 @@ function migrate(d){
       { id:"tpl_combine", name:"Combined shipping", body:"Hi {buyer}, I'm glad to combine shipping on multiple items to save you on postage. Add what you'd like to your cart and request a total, and I'll send an updated invoice." }
     ];
   }
+  if(!Array.isArray(d.reviewLog)) d.reviewLog=[]; // Supervisor Review audit trail (accuracy report reads this)
   if(!d.vendorCosting || typeof d.vendorCosting!=="object") d.vendorCosting={};
   // The Warehouse vendor: cost is driven purely by the item's listing price via editable tiers,
   // not by a purchase pool. Auto-created, and set as the default vendor for new items.
@@ -2012,6 +2019,86 @@ function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"
 function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"recentlySold", orderId:null, lineItemId:null, buyer:null, shipTo:null, isPickup:false, pickedAt:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
 function fulfillmentItems(stage){ return visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage===stage); }
 function createdItems(){ return visibleItems().filter(i=>itemStatus(i)==="created"); }
+/* ===================== SUPERVISOR REVIEW — data model =====================
+ * Every meaningful event in the review workflow is appended to DB.reviewLog. That log is the
+ * single source of truth for the Listing Accuracy report, so accuracy can be recomputed over
+ * any date range without having to reconstruct it from item history text.
+ *
+ * Event types:
+ *   submit   — a warehouse user clicked Send Listing (by = who sent it)
+ *   list     — a supervisor listed it (by = who listed it; overrides[] = fields they changed first)
+ *   reject   — a supervisor rejected it (reason, comment, submittedBy = who gets the miss)
+ *   override — a supervisor edited a field on a queued item (field, from, to)
+ *   delist   — an item was pulled back off eBay (comment required)
+ *
+ * An "error" against a warehouse user is either a REJECT or an OVERRIDE of their submission.
+ */
+const REJECT_REASONS=["Photo Quality","Wrong Price","Wrong Description","Incomplete Listing","Other"];
+// Fields a supervisor can change on a review card. Overrides are categorized by these so the
+// accuracy report can say WHAT people keep getting wrong, not just that they got it wrong.
+const REVIEW_FIELDS=[
+  {k:"desc",label:"Description"},
+  {k:"price",label:"Price"},
+  {k:"condition",label:"Condition"},
+  {k:"section",label:"Category"},
+  {k:"subCategory",label:"Sub Category"},
+  {k:"descBody",label:"Listing Description"},
+  {k:"aspects",label:"Listing Fields"},
+  {k:"images",label:"Photos"},
+];
+function reviewLog(){ if(!Array.isArray(DB.reviewLog)) DB.reviewLog=[]; return DB.reviewLog; }
+function logReview(ev){
+  reviewLog().push(Object.assign({
+    id:crypto.randomUUID(),
+    at:new Date().toISOString(),
+    by:(SESSION.user?SESSION.user.id:null),
+    byLabel:(SESSION.user?userLabel(SESSION.user.id):"system"),
+  }, ev));
+}
+// A snapshot of the reviewable fields, taken when an item is submitted or rejected, so that a
+// resubmission can show the supervisor exactly what changed since they sent it back.
+function reviewSnapshot(it){
+  return {
+    desc: it.desc||"",
+    price: String((it.listing&&it.listing.price)||it.retail||""),
+    condition: it.condition||"",
+    section: it.section||"",
+    subCategory: it.subCategory||"",
+    descBody: (it.listing&&it.listing.descBody)||"",
+    aspects: JSON.stringify(it.aspects||{}),
+    images: String((it.images||[]).length),
+  };
+}
+// Compare two snapshots → [{k,label,from,to}] for fields that actually changed.
+function reviewDiff(a,b){
+  if(!a||!b) return [];
+  const out=[];
+  REVIEW_FIELDS.forEach(f=>{
+    const from=a[f.k]||"", to=b[f.k]||"";
+    if(String(from)!==String(to)){
+      let fromTxt=String(from), toTxt=String(to);
+      if(f.k==="aspects"){ fromTxt="(listing fields)"; toTxt="(changed)"; }
+      if(f.k==="images"){ fromTxt=fromTxt+" photo(s)"; toTxt=toTxt+" photo(s)"; }
+      out.push({k:f.k,label:f.label,from:fromTxt,to:toTxt});
+    }
+  });
+  return out;
+}
+// The two Supervisor Review queues, and the two new warehouse discrepancies.
+function awaitingReviewItems(){ return visibleItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed"&&!i.sold); }
+function recentlyListedItems(days){
+  const cutoff=Date.now()-((days||7)*24*60*60*1000);
+  return visibleItems().filter(i=>{
+    if(!i.listing||i.listing.status!=="listed") return false;
+    const t=Date.parse(i.listing.listedAt||i.listing.publishedAt||"");
+    return !isNaN(t) && t>=cutoff;
+  }).sort((a,b)=>Date.parse((b.listing.listedAt||b.listing.publishedAt||0))-Date.parse((a.listing.listedAt||a.listing.publishedAt||0)));
+}
+function rejectedItems(){ return visibleItems().filter(i=>i.listing&&i.listing.rejected&&!i.listing.readyToList&&i.listing.status!=="listed"); }
+function delistedItems(){ return visibleItems().filter(i=>i.listing&&i.listing.delisted&&i.listing.status!=="listed"); }
+function awaitingReviewCount(){ return awaitingReviewItems().length; }
+function rejectedCount(){ return rejectedItems().length; }
+function delistedCount(){ return delistedItems().length; }
 // Real physical slot occupancy — deliberately NOT the same as activeItems(), which excludes
 // anything sold the moment it's marked sold. An item sold but not yet shipped or picked up
 // is still physically sitting in its slot, so it needs to keep blocking that placement
@@ -2643,7 +2730,7 @@ const TREE_LABEL_FEATURE={
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Stale Listings":"stale_listings_report","Low Stock":"low_stock_report","Listing Traffic":"listing_traffic_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","Send Offers to Watchers":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items","Import Scans":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Ready to List":"ready_to_list","Listing Review":"listing_review","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Waiting on Storage":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
+  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Supervisor Review":"ready_to_list","Rejected":"rejected_items","Delisted":"delisted_items","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Waiting on Storage":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -2685,7 +2772,7 @@ function nodeActionsRaw(node){
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","Send Offers to Watchers"];
   if(node.key==="additems") return ["Add Item","Bulk Add Items","Import Scans","Find by Photo"];
-  if(node.key==="discrepancies") return ["Listing Review","SKU not Listed","Ready to List","Cancelled Orders","Refunds","Waiting on Storage"];
+  if(node.key==="discrepancies") return ["Supervisor Review","SKU not Listed","Rejected","Delisted","Cancelled Orders","Refunds","Waiting on Storage"];
   if(node.key==="comm") return isLive() ? ["Communication","Reviews"] : ["Communication"];
   if(node.key==="livereports") return ["Fulfillment Accuracy","Stale Listings","Listing Traffic","Listing Report","Item Rank","Listing Efficiency"];
   return [];
@@ -3606,8 +3693,10 @@ function renderTree(){
 // (e.g. Listing Review, Fulfillment stages) by adding another case here.
 function actionCountBadge(label){
   let n=0;
-  if(label==="Ready to List") n=readyToListCount();
-  else if(label==="Listing Review") n=createdItems().length;
+  if(label==="Ready to List") n=awaitingReviewCount();
+  else if(label==="Supervisor Review") n=awaitingReviewCount();
+  else if(label==="Rejected") n=rejectedCount();
+  else if(label==="Delisted") n=delistedCount();
   else if(label==="Recently Sold") n=fulfillmentItems("recentlySold").length;
   else if(label==="Shipping") n=fulfillmentItems("readyToShip").length;
   else if(label==="Fulfillment Accuracy" && SESSION.user) n=unreadViolationCount(SESSION.user.id, null);
@@ -3683,7 +3772,9 @@ function handleAction(k,a){
   if(k==="discrepancies"&&a==="Discrepancies") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="SKU not Listed") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="Ready to List") return launchApp("readytolist");
-  if(k==="discrepancies"&&a==="Listing Review") return launchApp("listingreview");
+  if(k==="discrepancies"&&a==="Supervisor Review") return launchApp("supervisorreview");
+  if(k==="discrepancies"&&a==="Rejected") return launchApp("rejecteditems");
+  if(k==="discrepancies"&&a==="Delisted") return launchApp("delisteditems");
   if(k==="discrepancies"&&a==="Cancelled Orders") return launchApp("cancelledorders");
   if(k==="discrepancies"&&a==="Refunds") return launchApp("refunds");
   if(k==="discrepancies"&&a==="Waiting on Storage") return launchApp("missingitem");
@@ -4783,6 +4874,7 @@ async function publishToEbay(it,onStep){
   const listingId=pd.listingId||"";
   if(!it.listing) it.listing={status:"none"};
   it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); it.listing.offerId=offerId; it.listing.ebayListingId=listingId; it.listing.publishMethod="api";
+  if(!it.listing.listedBy) it.listing.listedBy=(SESSION.user?SESSION.user.id:null); // for Recently Listed attribution
   addHistory(it,"Published to eBay (offer "+offerId+(listingId?(", listing "+listingId):"")+")"); save();
   // If this item came from an InventoryIQ scan, close out that scan record and clean up its
   // photo folder — eBay's EPS holds the images now, so the working folder is disposable.
@@ -6144,12 +6236,21 @@ function openItemDetail(item,mode,nav,defaultTab){
   const slbtn=openWindows[wid].el.querySelector('[data-act="Send Listing"]'); if(slbtn) slbtn.onclick=()=>{
     if(isNew){ uiAlert("Save the item first, then send it for listing review."); return; }
     if(itemStatus(it)==="listed"){ uiAlert("This item is already listed on eBay."); return; }
-    if(itemStatus(it)==="created"){ uiAlert("This item is already in the listing review queue."); return; }
+    if(itemStatus(it)==="created"){ uiAlert("This item is already in the supervisor review queue."); return; }
     setItemStatus(it,"created");
     if(!it.listing) it.listing={status:"none"};
     it.listing.readyToList=true; it.listing.sentForReviewAt=new Date().toISOString();
-    addHistory(it,"Sent for listing review (status: Created)"); save(); wimRefreshAll();
-    wimToast("Sent for listing review \u2192 Listing Review"); updateBtn(); };
+    it.listing.submittedBy=(SESSION.user?SESSION.user.id:null);
+    // Snapshot what's being submitted, so a rejection/override can be measured against it and a
+    // resubmission can show the supervisor exactly what changed since they sent it back.
+    it.listing.submitSnapshot=reviewSnapshot(it);
+    const isResubmit=!!(it.listing.rejected);
+    if(isResubmit) it.listing.wasRejected=true; // keep the rejection visible on the review card
+    it.listing.delisted=null;                   // a resend clears it out of the Delisted list
+    logReview({ type:"submit", itemId:it.id, sku:it.sku, resubmit:isResubmit });
+    addHistory(it, isResubmit?"Re-sent for listing review after rejection":"Sent for listing review (status: Created)");
+    save(); wimRefreshAll();
+    wimToast("Sent for listing review \u2192 Supervisor Review"); updateBtn(); };
   updateBtn();
 }
 function deleteItems(units,userId){ // soft-delete: out of active, reversible from Records
@@ -6263,7 +6364,11 @@ function openIqConfig(){
 }
 async function openImportScans(){
   if(openWindows["import-scans"]){ focusWin(openWindows["import-scans"].el); return; }
-  const {body}=buildWindow({id:"import-scans",title:"Import Scans",width:1040,height:600,
+  // NOTE: the toolbar is a SIBLING of body, not a child of it — so the toolbar's buttons and
+  // message span must be queried from the WINDOW element (win), never from body. Querying them
+  // from body returned null, so the Import button never got its click handler attached at all:
+  // clicking it did nothing, silently. (Same class of bug as System Health in v3.3.28.)
+  const {body,win}=buildWindow({id:"import-scans",title:"Import Scans",width:1040,height:600,
     toolbar:`<button class="btn sm primary" id="is-import">Import New Scans</button><button class="btn sm" id="is-refresh">Refresh Photos</button><span style="flex:1;"></span><span class="smallhint" id="is-msg"></span>`});
   function render(){
     const recs=DB.importedScans.filter(r=>!r.listed).sort((a,b)=>new Date(b.importedAt||0)-new Date(a.importedAt||0));
@@ -6286,23 +6391,21 @@ async function openImportScans(){
       tr.querySelector(`[data-folder="${r.scanId}"]`).onclick=()=>{ if(WIM_IS_DESKTOP) wimDesktop.invoke("open_url",{url:"file:///"+importScanFolderPath(r).replace(/\\/g,"/")}).catch(()=>{}); };
       tb.appendChild(tr);
     });
-    body.querySelector("#is-import").onclick=importNewScans;
-    body.querySelector("#is-refresh").onclick=refreshPhotos;
   }
   async function importNewScans(){
-    const msg=body.querySelector("#is-msg");
+    const msg=win.querySelector("#is-msg");
     if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Import runs in the desktop app."; return; }
-    if(!DB.iqSettings.token){ msg.style.color="#c0392b"; msg.textContent="Add your InventoryIQ token first (Configuration → InventoryIQ)."; return; }
+    if(!DB.iqSettings.baseUrl || !DB.iqSettings.token){ msg.style.color="#c0392b"; msg.textContent="InventoryIQ isn't set up yet — add the Worker URL and token in Configuration → Setup → InventoryIQ, and click Save."; return; }
     msg.style.color="#555"; msg.textContent="Pulling scans from InventoryIQ…";
     try{
       const r=await wimDesktop.invoke("iq_fetch_scans",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token });
       if(!r.ok){ msg.style.color="#c0392b"; msg.textContent="Couldn't reach InventoryIQ (HTTP "+r.status+"): "+(r.body||"").slice(0,160); return; }
       const dj=JSON.parse(r.body); const scans=dj.scans||[];
-      if(!scans.length){ msg.style.color="#1f7244"; msg.textContent="No new accepted scans to import."; return; }
-      let added=0;
+      if(!scans.length){ msg.style.color="#1f7244"; msg.textContent="Nothing pending in InventoryIQ — scan and accept items there first."; return; }
+      let added=0, skipped=0;
       for(const s of scans){
         const scanId=String(s.id);
-        if(DB.importedScans.some(x=>x.scanId===scanId)) continue; // never double-import
+        if(DB.importedScans.some(x=>x.scanId===scanId)){ skipped++; continue; } // never double-import
         const rec={ scanId, desc:s.description||"", category:s.category||"", importedAt:new Date().toISOString(), photoCount:0, listed:false, itemId:null };
         // Create the item shell now so opening it later goes straight to the listing flow.
         // Matches the app's standard item shape (same as Bulk Add), minus slotting/pricing,
@@ -6326,11 +6429,17 @@ async function openImportScans(){
         try{ await wimDesktop.invoke("iq_mark_imported",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, scanId }); }catch(e){}
         added++;
       }
-      save(); msg.style.color="#1f7244"; msg.textContent="Imported "+added+" scan(s), photo folder(s) created."; render();
+      save();
+      // Be specific: "nothing happened" has three very different causes and they should never
+      // look identical on screen.
+      if(added){ msg.style.color="#1f7244"; msg.textContent="Imported "+added+" scan(s), photo folder(s) created."+(skipped?" ("+skipped+" already imported previously.)":""); }
+      else if(skipped){ msg.style.color="#b06000"; msg.textContent="All "+skipped+" pending scan(s) were already imported into WIM before, so nothing new was added."; }
+      else { msg.style.color="#1f7244"; msg.textContent="Nothing new to import."; }
+      render();
     }catch(e){ msg.style.color="#c0392b"; msg.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
   }
   async function refreshPhotos(){
-    const msg=body.querySelector("#is-msg");
+    const msg=win.querySelector("#is-msg");
     if(!WIM_IS_DESKTOP){ msg.style.color="#c0392b"; msg.textContent="Photo refresh runs in the desktop app."; return; }
     const recs=DB.importedScans.filter(r=>!r.listed);
     msg.style.color="#555"; msg.textContent="Checking folders for photos…";
@@ -6351,6 +6460,9 @@ async function openImportScans(){
     if(!it){ uiAlert("This scan's item record couldn't be found — it may have been deleted."); return; }
     openItemDetail(it,"edit");
   }
+  // Toolbar buttons live OUTSIDE body — wire them from the window element, once.
+  const importBtn=win.querySelector("#is-import"); if(importBtn) importBtn.onclick=importNewScans;
+  const refreshBtn=win.querySelector("#is-refresh"); if(refreshBtn) refreshBtn.onclick=refreshPhotos;
   render();
 }
 function openBulkAdd(){
@@ -9134,75 +9246,9 @@ function openRecentlySold(){
   body._refresh=render;
   render();
 }
-function openListingReview(){
-  const id="listing-review"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Listing Review",width:900,height:600,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sent for listing review — supervisor and above only</span>`});
-  let picked=new Set();
-  let lrSort={key:"sent",dir:1};
-  const LR_COLS=[{k:"desc",label:"Item",get:it=>it.desc,t:"text"},{k:"sku",label:"SKU",get:it=>it.sku,t:"mixed"},{k:"cond",label:"Condition",get:it=>it.condition,t:"text"},{k:"price",label:"Price",get:it=>(it.listing&&parseFloat(it.listing.price))||0,t:"mixed"},{k:"sent",label:"Sent for Review",get:it=>(it.listing&&it.listing.sentForReviewAt)||"",t:"text"}];
-  function render(){
-    const col=LR_COLS.find(c=>c.k===lrSort.key);
-    const items=createdItems().sort((a,b)=>cmpVal(col.get(a),col.get(b),col.t)*lrSort.dir);
-    body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
-      ${!items.length?`<div class="note">No items waiting for review. When a warehouse user clicks "Send Listing" on an item, it appears here.</div>`:``}
-      ${items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-        <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="lr-selall"></span> Select All</label>
-        <button class="btn primary" id="lr-list" ${!picked.size?"disabled":""}>List Item${picked.size===1?"":"s"} on eBay${picked.size?" ("+picked.size+")":""}</button>
-        <button class="btn" id="lr-reject" ${!picked.size?"disabled":""}>Send Back</button>
-        <span class="smallhint" id="lr-msg"></span></div>`:``}
-      <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
-        <th style="width:30px;"></th>${LR_COLS.map(c=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${lrSort.key===c.k?` <span class="arr">${lrSort.dir>0?'▲':'▼'}</span>`:""}</th>`).join("")}<th></th>
-      </tr></thead><tbody id="lr-tb"></tbody></table></div></div>`;
-    body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(lrSort.key===k) lrSort.dir*=-1; else lrSort={key:k,dir:1}; render(); });
-    const tb=body.querySelector("#lr-tb");
-    const selAll=body.querySelector("#lr-selall");
-    if(selAll) selAll.onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
-    if(body.querySelector("#lr-list")) body.querySelector("#lr-list").onclick=async ()=>{
-      const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
-      const msg=body.querySelector("#lr-msg"); msg.style.color="#555"; msg.textContent="Listing "+targets.length+" item(s)…";
-      let ok=0;
-      for(const it of targets){
-        try{
-          // Use the existing eBay listing flow — same as clicking "List on eBay" directly,
-          // just called programmatically from here instead of from the item page.
-          if(it.simulated){ setItemStatus(it,"listed"); addHistory(it,"[Simulated] Listed (no real eBay call made)"); ok++; }
-          else if(EBAY_ONLINE && it.listing && it.listing.ebayOfferId){
-            const r=await publishToEbay(it); if(r&&r.ok){ setItemStatus(it,"listed"); addHistory(it,"Listed on eBay via Listing Review"); ok++; }
-            else { addHistory(it,"Listing Review: eBay publish failed — left as Created"); }
-          } else {
-            // eBay not connected or no offer set up yet — still mark it as approved so it
-            // doesn't sit in review indefinitely; it'll go through the eBay connection
-            // flow next time someone opens it from the Manage Listings screen.
-            setItemStatus(it,"listed"); addHistory(it,"Approved for listing (eBay not connected — mark as listed)"); ok++;
-          }
-        }catch(e){ addHistory(it,"Listing Review: error during publish: "+(e&&e.message||e)); }
-      }
-      picked.clear(); save(); wimRefreshAll();
-      msg.style.color="#1f7244"; msg.textContent=ok+" item(s) listed."; render();
-    };
-    if(body.querySelector("#lr-reject")) body.querySelector("#lr-reject").onclick=()=>{
-      const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
-      targets.forEach(it=>{ setItemStatus(it,"active"); if(it.listing){ it.listing.readyToList=false; it.listing.sentForReviewAt=null; } addHistory(it,"Sent back from listing review — returned to Active"); });
-      picked.clear(); save(); wimRefreshAll(); render();
-    };
-    items.forEach(it=>{
-      const sentAt=it.listing&&it.listing.sentForReviewAt?new Date(it.listing.sentForReviewAt):null;
-      const tr=document.createElement("tr");
-      tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td>
-        <td style="font-size:12.5px;">${esc(it.desc||it.upc)}</td>
-        <td style="font-size:12px;">${esc(it.sku||"—")}</td>
-        <td style="font-size:12px;">${esc(it.condition||"—")}</td>
-        <td style="font-size:12px;">${it.listing&&it.listing.price?"$"+esc(it.listing.price):"—"}</td>
-        <td style="font-size:11px;">${sentAt&&!isNaN(sentAt)?sentAt.toLocaleString():"—"}</td>
-        <td><button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
-      tr.querySelector(`[data-id="${it.id}"]`).onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
-      tr.querySelector(`[data-open="${it.id}"]`).onclick=()=>openItemDetail(it,"edit");
-      tb.appendChild(tr);
-    });
-  }
-  render();
-}
+// (The old Listing Review screen was retired in v3.3.42 — it and Ready to List were two
+// parallel review queues for the same job. Both are now the single Supervisor Review
+// screen, so "Send Listing" feeds exactly one queue and accuracy stats are unambiguous.)
 function openCloudSyncTest(){
   const id="cloud-sync-test"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Cloud Sync (Test)",width:680,height:560,
@@ -9504,34 +9550,318 @@ function openDescriptionManager(){
 }
 
 /* ============================================================ LIVE: READY TO LIST ============================================================ */
-function openReadyToList(){
-  if(openWindows["ready-list"]){ focusWin(openWindows["ready-list"].el); return; }
-  const {body}=buildWindow({id:"ready-list",title:"Ready to List",width:940,height:580,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items sent from Warehouse mode to be listed here</span>`});
-  let rlSort={key:"sku",dir:1};
-  const RL_COLS=[{k:"upc",label:"Item Number",get:it=>it.upc,t:"mixed"},{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"sku",label:"Warehouse SKU",get:it=>it.sku,t:"mixed"},{k:"section",label:"Category",get:it=>it.section,t:"text"},{k:"price",label:"Listing Price",get:it=>(it.listing&&parseFloat(it.listing.price))||0,t:"mixed"}];
+function openReadyToList(){ openSupervisorReview(); }
+function readyToListCount(){ return awaitingReviewCount(); }
+/* ============================== SUPERVISOR REVIEW ==============================
+ * Replaces the old Ready to List AND the old Listing Review (both retired) with one queue.
+ * Two tabs: Waiting to Review (items warehouse users sent) and Recently Listed (last 7 days
+ * of everything listed — including items Product Listers listed directly, so a supervisor can
+ * spot-check and delist). Card layout matches Bulk Add. Paginated 20/page.
+ */
+const SR_PER_PAGE=20;
+function openSupervisorReview(){
+  const id="supervisor-review"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Supervisor Review",width:1180,height:700,popoutKey:"supreview",
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Review what warehouse sent, then List or Reject — and spot-check what's recently gone live</span>`});
+  let tab="waiting", page=1;
+
+  function rows(){ return tab==="waiting" ? awaitingReviewItems() : recentlyListedItems(7); }
+
   function render(){
-    const col=RL_COLS.find(c=>c.k===rlSort.key);
-    const rows=activeItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed").sort((a,b)=>cmpVal(col.get(a),col.get(b),col.t)*rlSort.dir);
-    body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;">${rows.length} item(s) waiting to be listed.</div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th style="width:54px;">Photo</th>${RL_COLS.map(c=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${rlSort.key===c.k?` <span class="arr">${rlSort.dir>0?'▲':'▼'}</span>`:""}</th>`).join("")}<th>Quantity</th><th></th><th></th></tr></thead><tbody id="rl-tb"></tbody></table></div>`;
-    body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(rlSort.key===k) rlSort.dir*=-1; else rlSort={key:k,dir:1}; render(); });
-    const tb=body.querySelector("#rl-tb");
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="9" style="color:#888;">Nothing here yet. In Warehouse mode, open an item and click "Send Listing."</td></tr>`; return; }
-    rows.forEach(it=>{ const tr=document.createElement("tr");
-      const price=(it.listing&&it.listing.price)?("$"+esc(it.listing.price)):"—";
-      const qty=groupQty(it);
-      tr.innerHTML=`<td>${it.image?`<img src="${it.image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;">`:'<span style="font-size:20px;">📦</span>'}</td>
-        <td>${esc(it.upc)}</td><td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(it.section)}</td><td>${price}</td><td class="cc">${qty}</td>`;
-      const tdL=document.createElement("td"); tdL.className="cc"; const b=document.createElement("button"); b.className="btn sm"; b.textContent="List"; b.onclick=()=>openItemDetail(it,"edit"); tdL.appendChild(b); tr.appendChild(tdL);
-      const tdR=document.createElement("td"); tdR.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="Remove"; x.onclick=()=>{ it.listing.readyToList=false; addHistory(it,"Removed from Ready to List"); save(); render(); wimRefreshAll(); }; tdR.appendChild(x); tr.appendChild(tdR);
-      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+    const all=rows(); const pages=Math.max(1,Math.ceil(all.length/SR_PER_PAGE));
+    if(page>pages) page=pages;
+    const slice=all.slice((page-1)*SR_PER_PAGE, page*SR_PER_PAGE);
+    body.innerHTML=`
+      <div style="display:flex;gap:6px;padding:10px 14px 0;">
+        <button class="btn sm ${tab==="waiting"?"primary":""}" id="sr-t-wait">Waiting to Review (${awaitingReviewCount()})</button>
+        <button class="btn sm ${tab==="listed"?"primary":""}" id="sr-t-listed">Recently Listed (${recentlyListedItems(7).length})</button>
+      </div>
+      <div style="padding:8px 14px 4px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:#444;border-bottom:1px solid #e2e6ec;">
+        <b>${all.length}</b> item${all.length===1?"":"s"} ${tab==="waiting"?"waiting for review":"listed in the last 7 days"}
+        <span style="flex:1;"></span>
+        <span class="smallhint">Page</span>
+        <select class="cmb" id="sr-page" style="height:26px;font-size:12px;width:80px;">${Array.from({length:pages},(_,i)=>`<option value="${i+1}" ${page===i+1?"selected":""}>${i+1} / ${pages}</option>`).join("")}</select>
+        <button class="btn sm" id="sr-prev" ${page<=1?"disabled":""}>‹ Prev</button>
+        <button class="btn sm" id="sr-next" ${page>=pages?"disabled":""}>Next ›</button>
+      </div>
+      <div id="sr-cards" style="padding:12px 14px;overflow:auto;flex:1;"></div>
+      <div class="err" id="sr-msg" style="padding:0 14px 8px;"></div>`;
+    body.querySelector("#sr-t-wait").onclick=()=>{ tab="waiting"; page=1; render(); };
+    body.querySelector("#sr-t-listed").onclick=()=>{ tab="listed"; page=1; render(); };
+    body.querySelector("#sr-page").onchange=e=>{ page=parseInt(e.target.value,10)||1; render(); };
+    body.querySelector("#sr-prev").onclick=()=>{ if(page>1){ page--; render(); } };
+    body.querySelector("#sr-next").onclick=()=>{ if(page<pages){ page++; render(); } };
+    const wrap=body.querySelector("#sr-cards");
+    if(!slice.length){ wrap.innerHTML=`<div class="note">${tab==="waiting"?"Nothing waiting. When a warehouse user clicks <b>Send Listing</b> on an item, it lands here.":"Nothing has been listed in the last 7 days."}</div>`; return; }
+    slice.forEach(it=>wrap.appendChild(reviewCard(it)));
+  }
+
+  // One card per item — same shape as Bulk Add, but with the review actions.
+  function reviewCard(it){
+    const card=document.createElement("div");
+    card.style.cssText="background:#fff;border:0.5px solid #d5dae1;border-radius:12px;padding:14px;margin-bottom:12px;";
+    const L=it.listing||{};
+    const price=String(L.price||it.retail||"");
+    const who = tab==="waiting"
+      ? (L.submittedBy?userLabel(L.submittedBy):"—")
+      : (L.listedBy?userLabel(L.listedBy):"—");
+    const whoLabel = tab==="waiting" ? "Sent by" : "Listed by";
+    const when = tab==="waiting" ? L.sentForReviewAt : (L.listedAt||L.publishedAt);
+    // If this was rejected before and re-sent, show what it was rejected for and what changed.
+    let banner="";
+    if(tab==="waiting" && L.wasRejected && L.rejected){
+      const diff=reviewDiff(L.rejectedSnapshot, L.submitSnapshot||reviewSnapshot(it));
+      banner=`<div style="background:#FDECEA;border:1px solid #F5B7B1;border-left:5px solid #c0392b;border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+        <div style="font-size:12.5px;font-weight:700;color:#922B21;">Previously rejected — ${esc(L.rejected.reason||"")}</div>
+        ${L.rejected.comment?`<div style="font-size:12px;color:#7B241C;margin-top:2px;">“${esc(L.rejected.comment)}”</div>`:""}
+        <div style="font-size:11.5px;color:#7B241C;margin-top:3px;">Rejected by ${esc(L.rejected.byLabel||"—")} on ${L.rejected.at?new Date(L.rejected.at).toLocaleString():"—"}</div>
+        <div style="margin-top:7px;font-size:12px;">${diff.length
+          ? `<b>Changed since:</b> `+diff.map(d=>`${esc(d.label)}: <span style="text-decoration:line-through;color:#8a95a3;">${esc(d.from)}</span> → <b>${esc(d.to)}</b>`).join(" · ")
+          : `<b style="color:#922B21;">Nothing was changed since it was rejected.</b>`}</div>
+      </div>`;
+    }
+    const subs=subcatsOf(it.section||"");
+    card.innerHTML=`${banner}
+      <div style="display:flex;gap:16px;align-items:flex-start;">
+        <div style="flex-shrink:0;width:120px;">
+          <div style="width:120px;height:120px;border:0.5px solid #d5dae1;border-radius:8px;background:#f4f6f9 center/contain no-repeat;${it.image?"":"display:flex;align-items:center;justify-content:center;color:#9aa3ad;font-size:24px;"}" ${it.image?`data-bg="${esc(it.image)}"`:""}>${it.image?"":"📦"}</div>
+          <div class="smallhint" style="text-align:center;margin-top:5px;">${(it.images||[]).length||0} photo(s)</div>
+          <div class="smallhint" style="text-align:center;margin-top:6px;font-size:11px;"><b>${esc(whoLabel)}:</b><br>${esc(who)}</div>
+          <div class="smallhint" style="text-align:center;font-size:10.5px;">${when?new Date(when).toLocaleString():""}</div>
+        </div>
+        <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
+          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · SKU ${esc(it.sku||"")}</div>
+          <div><label style="font-size:11px;color:#5b6470;">Item Description</label><input class="txt sr-f" data-f="desc" value="${esc(it.desc||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt sr-f" data-f="price" value="${esc(price)}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt sr-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb sr-f" data-f="section" style="width:100%;height:30px;font-size:12px;">${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${it.section===s?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
+          <div><label style="font-size:11px;color:#5b6470;">Sub Category</label><select class="cmb sr-f" data-f="subCategory" style="width:100%;height:30px;font-size:12px;"><option value="">— none —</option>${subs.map(s=>`<option value="${esc(s.name)}" ${it.subCategory===s.name?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div>
+          <div><label style="font-size:11px;color:#5b6470;">Quantity</label><input class="txt" value="${esc(String(groupQty(it)))}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
+          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Listing Description</label><textarea class="txt sr-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;width:130px;flex-shrink:0;">
+          <button class="btn sm sr-save" style="display:none;">Save changes</button>
+          ${tab==="waiting"
+            ? `<button class="btn sr-list" style="background:#1f7244;border-color:#1f7244;color:#fff;font-weight:600;">✓ List</button>
+               <button class="btn sr-reject" style="background:#c0392b;border-color:#c0392b;color:#fff;font-weight:600;">✕ Reject</button>`
+            : `<button class="btn sr-delist" style="background:#b06000;border-color:#b06000;color:#fff;font-weight:600;">Delist</button>`}
+          <button class="btn sm sr-open">Open item</button>
+        </div>
+      </div>`;
+    const bg=card.querySelector("[data-bg]"); if(bg) bg.style.backgroundImage=`url(${bg.dataset.bg})`;
+
+    // --- editing: a supervisor override is an ERROR against whoever submitted it ---
+    const before=reviewSnapshot(it);
+    const saveBtn=card.querySelector(".sr-save");
+    card.querySelectorAll(".sr-f").forEach(f=>{
+      f.addEventListener("input",()=>{ saveBtn.style.display=""; });
+      f.addEventListener("change",()=>{ saveBtn.style.display=""; });
+    });
+    function collect(){
+      const g=k=>{ const el=card.querySelector(`.sr-f[data-f="${k}"]`); return el?el.value:""; };
+      return { desc:g("desc"), price:g("price"), condition:g("condition"), section:g("section"), subCategory:g("subCategory"), descBody:g("descBody") };
+    }
+    function applyEdits(){
+      const v=collect();
+      it.desc=v.desc; it.condition=v.condition; it.section=v.section; it.subCategory=v.subCategory;
+      if(!it.listing) it.listing={status:"none"};
+      it.listing.price=v.price; it.retail=v.price; it.listing.descBody=v.descBody;
+      const after=reviewSnapshot(it);
+      const diffs=reviewDiff(before,after);
+      diffs.forEach(d=>{
+        logReview({ type:"override", itemId:it.id, sku:it.sku, field:d.k, fieldLabel:d.label,
+                    from:d.from, to:d.to, submittedBy:(it.listing.submittedBy||null) });
+        addHistory(it,"Supervisor changed "+d.label+': "'+d.from+'" → "'+d.to+'"');
+      });
+      return diffs;
+    }
+    saveBtn.onclick=()=>{ const d=applyEdits(); save(); wimRefreshAll();
+      wimToast(d.length?("Saved — "+d.length+" change(s) recorded"):"Saved \u2713","success"); render(); };
+
+    card.querySelector(".sr-open").onclick=()=>openItemDetail(it,"edit");
+
+    // --- LIST: claim the item first so two supervisors can't list it at once ---
+    const listBtn=card.querySelector(".sr-list");
+    if(listBtn) listBtn.onclick=async ()=>{
+      const msg=body.querySelector("#sr-msg");
+      listBtn.disabled=true; listBtn.textContent="Listing…";
+      // Cloud claim: a short-lived lock so a second supervisor gets told, not silently collided
+      // with. No-ops harmlessly when this device isn't cloud-connected.
+      const claim=await claimForReview(it);
+      if(!claim.ok){ msg.style.color="#c0392b"; msg.textContent=claim.error; listBtn.disabled=false; listBtn.textContent="✓ List"; return; }
+      applyEdits(); // any un-saved edits count as overrides too, and go live with the listing
+      const r=await publishToEbay(it,(s)=>{ listBtn.textContent=""; msg.style.color="#555"; msg.textContent=s; });
+      await releaseFromReview(it);
+      if(!r.ok){ msg.style.color="#c0392b"; msg.textContent=r.error; listBtn.disabled=false; listBtn.textContent="✓ List"; return; }
+      it.listing.readyToList=false; it.listing.status="listed";
+      it.listing.listedAt=new Date().toISOString();
+      it.listing.listedBy=(SESSION.user?SESSION.user.id:null);
+      setItemStatus(it,"listed");
+      logReview({ type:"list", itemId:it.id, sku:it.sku, submittedBy:(it.listing.submittedBy||null) });
+      addHistory(it,"Listed on eBay after supervisor review");
+      save(); wimRefreshAll();
+      msg.style.color="#1f7244"; msg.textContent="Listed \u2713";
+      render();
+    };
+
+    // --- REJECT: reason + optional comment, back to warehouse ---
+    const rejBtn=card.querySelector(".sr-reject");
+    if(rejBtn) rejBtn.onclick=()=>openRejectDialog(it,()=>render());
+
+    // --- DELIST: forced comment, back to warehouse ---
+    const delBtn=card.querySelector(".sr-delist");
+    if(delBtn) delBtn.onclick=()=>openDelistDialog(it,()=>render());
+
+    return card;
   }
   render();
 }
-function readyToListCount(){ return activeItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed").length; }
+// A supervisor rejecting an item: pick a reason, optionally comment, send it back.
+function openRejectDialog(it,after){
+  const m=uiModal("Reject listing",`
+    <div style="font-size:13px;min-width:380px;">
+      <div style="margin-bottom:8px;">Sending <b>${esc(it.desc||it.sku||"")}</b> back to the warehouse.</div>
+      <label style="font-size:11px;color:#5b6470;">Reason</label>
+      <select class="cmb" id="rj-reason" style="width:100%;height:30px;font-size:12.5px;margin-bottom:8px;">
+        ${REJECT_REASONS.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join("")}
+      </select>
+      <label style="font-size:11px;color:#5b6470;">Comment (optional — the warehouse user will see this)</label>
+      <textarea class="txt" id="rj-comment" style="width:100%;min-height:64px;box-sizing:border-box;padding:6px;font-size:12.5px;font-family:inherit;" placeholder="e.g. Price is well under comparable sold listings"></textarea>
+    </div>`,
+    [{label:"Send rejection",primary:true,onClick:()=>{
+        const reason=document.getElementById("rj-reason").value;
+        const comment=(document.getElementById("rj-comment").value||"").trim();
+        if(!it.listing) it.listing={status:"none"};
+        // Snapshot at rejection — this is what a resubmission gets diffed against.
+        it.listing.rejectedSnapshot=reviewSnapshot(it);
+        it.listing.rejected={ reason, comment, at:new Date().toISOString(),
+          by:(SESSION.user?SESSION.user.id:null), byLabel:(SESSION.user?userLabel(SESSION.user.id):"system") };
+        it.listing.readyToList=false; it.listing.wasRejected=false;
+        setItemStatus(it,"active");
+        logReview({ type:"reject", itemId:it.id, sku:it.sku, reason, comment,
+                    submittedBy:(it.listing.submittedBy||null) });
+        addHistory(it,"Listing REJECTED ("+reason+")"+(comment?": "+comment:""));
+        save(); wimRefreshAll(); wimToast("Rejected — sent back to warehouse","success");
+        after&&after();
+      }},
+     {label:"Cancel"}]);
+  return m;
+}
+// Pulling a live listing back down. A comment is required — the warehouse needs to know why.
+function openDelistDialog(it,after){
+  uiModal("Delist item",`
+    <div style="font-size:13px;min-width:380px;">
+      <div style="margin-bottom:8px;">Taking <b>${esc(it.desc||it.sku||"")}</b> off eBay and sending it back to the warehouse.</div>
+      <label style="font-size:11px;color:#5b6470;">Why is it being delisted? (required)</label>
+      <textarea class="txt" id="dl-comment" style="width:100%;min-height:70px;box-sizing:border-box;padding:6px;font-size:12.5px;font-family:inherit;" placeholder="e.g. Photos don't show the damage on the spine"></textarea>
+      <div class="err" id="dl-err" style="margin-top:4px;"></div>
+    </div>`,
+    [{label:"Delist",primary:true,onClick:(close)=>{
+        const comment=(document.getElementById("dl-comment").value||"").trim();
+        if(!comment){ const e=document.getElementById("dl-err"); if(e){ e.style.color="#c0392b"; e.textContent="A comment is required so the warehouse knows why."; } return false; }
+        if(!it.listing) it.listing={status:"none"};
+        it.listing.delisted={ comment, at:new Date().toISOString(),
+          by:(SESSION.user?SESSION.user.id:null), byLabel:(SESSION.user?userLabel(SESSION.user.id):"system") };
+        it.listing.status="none"; it.listing.readyToList=false;
+        setItemStatus(it,"active");
+        logReview({ type:"delist", itemId:it.id, sku:it.sku, comment });
+        addHistory(it,"DELISTED: "+comment);
+        save(); wimRefreshAll(); wimToast("Delisted — sent back to warehouse","success");
+        after&&after();
+      }},
+     {label:"Cancel"}]);
+}
+// Cloud claim/release around a listing action. WIM already has a real per-item claim system
+// (claimItem/releaseItem) used by the cloud test screen. Wiring it here means that the moment
+// item sync goes live, two supervisors can't list the same item out from under each other —
+// and until then it simply no-ops on a device that isn't cloud-connected.
+async function claimForReview(it){
+  if(!cloudSession || !CLOUD_ONLINE) return { ok:true, skipped:true };
+  try{
+    const r=await Cloud.claimItem(cloudSession.session_token, it.id);
+    if(!r.ok){
+      if(r.status===409) return { ok:false, error:"Someone else is working on this item right now — refresh and try again." };
+      return { ok:true, skipped:true }; // don't block listing on an unrelated cloud hiccup
+    }
+    return { ok:true };
+  }catch(e){ return { ok:true, skipped:true }; }
+}
+async function releaseFromReview(it){
+  if(!cloudSession || !CLOUD_ONLINE) return;
+  try{ await Cloud.releaseItem(cloudSession.session_token, it.id); }catch(e){}
+}
 
 /* ============================================================ LIVE: DISCREPANCIES ============================================================ */
+/* ===================== WAREHOUSE: REJECTED / DELISTED =====================
+ * Two discrepancies fed by Supervisor Review, so warehouse users find out what came back and why.
+ * An item leaves Rejected when it's fixed and re-sent (Send Listing clears readyToList→queue).
+ * An item leaves Delisted when it's re-sent to listing, or deleted from its landing page.
+ */
+function openRejectedItems(){
+  const id="rejected-items"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Rejected",width:1000,height:620,popoutKey:"rejected",
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Listings a supervisor sent back — fix the problem, then use Send Listing again</span>`});
+  function render(){
+    const rows=rejectedItems();
+    body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;"><b>${rows.length}</b> item(s) were sent back and need fixing.</div>
+      <div id="rj-list" style="padding:0 14px 14px;overflow:auto;flex:1;"></div>`;
+    const wrap=body.querySelector("#rj-list");
+    if(!rows.length){ wrap.innerHTML=`<div class="note">Nothing has been rejected. Nice.</div>`; return; }
+    rows.forEach(it=>{
+      const R=(it.listing&&it.listing.rejected)||{};
+      const card=document.createElement("div");
+      card.style.cssText="background:#fff;border:0.5px solid #d5dae1;border-left:5px solid #c0392b;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start;";
+      card.innerHTML=`
+        <div style="width:74px;height:74px;flex-shrink:0;border:0.5px solid #e2e6ec;border-radius:8px;background:#fafafa center/contain no-repeat;${it.image?"":"display:flex;align-items:center;justify-content:center;color:#b9c2cf;font-size:22px;"}" ${it.image?`data-bg="${esc(it.image)}"`:""}>${it.image?"":"📦"}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;">${esc(it.desc||"")}</div>
+          <div class="smallhint">Item #${esc(it.upc||"")} · SKU ${esc(it.sku||"")} · $${esc(String((it.listing&&it.listing.price)||it.retail||"—"))}</div>
+          <div style="margin-top:7px;font-size:12.5px;"><b style="color:#922B21;">${esc(R.reason||"Rejected")}</b>
+            ${R.comment?`<div style="color:#7B241C;margin-top:2px;">“${esc(R.comment)}”</div>`:""}
+            <div class="smallhint" style="margin-top:2px;">Rejected by ${esc(R.byLabel||"—")}${R.at?" on "+new Date(R.at).toLocaleString():""}</div>
+          </div>
+        </div>
+        <button class="btn sm rj-open" style="flex-shrink:0;">Open item to fix</button>`;
+      const bg=card.querySelector("[data-bg]"); if(bg) bg.style.backgroundImage=`url(${bg.dataset.bg})`;
+      card.querySelector(".rj-open").onclick=()=>openItemDetail(it,"edit");
+      card.ondblclick=()=>openItemDetail(it,"edit");
+      wrap.appendChild(card);
+    });
+  }
+  render();
+}
+function openDelistedItems(){
+  const id="delisted-items"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  const {body}=buildWindow({id,title:"Delisted",width:1000,height:620,popoutKey:"delisted",
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Items pulled back off eBay — re-send them to listing once resolved, or delete the item</span>`});
+  function render(){
+    const rows=delistedItems();
+    body.innerHTML=`<div style="padding:10px 14px;font-size:12.5px;"><b>${rows.length}</b> item(s) were delisted.</div>
+      <div id="dl-list" style="padding:0 14px 14px;overflow:auto;flex:1;"></div>`;
+    const wrap=body.querySelector("#dl-list");
+    if(!rows.length){ wrap.innerHTML=`<div class="note">Nothing has been delisted.</div>`; return; }
+    rows.forEach(it=>{
+      const D=(it.listing&&it.listing.delisted)||{};
+      const card=document.createElement("div");
+      card.style.cssText="background:#fff;border:0.5px solid #d5dae1;border-left:5px solid #b06000;border-radius:10px;padding:12px 14px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start;";
+      card.innerHTML=`
+        <div style="width:74px;height:74px;flex-shrink:0;border:0.5px solid #e2e6ec;border-radius:8px;background:#fafafa center/contain no-repeat;${it.image?"":"display:flex;align-items:center;justify-content:center;color:#b9c2cf;font-size:22px;"}" ${it.image?`data-bg="${esc(it.image)}"`:""}>${it.image?"":"📦"}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;">${esc(it.desc||"")}</div>
+          <div class="smallhint">Item #${esc(it.upc||"")} · SKU ${esc(it.sku||"")}</div>
+          <div style="margin-top:7px;font-size:12.5px;color:#7E5109;">“${esc(D.comment||"")}”
+            <div class="smallhint" style="margin-top:2px;">Delisted by ${esc(D.byLabel||"—")}${D.at?" on "+new Date(D.at).toLocaleString():""}</div>
+          </div>
+        </div>
+        <button class="btn sm dl-open" style="flex-shrink:0;">Open item</button>`;
+      const bg=card.querySelector("[data-bg]"); if(bg) bg.style.backgroundImage=`url(${bg.dataset.bg})`;
+      card.querySelector(".dl-open").onclick=()=>openItemDetail(it,"edit");
+      card.ondblclick=()=>openItemDetail(it,"edit");
+      wrap.appendChild(card);
+    });
+  }
+  render();
+}
 function openDiscrepancies(){
   if(openWindows["discrep"]){ focusWin(openWindows["discrep"].el); return; }
   const {body}=buildWindow({id:"discrep",title:"Discrepancies — active but not listed",width:900,height:600,
