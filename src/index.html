@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.52", BUILD_DATE="2026-11-14", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.53", BUILD_DATE="2026-11-15", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.53","Made the Shipping Historical Comparison actually usable. The feature itself was real all along -- it genuinely calls Shippo and EasyPost for live rate quotes, pulls what eBay actually charged straight off the order, and picks a winner. The problem was that the API key fields were buried on a completely different screen (Shipping Data), so with no keys entered the Shippo and EasyPost columns just sat empty and the whole thing looked broken. Now the comparison screen tells you plainly at the top whether each service is connected, with an Add API keys button right there. Entering a key immediately tests it against the real service and tells you whether it works or was rejected, instead of saving a bad key and letting you find out later. Rate cells now say not connected instead of showing a blank dash that reads like a bug. And Fetch Missing Rates no longer silently does nothing -- it tells you if there are no API keys, or if records are missing a package weight so no carrier can quote them. Rate quotes are free on both services; WIM only ever asks for quotes and never buys labels."],
   ["3.3.52","Rewrote Pull New Listings so it can handle a real seller account. It was doing two things badly: it only ever looked at the FIRST 100 listings no matter how many existed, and it made a separate call to eBay for every single one to get its price. On an account with 1200 listings that is over a thousand calls back to back -- minutes of waiting, a good chance of hitting eBay rate limits, and an incomplete result anyway. It now pulls the 20 MOST RECENT listings that are not already in WIM, and stops. It is self-limiting: once the back catalogue is filed, a pull that finds 10 new listings does 10 items worth of work and knows the 11th is already in the system -- it never touches the other 1190. A Load 20 older listings button at the bottom lets you keep reaching further back while you are first bringing everything in. Each listing still becomes its own card and its own item with its own landing page. Fixed the duplicate logic too: it now matches on the eBay listing id and SKU only. It used to also treat WIM own warehouse SKUs and item numbers as if they were eBay ids, which are completely different things -- a collision would have silently skipped a real listing forever. And because it keys on the eBay listing id, the same book listed three separate times at 10am, 2pm and 4pm correctly comes through as three separate items, each with its own landing page, rather than being collapsed into one."],
   ["3.3.51","MAJOR FIX -- Price Compare was completely broken everywhere, including on the item landing page. When it was pulled out into a shared component in v3.3.44 it kept referencing a variable that only existed in the old screen it came from, so it threw an error the instant it opened and just blanked out. That was my mistake in that refactor. It is a proper parameter now and Price Compare works again on the landing page, Bulk Add, Import Scans and Supervisor Review. CANCEL FINALLY CLOSES THE WHOLE WINDOW. The real reason this kept coming back after being fixed twice: there were TWO separate close paths that had drifted apart, and Cancel was using the one that was never fixed. On top of that, the close call itself is asynchronous, so wrapping it in a try/catch always LOOKED successful even when it silently failed -- so the backup methods never ran. There is now exactly one close function that every Cancel, OK, X, Save-and-close and Delete goes through, and it properly waits on each method and falls back to the next if it fails. Opening the Listing Fields or Price Compare drawer on a card no longer redraws the whole list and throws you back to the top of the page -- the drawer just opens where it is. Category is no longer locked on an existing item: you can change it, and WIM automatically flags the item as manually slotted so it can stay in the slot it is physically in, instead of forcing you to delete and recreate the item. Package weight now defaults to 1 lb instead of being blank and blocking the listing. And Price Compare has a PriceCharting button that opens a pre-filled search for the item, alongside the eBay one."],
   ["3.3.50","Communication overhaul. Replying to a buyer now goes through eBay documented Trading API instead of a REST endpoint that was built on guesswork and never actually confirmed to send. Oddly, the with-photo path was already using the documented call while plain text replies -- by far the most common thing anyone does -- used the unproven one. Both now use the same proven path, and when eBay refuses a message it shows eBay own error text instead of a bare status code. The inbox now has folders: All, Buyers, and eBay Notifications, and it opens on Buyers by default so real customers are not buried under eBay automated notices (like the ones it fires every time WIM connects). Each folder shows its own unread count, so you can see that three real buyers are waiting while forty notices sit in their own folder. Each conversation now has a claim checkbox in the corner: click it to mark that you are handling that customer, and everyone else sees your name on it, so two people do not answer the same person. Click again to release it. Honest limitation: like everything else in WIM right now, claims live on ONE machine -- until cloud sync is wired up, a claim made at the packing station will not show at the front desk. It is written to start working across stations the moment sync lands."],
@@ -9179,6 +9180,73 @@ function openShippingComparison(){
   const id="ship-compare"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Shipping Historical Comparison",width:1180,height:640,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real per-sale shipping cost comparison — Shippo and EasyPost quotes vs. what eBay actually charged</span>`});
+  // Without API keys, Shippo and EasyPost simply return nothing and their columns sit empty — which
+  // reads exactly like a broken feature rather than an unconfigured one. The keys were also buried
+  // on a different screen (Shipping Data), so there was no way to discover that from here. This
+  // banner states the connection status plainly and lets you enter the keys right where you need them.
+  let shippoTok="", epKey="";
+  async function loadKeys(){
+    try{ shippoTok=await carrierGetSecret2("shippo","token"); }catch(e){ shippoTok=""; }
+    try{ epKey=await carrierGetSecret2("easypost","key"); }catch(e){ epKey=""; }
+  }
+  function connectionBanner(){
+    const both = shippoTok && epKey;
+    if(both) return `<div style="display:flex;gap:14px;align-items:center;padding:6px 12px;background:#EFF6F1;border:1px solid #CDE7D8;border-radius:6px;margin-bottom:10px;font-size:12px;">
+      <span style="color:#1f7244;font-weight:600;">✓ Shippo connected</span>
+      <span style="color:#1f7244;font-weight:600;">✓ EasyPost connected</span>
+      <span style="flex:1;"></span>
+      <button class="btn sm" id="sc-keys">Change API keys</button></div>`;
+    return `<div style="padding:10px 12px;background:#FBF4E4;border:1px solid #E8D5A8;border-left:4px solid #b06000;border-radius:6px;margin-bottom:10px;font-size:12.5px;">
+      <div style="font-weight:600;color:#8A5E10;margin-bottom:4px;">This comparison needs API keys to work</div>
+      <div style="color:#6b5a33;margin-bottom:7px;">
+        ${shippoTok?'<span style="color:#1f7244;font-weight:600;">✓ Shippo connected</span>':'<span style="color:#b06000;font-weight:600;">✗ Shippo not connected</span>'} &nbsp;·&nbsp;
+        ${epKey?'<span style="color:#1f7244;font-weight:600;">✓ EasyPost connected</span>':'<span style="color:#b06000;font-weight:600;">✗ EasyPost not connected</span>'}
+        <br>Without them, those columns stay blank and there's nothing to compare eBay against. Rate quotes are free on both services — WIM only ever asks for quotes, it never buys labels.
+      </div>
+      <button class="btn sm primary" id="sc-keys">Add API keys</button>
+    </div>`;
+  }
+  function openKeyDialog(){
+    const m=uiModal("Shipping API keys",`
+      <div style="font-size:13px;min-width:440px;">
+        <div style="margin-bottom:10px;color:#5b6470;">Both services give you free API keys, and rate quotes cost nothing. WIM uses them only to fetch comparison quotes — it never buys or prints labels.</div>
+        <label style="font-size:11px;color:#5b6470;">Shippo Token</label>
+        <input class="txt" id="sk-shippo" value="${esc(shippoTok||"")}" placeholder="shippo_live_... or shippo_test_..." style="width:100%;box-sizing:border-box;height:30px;margin-bottom:4px;">
+        <div class="smallhint" style="margin-bottom:10px;">goshippo.com → sign up → Settings → API → Generate token</div>
+        <label style="font-size:11px;color:#5b6470;">EasyPost API Key</label>
+        <input class="txt" id="sk-easypost" value="${esc(epKey||"")}" placeholder="EZAK..." style="width:100%;box-sizing:border-box;height:30px;margin-bottom:4px;">
+        <div class="smallhint">easypost.com → sign up → API Keys → copy the Production key</div>
+        <div class="err" id="sk-msg" style="margin-top:8px;"></div>
+      </div>`,
+      [{label:"Save & test",primary:true,onClick:()=>{
+          const sv=(document.getElementById("sk-shippo").value||"").trim();
+          const ev=(document.getElementById("sk-easypost").value||"").trim();
+          const msg=document.getElementById("sk-msg");
+          if(msg){ msg.style.color="#555"; msg.textContent="Saving and testing…"; }
+          (async()=>{
+            try{
+              await carrierStoreSecret2("shippo","token",sv);
+              await carrierStoreSecret2("easypost","key",ev);
+              shippoTok=sv; epKey=ev;
+              // Prove the keys actually work with a real quote, rather than just saving them and
+              // letting the user discover later that they're wrong.
+              const results=[];
+              if(sv && WIM_IS_DESKTOP){
+                const r=await wimDesktop.invoke("shippo_get_rates",{ token:sv, fromCity:"Kansas City",fromState:"MO",fromZip:"64111",fromCountry:"US", toCity:"Chicago",toState:"IL",toZip:"60601",toCountry:"US", weightLb:"1",lengthIn:"6",widthIn:"4",heightIn:"2" });
+                results.push("Shippo: "+((r&&r.ok)?"working ✓":"rejected the key ✗"));
+              }
+              if(ev && WIM_IS_DESKTOP){
+                const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:ev, fromCity:"Kansas City",fromState:"MO",fromZip:"64111",fromCountry:"US", toCity:"Chicago",toState:"IL",toZip:"60601",toCountry:"US", weightLb:"1",lengthIn:"6",widthIn:"4",heightIn:"2" });
+                results.push("EasyPost: "+((r&&r.ok)?"working ✓":"rejected the key ✗"));
+              }
+              if(msg){ msg.style.color="#1f7244"; msg.textContent=results.join(" · ")||"Saved."; }
+              setTimeout(()=>{ try{ m.close(); }catch(e){} render(); },1400);
+            }catch(e){ if(msg){ msg.style.color="#c0392b"; msg.textContent="Couldn't save: "+(e&&e.message?e.message:e); } }
+          })();
+          return false; // hold the modal open until the test finishes
+        }},
+       {label:"Cancel"}]);
+  }
   function render(){
     const rows=DB.shippingComparisons.slice().sort((a,b)=>new Date(b.soldAt||0)-new Date(a.soldAt||0));
     // Tally winners across every record that has enough data to compare — this is the real
@@ -9203,6 +9271,7 @@ function openShippingComparison(){
         <span style="flex:1;"></span>
         <button class="btn sm" id="sc-export">Export to Excel</button>
       </div>
+      ${connectionBanner()}
       ${summaryHtml}
       ${!rows.length?`<div class="note">Nothing here yet — a record is created automatically every time a sale is pulled in through Recently Sold. You can also pull sold eBay listings that aren't in your inventory using the button above.</div>`:``}
       <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
@@ -9210,6 +9279,7 @@ function openShippingComparison(){
         <th style="width:100px;">Shippo</th><th style="width:100px;">EasyPost</th><th style="width:92px;">eBay Actual</th><th style="width:96px;">Winner</th><th style="width:60px;"></th>
       </tr></thead><tbody id="sc-tb"></tbody></table></div>
     </div>`;
+    const keysBtn=body.querySelector("#sc-keys"); if(keysBtn) keysBtn.onclick=openKeyDialog;
     const tb=body.querySelector("#sc-tb");
     rows.forEach(r=>{ const tr=document.createElement("tr");
       const dims=(r.length&&r.width&&r.height)?(r.length+"×"+r.width+"×"+r.height+"in"):"—";
@@ -9221,8 +9291,8 @@ function openShippingComparison(){
       tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}${r.notInInventory?' <span class="badge" style="font-size:9px;background:#8a6d3b;">not inventoried</span>':''}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
         <td style="font-size:11px;">${esc(wt)}<div class="smallhint">${esc(dims)}</div></td>
         <td style="font-size:11px;">${esc(shipTo)}</td>
-        <td style="font-size:12px;">${r.shippoRate?"$"+esc(r.shippoRate)+"<div class=\"smallhint\">"+esc(r.shippoService||"")+"</div>":'<span class="smallhint">—</span>'}</td>
-        <td style="font-size:12px;">${r.easypostRate?"$"+esc(r.easypostRate)+"<div class=\"smallhint\">"+esc(r.easypostService||"")+"</div>":'<span class="smallhint">—</span>'}</td>
+        <td style="font-size:12px;">${r.shippoRate?"$"+esc(r.shippoRate)+"<div class=\"smallhint\">"+esc(r.shippoService||"")+"</div>":(shippoTok?'<span class="smallhint">—</span>':'<span class="smallhint" style="color:#b06000;">not connected</span>')}</td>
+        <td style="font-size:12px;">${r.easypostRate?"$"+esc(r.easypostRate)+"<div class=\"smallhint\">"+esc(r.easypostService||"")+"</div>":(epKey?'<span class="smallhint">—</span>':'<span class="smallhint" style="color:#b06000;">not connected</span>')}</td>
         <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost||"")}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;"></td>
         <td class="cc">${winCell}</td>
         <td class="cc"><button class="btn sm" data-fetch="${esc(r.id)}">Fetch</button></td>`;
@@ -9238,8 +9308,14 @@ function openShippingComparison(){
       catch(e){ msg.style.color="#c0392b"; msg.textContent="Couldn't pull: "+(e&&e.message?e.message:e); }
     };
     body.querySelector("#sc-fetchall").onclick=async ()=>{
-      const msg=body.querySelector("#sc-msg"); const missing=rows.filter(r=>!r.fetchedAt && r.weight);
-      if(!missing.length){ msg.textContent="Nothing to fetch — every record either already has rates, or is missing a weight."; return; }
+      const msg=body.querySelector("#sc-msg");
+      // Don't silently do nothing — that's what made this look broken. Say what's actually wrong.
+      if(!shippoTok && !epKey){ msg.style.color="#c0392b"; msg.textContent="No API keys yet — click \u201cAdd API keys\u201d above. Without them there's nothing to compare eBay against."; return; }
+      const missing=rows.filter(r=>!r.fetchedAt && r.weight);
+      const noWeight=rows.filter(r=>!r.fetchedAt && !r.weight).length;
+      if(!missing.length){ msg.style.color="#555"; msg.textContent=noWeight
+        ? ("Nothing to fetch — "+noWeight+" record(s) have no package weight, so no carrier can quote them. Add a weight on the item.")
+        : "Nothing to fetch — every record already has its rates."; return; }
       let i=0; for(const r of missing){ i++; msg.textContent="Fetching "+i+" of "+missing.length+"…"; await fetchOneComparisonRate(r); }
       save(); msg.textContent="Done."; render();
     };
@@ -9253,7 +9329,11 @@ function openShippingComparison(){
       const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="WIM_Shipping_Comparison_"+new Date().toISOString().slice(0,10)+".csv"; a.click();
     };
   }
+  // Load the stored keys BEFORE the first paint, or the banner would always claim "not connected"
+  // even when they're set — which is the same kind of misleading blank that made this feature look
+  // broken in the first place.
   render();
+  loadKeys().then(()=>render());
 }
 // Fetches one comparison record's Shippo and EasyPost rates for real, using the item's
 // actual weight/dimensions and the real ship-to address from its order — only runs if a
