@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.61", BUILD_DATE="2026-11-23", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.63", BUILD_DATE="2026-11-25", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.63","The saved-description dropdown is back on the Supervisor Review card -- pick one of your descriptions from Description Manager and its text drops straight into the box, exactly like it does on the item landing page. It was on the landing page but never made it onto the review card when the cards were unified, so a supervisor had to retype or paste boilerplate they already had saved. Import Scans cards were missing it too and now have it as well, since it is the same card and the same job."],
+  ["3.3.62","LISTING FAILED WITH: Aspect value for aspect Topic cannot be null or empty (error 25719). WIM was sending EVERY listing field to eBay, including the ones nobody filled in, as empty text -- Topic, Publisher, Format, Genre and about thirty others all went across as blanks. eBay does not allow that: a field must either carry a real value or not be sent at all. So eBay threw out the whole listing on the first blank it hit, even though nothing was actually wrong -- leaving optional fields empty is perfectly allowed. Blank fields are now simply left out. On the listing that failed, that takes 36 fields down to the 5 that were actually filled in. SECOND PROBLEM ON THE SAME ITEM: its Category was NONE, which means no eBay category is mapped to it, and eBay cannot list something it has no category for. That would have failed next, right after the aspects were fixed. WIM now catches this BEFORE calling eBay and tells you in plain English what to do: open the item and use Find on eBay to pick the real category (the listing fields come with it), or map the category under Category Maintenance."],
   ["3.3.61","TWO REAL BUGS, BOTH FOUND BY GOING LOOKING RATHER THAN WAITING FOR THEM TO BITE. (1) MULTI-QUANTITY ORDERS WERE HALF-IGNORED. If a buyer bought 2 or 3 copies of one listing, WIM marked only ONE copy sold and moved ONE book to Ready to Ship. The shipper would pack one book, the buyer would be short, and the other copies would still be sitting on the shelf marked Active. WIM now reads how many the buyer actually bought and moves that many copies. This mattered because combining copies (v3.3.60) made multi-quantity listings easy to create -- that feature is what turned this from theoretical into likely. And if a buyer somehow buys more copies than exist in the warehouse, you now get a loud red popup naming the item, the order, how many they bought and how many were found, so you can find them or refund before the buyer notices. (2) SAVES COULD FAIL SILENTLY. If the computer could not write to storage, WIM logged a note to a console nobody looks at and carried on as though nothing happened. Everything looked normal until a refresh threw the work away. A failed save now puts a red bar across the top of the screen telling you to stop working and back up immediately. In a warehouse where people trust the screen, a silent save failure is worse than a crash -- a crash at least tells you. NOT CHANGED, ON PURPOSE: the Sell / Adjust Out / Delete paths look like they use an old sold flag, but they are correct -- those items leave inventory without an order behind them, so Inactive is the right status. I checked rather than assumed."],
   ["3.3.60","Import Scans now recognises items you already have. Two bright blue indicators appear at the top of a scan card: ALREADY LISTED (a matching item is live on eBay right now) and SOLD BEFORE (you have sold this before, with how long it took). Click either one and that item opens in its own window so you can check it is really the same thing -- a match is a suggestion, not a fact. Opening a sold item now leads with a big banner: what it sold for, how long it sat (23d 7h), and whether you had to discount it or take an offer to move it. COMBINING COPIES: if a scan matches something already listed, you can tick Add this copy to the existing listing. It is locked unless the CONDITION matches, and it tells you which condition is required -- that rule is what makes the two copies genuinely interchangeable, so it does not matter which one gets pulled for a buyer. Saving tells you exactly what will change before it does anything: the warehouse count, and whether the LIVE eBay quantity goes up. If the existing listing has Reserve on, the eBay quantity stays at 1 and the extra copy waits its turn. If your Reserve setting disagrees with the listing you are joining, WIM says so and follows the existing listing. FOUND A REAL GAP: the barcode/ISBN that InventoryIQ scans was being thrown away on import -- WIM kept only the description. So it could never match a book to another copy by ISBN. It is now stored, and matching uses ISBN first and description second, which is what makes this reliable for books (comics have no barcode, so those still match on description). Import Scans also gets an Import Listing Fields button right next to the listing fields, so you can pull the eBay category and required fields without leaving the card."],
   ["3.3.59","PRICE COMPARE WAS BROKEN EVERYWHERE -- both buttons did nothing. Cause: when the panel was pulled out into a shared component, six pieces of it were left pointing at the old screen it used to live inside. Update Listings and Pull Sold Listings both died silently on this. Same class of mistake as the crash fixed in v3.3.51 -- I found the one that threw an error and missed the five that failed quietly. All six fixed and tested in every place the panel appears. THE SOLD TAB NOW SHOWS WHAT YOU HAVE SOLD. Pull Sold Listings now searches your own catalog first with fuzzy matching, and shows every similar item YOU sold -- item number, what it actually sold for, how long it took (20d 3h), and whether you had to discount it or take an offer. Those rows are tinted GREEN and marked OURS, so your real sales are never confused with market data pasted in from eBay research. This is free and instant -- it does not need eBay approval, which is why the old button appeared to do nothing (it was calling an eBay API most accounts are not approved for). CATEGORY ON THE LANDING PAGE really works now. It was unlocked in v3.3.51, but saving then failed: changing the category auto-ticks Manually Slot, and the save then demanded you type in a slot -- for an item that was already sitting in one. It now keeps the slot the item is already in, and shows it. Manually Slot and Reserve are back on the Supervisor Review and Import Scans cards; they were dropped when the cards were unified, which was a regression, not a decision. Import Scans cards also get a subtle Delete Scan button for scans that came in wrong."],
@@ -4849,6 +4851,31 @@ function openListingConfig(){
 // splitting that would turn one real value into two invalid ones. So this only splits when
 // eBay's own aspect metadata for this category confirms the aspect is genuinely multi-value
 // — never based on a guess about the aspect's name or its value's punctuation.
+// Build the aspects eBay actually accepts.
+//
+// THE BUG THIS FIXES: WIM used to send EVERY aspect field, including the ones nobody filled in,
+// as an empty string — "Topic": [ "" ], "Publisher": [ "" ], and so on. eBay's rule is that an
+// aspect must carry a real value or NOT BE SENT AT ALL; an empty string is invalid. So eBay
+// rejected the whole listing on the first empty one it found:
+//     Error 25719 — "Aspect value for aspect Topic cannot be null or empty."
+// The listing failed even though nothing was actually wrong with it — the user simply hadn't
+// filled in an optional field, which is allowed. Empty aspects are now dropped before sending.
+function buildAspectsPayload(it){
+  const out={};
+  const src=(it && it.aspects) || {};
+  Object.entries(src).forEach(([k,v])=>{
+    if(v==null) return;
+    // Drop blank values, and blank entries inside multi-value aspects.
+    const arr=aspectValueArray(k,v,it);
+    const clean=(Array.isArray(arr)?arr:[arr])
+      .map(x=>String(x==null?"":x).trim())
+      .filter(x=>x.length>0);
+    if(clean.length) out[k]=clean;
+  });
+  // eBay wants at least something; Condition is always known.
+  if(!Object.keys(out).length) out.Condition=[it.condition||"Unspecified"];
+  return out;
+}
 function aspectValueArray(name, value, it){
   const s=String(value);
   let parts;
@@ -4884,7 +4911,7 @@ function ebayPayload(it){ // builds the Sell Inventory API createOrReplaceInvent
   const payload={ condition: ebayCondEnum(it.condition),
     product:{ title:(it.listing&&it.listing.title?it.listing.title:it.desc||"").slice(0,80),
       description:(it.listing&&it.listing.descBody)||it.desc||"",
-      aspects: (it.aspects&&Object.keys(it.aspects).length)?Object.fromEntries(Object.entries(it.aspects).map(([k,v])=>[k, aspectValueArray(k,v,it)])):{ Condition:[it.condition||"Unspecified"] },
+      aspects: buildAspectsPayload(it),
       imageUrls: (it.listing&&it.listing.ebayImageUrls)||[] },
     availability:{ shipToLocationAvailability:{ quantity: listingQty(it) } } };
   // Package weight & dimensions — eBay requires a weight to publish anything with real shipping.
@@ -5030,6 +5057,16 @@ async function publishToEbay(it,onStep){
     if(!locCheck.ok) return { ok:false, error:locCheck.error };
     onStep&&onStep("Creating the eBay offer…");
     const sc=subcatObj(it.section,it.subCategory);
+    // An item with no real eBay category mapped (Category = NONE, or a sub-category that was never
+    // linked to an eBay category) cannot be listed: eBay needs a numeric category id. Catch it here
+    // with a plain-English message instead of letting eBay bounce it back with a cryptic error.
+    if(!sc || !String(sc.ebayId||"").trim()){
+      return { ok:false, error:
+        "This item has no eBay category mapped"+(it.section?(" (Category is \""+it.section+"\")"):"")+", so eBay has nowhere to put it.\n\n"+
+        "Fix it one of two ways:\n"+
+        "• Open the item and click \"🔍 Find on eBay\" — search for the item, pick the right eBay category, and the listing fields come with it.\n"+
+        "• Or set the Category/Sub Category to one that's already linked to eBay (Configuration → Category Maintenance)." };
+    }
     const price=(it.listing&&it.listing.price)||it.retail;
     const offerPayload={ sku, marketplaceId:DB.ebay.marketplace||"EBAY_US", format:"FIXED_PRICE",
       availableQuantity: listingQty(it), categoryId: sc.ebayId,
@@ -6959,7 +6996,14 @@ async function openImportScans(){
               ${(!!it.reserve)!==parentReserve?`<div style="margin-top:5px;color:#B03A2E;"><b>Reserve doesn't match.</b> The listing you're joining has Reserve <b>${parentReserve?"ON":"OFF"}</b>, but this card has it <b>${it.reserve?"ON":"OFF"}</b>. Either change it here, or <a href="#" class="is-openparent2" style="color:#2F6FB3;">open the existing listing</a> and change it there. Joining will follow whatever the existing listing says.</div>`:``}
             </div>`:``}
           </div>`:``}
-          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Description</label><textarea class="txt is-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
+          <div style="grid-column:1 / -1;">
+            <label style="font-size:11px;color:#5b6470;">Description</label>
+            <select class="cmb is-desctpl" style="width:100%;height:30px;box-sizing:border-box;margin-bottom:5px;">
+              <option value="">(write your own below)</option>
+              ${(DB.descriptions||[]).map(d=>`<option value="${esc(d.id)}" ${L.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}
+            </select>
+            <textarea class="txt is-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc((L.descriptionId&&((DB.descriptions||[]).find(x=>x.id===L.descriptionId)||{}).body)||L.descBody||"")}</textarea>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
           <button class="btn sm is-open">View landing page</button>
@@ -7094,6 +7138,17 @@ async function openImportScans(){
 
     // Manual Slot + Reserve — these existed on Bulk Add and the landing page but were dropped when
     // the cards were unified. That was a regression, not a decision.
+    const isTpl=card.querySelector(".is-desctpl");
+    if(isTpl) isTpl.onchange=()=>{
+      if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};
+      const sel=isTpl.value||null;
+      it.listing.descriptionId = sel;  L.descriptionId = sel;
+      const d=(DB.descriptions||[]).find(x=>x.id===sel);
+      const ta=card.querySelector('.is-f[data-f="descBody"]');
+      if(d && ta){ ta.value=d.body||""; it.listing.descBody=ta.value; L.descBody=ta.value; }
+      try{ footer.markDirty(); }catch(e){}
+    };
+
     const isMan=card.querySelector(".is-manual");
     if(isMan) isMan.onchange=()=>{ it.manualSlot=isMan.checked; try{ footer.markDirty(); }catch(e){} addHistory(it, isMan.checked?"Marked as manually slotted (Import Scans)":"Manual slot flag cleared (Import Scans)"); save(); };
     const isRes=card.querySelector(".is-reserve");
@@ -10863,7 +10918,14 @@ function openSupervisorReview(){
               <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="sr-manual" ${it.manualSlot?"checked":""}> Manually slot</label>
               <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="sr-reserve" ${it.reserve?"checked":""}> Reserve</label>
             </div></div>
-          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Description</label><textarea class="txt sr-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
+          <div style="grid-column:1 / -1;">
+            <label style="font-size:11px;color:#5b6470;">Description</label>
+            <select class="cmb sr-desctpl" style="width:100%;height:30px;box-sizing:border-box;margin-bottom:5px;">
+              <option value="">(write your own below)</option>
+              ${(DB.descriptions||[]).map(d=>`<option value="${esc(d.id)}" ${L.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}
+            </select>
+            <textarea class="txt sr-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc((L.descriptionId&&((DB.descriptions||[]).find(x=>x.id===L.descriptionId)||{}).body)||L.descBody||"")}</textarea>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
           ${tab==="waiting"
@@ -10927,6 +10989,20 @@ function openSupervisorReview(){
     // dropped when the cards were unified — a regression, not a decision. A supervisor needs to be
     // able to reserve an item (list one at a time out of a multi-unit group) or flag it as manually
     // slotted at the moment of review, without bouncing out to the landing page to do it.
+    // Description templates — the saved descriptions from Description Manager. This dropdown was on
+    // the landing page but never made it onto the review card, so a supervisor had to retype or
+    // paste boilerplate they already had saved.
+    const srTpl=card.querySelector(".sr-desctpl");
+    if(srTpl) srTpl.onchange=()=>{
+      if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};
+      const sel=srTpl.value||null;
+      it.listing.descriptionId = sel;  L.descriptionId = sel;
+      const d=(DB.descriptions||[]).find(x=>x.id===sel);
+      const ta=card.querySelector('.sr-f[data-f="descBody"]');
+      if(d && ta){ ta.value=d.body||""; it.listing.descBody=ta.value; L.descBody=ta.value; }
+      try{ footer.markDirty(); }catch(e){}
+    };
+
     const srMan=card.querySelector(".sr-manual");
     if(srMan) srMan.onchange=()=>{ it.manualSlot=srMan.checked; try{ footer.markDirty(); }catch(e){} addHistory(it, srMan.checked?"Marked as manually slotted (Supervisor Review)":"Manual slot flag cleared (Supervisor Review)"); save(); };
     const srRes=card.querySelector(".sr-reserve");
