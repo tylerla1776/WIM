@@ -488,7 +488,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.51", BUILD_DATE="2026-11-13", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.52", BUILD_DATE="2026-11-14", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +594,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.52","Rewrote Pull New Listings so it can handle a real seller account. It was doing two things badly: it only ever looked at the FIRST 100 listings no matter how many existed, and it made a separate call to eBay for every single one to get its price. On an account with 1200 listings that is over a thousand calls back to back -- minutes of waiting, a good chance of hitting eBay rate limits, and an incomplete result anyway. It now pulls the 20 MOST RECENT listings that are not already in WIM, and stops. It is self-limiting: once the back catalogue is filed, a pull that finds 10 new listings does 10 items worth of work and knows the 11th is already in the system -- it never touches the other 1190. A Load 20 older listings button at the bottom lets you keep reaching further back while you are first bringing everything in. Each listing still becomes its own card and its own item with its own landing page. Fixed the duplicate logic too: it now matches on the eBay listing id and SKU only. It used to also treat WIM own warehouse SKUs and item numbers as if they were eBay ids, which are completely different things -- a collision would have silently skipped a real listing forever. And because it keys on the eBay listing id, the same book listed three separate times at 10am, 2pm and 4pm correctly comes through as three separate items, each with its own landing page, rather than being collapsed into one."],
   ["3.3.51","MAJOR FIX -- Price Compare was completely broken everywhere, including on the item landing page. When it was pulled out into a shared component in v3.3.44 it kept referencing a variable that only existed in the old screen it came from, so it threw an error the instant it opened and just blanked out. That was my mistake in that refactor. It is a proper parameter now and Price Compare works again on the landing page, Bulk Add, Import Scans and Supervisor Review. CANCEL FINALLY CLOSES THE WHOLE WINDOW. The real reason this kept coming back after being fixed twice: there were TWO separate close paths that had drifted apart, and Cancel was using the one that was never fixed. On top of that, the close call itself is asynchronous, so wrapping it in a try/catch always LOOKED successful even when it silently failed -- so the backup methods never ran. There is now exactly one close function that every Cancel, OK, X, Save-and-close and Delete goes through, and it properly waits on each method and falls back to the next if it fails. Opening the Listing Fields or Price Compare drawer on a card no longer redraws the whole list and throws you back to the top of the page -- the drawer just opens where it is. Category is no longer locked on an existing item: you can change it, and WIM automatically flags the item as manually slotted so it can stay in the slot it is physically in, instead of forcing you to delete and recreate the item. Package weight now defaults to 1 lb instead of being blank and blocking the listing. And Price Compare has a PriceCharting button that opens a pre-filled search for the item, alongside the eBay one."],
   ["3.3.50","Communication overhaul. Replying to a buyer now goes through eBay documented Trading API instead of a REST endpoint that was built on guesswork and never actually confirmed to send. Oddly, the with-photo path was already using the documented call while plain text replies -- by far the most common thing anyone does -- used the unproven one. Both now use the same proven path, and when eBay refuses a message it shows eBay own error text instead of a bare status code. The inbox now has folders: All, Buyers, and eBay Notifications, and it opens on Buyers by default so real customers are not buried under eBay automated notices (like the ones it fires every time WIM connects). Each folder shows its own unread count, so you can see that three real buyers are waiting while forty notices sit in their own folder. Each conversation now has a claim checkbox in the corner: click it to mark that you are handling that customer, and everyone else sees your name on it, so two people do not answer the same person. Click again to release it. Honest limitation: like everything else in WIM right now, claims live on ONE machine -- until cloud sync is wired up, a claim made at the packing station will not show at the front desk. It is written to start working across stations the moment sync lands."],
   ["3.3.49","Two serious bug fixes found while auditing the workflow. FIRST: a simulated test item could be published as a REAL, purchasable listing on the live eBay account. Listing had no simulation check at all -- Mark Shipped had one, listing did not -- which meant the exact Simulation Mode test path (make a test item, send it for review, hit List) would have created a genuine eBay listing. The guard now lives inside the publish function itself rather than in each button that calls it, so no future screen can forget it. Simulated items get a fake SIM- listing id and walk the whole workflow normally without ever touching eBay. The same guard was added to delisting and to the photo upload. SECOND: Delist in Supervisor Review never actually ended the eBay listing -- it only flipped WIM own flags. The item would show up in the warehouse Delisted list while the listing stayed LIVE on eBay, so a buyer could still buy an item WIM believed had been pulled. Delist now really withdraws the offer from eBay first, and only marks the item delisted if eBay confirms; if the withdraw fails it tells you plainly and changes nothing, so WIM never claims something is off eBay when it is not."],
@@ -11298,36 +11299,128 @@ function parseEbaySellerHubResearch(raw){
   }
   return out;
 }
-async function pullNewListings(after,silent){
+// Pull active eBay listings that aren't in WIM yet.
+//
+// Rewritten because the old version couldn't cope with a real seller's account. It read the
+// Inventory API with limit=100&offset=0 — so it only ever saw the FIRST 100 listings no matter how
+// many there were — and then made a separate API call for EVERY one of them to fetch its price.
+// On an account with 1,200 listings that's over a thousand sequential calls: minutes of waiting,
+// a good chance of tripping eBay's rate limits, and an incomplete result anyway.
+//
+// This version uses GetMyeBaySelling (Trading API), which returns listings NEWEST FIRST with their
+// start times and real pagination. It walks pages, skips anything already filed in WIM, and STOPS
+// as soon as it has enough unfiled ones. So once the back-catalogue is in, a pull that finds 10 new
+// listings does 10 items' worth of work and stops — it never touches the other 1,190.
+//
+// Dedup is on the eBay SKU / listing ID ONLY. The old code also treated WIM's own warehouse SKUs
+// and item numbers as "already known" eBay ids — different namespaces entirely, so a collision
+// would silently skip a real listing forever. And keying on the eBay listing id is exactly what
+// makes the same book listed three times at 10am, 2pm and 4pm come through as three separate
+// items with three separate landing pages, which is the correct behaviour.
+const PNL_PAGE_SIZE=20;
+async function pullNewListings(after,silent,opts){
+  opts=opts||{};
+  const want = opts.count || PNL_PAGE_SIZE;   // how many NEW ones we're after
+  const append = !!opts.append;               // "load older" rather than a fresh pull
   if(!EBAY.ready()){ if(!silent) uiAlert("Not connected to eBay yet — click Connect next to the mode badge (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
+  if(!WIM_IS_DESKTOP){ if(!silent) uiAlert("Pulling listings runs in the desktop app."); return; }
   if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
-  const prog=silent?null:uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;min-width:280px;">Contacting eBay<span id="pnl-dots"></span></div>`,[]);
-  // Animated dots so a long pull never looks frozen.
-  let dotN=0, dotTimer=null, lastLabel="Contacting eBay";
+
+  const prog=silent?null:uiModal("Pulling from eBay",`<div id="pnl-prog" style="font-size:13px;min-width:320px;">Contacting eBay<span id="pnl-dots"></span></div>`,[]);
+  let dotN=0, dotTimer=null;
   if(!silent){ dotTimer=setInterval(()=>{ dotN=(dotN%3)+1; const d=document.getElementById("pnl-dots"); if(d) d.textContent=" "+".".repeat(dotN); },400); }
-  const set=t=>{ if(silent) return; lastLabel=t; const e=document.getElementById("pnl-prog"); if(e) e.innerHTML=esc(t)+`<span id="pnl-dots"></span>`; };
+  const set=t=>{ if(silent) return; const e=document.getElementById("pnl-prog"); if(e) e.innerHTML=esc(t)+`<span id="pnl-dots"></span>`; };
   const stopDots=()=>{ if(dotTimer){ clearInterval(dotTimer); dotTimer=null; } };
+
+  // Everything WIM already knows about, by eBay identifier only.
+  const known=new Set();
+  DB.items.forEach(x=>{ const L=x.listing||{};
+    if(L.ebaySku) known.add(String(L.ebaySku));
+    if(L.ebayListingId) known.add(String(L.ebayListingId));
+  });
+  (DB.ebay.filedSkus||[]).forEach(sku=>known.add(String(sku)));
+  // Cards already sitting on the screen shouldn't be pulled a second time.
+  (DB.pulledListings||[]).forEach(p=>{ if(p.ebaySku) known.add(String(p.ebaySku)); if(p.ebayListingId) known.add(String(p.ebayListingId)); });
+
+  const found=[];
+  let page = append ? ((DB.ebay.pnlNextPage||1)) : 1;
+  let totalPages = 1, scanned = 0, skipped = 0;
+
   try{
-    const inv=await EBAY.user("/sell/inventory/v1/inventory_item?limit=100&offset=0", EBAY_SCOPE_INV);
-    if(!inv.ok){ stopDots(); if(!silent){ closeAllModals(); uiAlert("eBay inventory read failed (HTTP "+inv.status+"): "+(inv.body||"").slice(0,300)); } return; }
-    const items=(JSON.parse(inv.body).inventoryItems)||[];
-    const known=new Set(); DB.items.forEach(x=>{ if(x.listing&&x.listing.ebaySku) known.add(x.listing.ebaySku); if(x.sku) known.add(x.sku); if(x.upc) known.add(x.upc); });
-    (DB.ebay.filedSkus||[]).forEach(s=>known.add(s));
-    const candidates=[];
-    for(let n=0;n<items.length;n++){ const ei=items[n]; const sku=ei.sku; if(known.has(sku)) continue;
-      set("Reading listing "+(n+1)+" of "+items.length+" · "+candidates.length+" new so far");
-      let price="", qty="1", offerId=null, categoryId="";
-      try{ const off=await EBAY.user("/sell/inventory/v1/offer?sku="+encodeURIComponent(sku), EBAY_SCOPE_INV);
-        if(off.ok){ const o=((JSON.parse(off.body).offers)||[])[0]; if(o){ offerId=o.offerId; price=(o.pricingSummary&&o.pricingSummary.price&&o.pricingSummary.price.value)||""; qty=(o.availableQuantity!=null?String(o.availableQuantity):"1"); categoryId=o.categoryId||""; } } }catch(e){}
-      const p=ei.product||{};
-      const pw=ei.packageWeightAndSize||{};
-      candidates.push({ ebaySku:sku, offerId, title:p.title||sku, condEnum:ei.condition||"", condLabel:ebayCondLabel(ei.condition), price, qty, categoryId, images:(p.imageUrls||[]).slice(), thumb:(p.imageUrls||[])[0]||"",
-        shipWeight:(pw.weight&&pw.weight.value)?String(pw.weight.value):"", shipLength:(pw.dimensions&&pw.dimensions.length)?String(pw.dimensions.length):"", shipWidth:(pw.dimensions&&pw.dimensions.width)?String(pw.dimensions.width):"", shipHeight:(pw.dimensions&&pw.dimensions.height)?String(pw.dimensions.height):"" });
+    // Walk pages until we have `want` new ones, or run out of listings.
+    while(found.length < want && page <= totalPages + 0){
+      set("Reading page "+page+" of your eBay listings — "+found.length+" new so far");
+      const xml=`<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">`+
+        `<ActiveList><Sort>TimeLeft</Sort><Pagination><EntriesPerPage>50</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>`+
+        `<DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
+      const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xml });
+      if(!r.ok){ stopDots(); if(!silent){ closeAllModals(); uiAlert("eBay listing read failed (HTTP "+r.status+"): "+(r.body||"").slice(0,300)); } return; }
+
+      const doc=new DOMParser().parseFromString(r.body,"text/xml");
+      const pagesEl=doc.getElementsByTagName("TotalNumberOfPages")[0];
+      totalPages = pagesEl ? (parseInt(pagesEl.textContent,10)||1) : 1;
+      const nodes=doc.getElementsByTagName("Item");
+      if(!nodes.length) break;
+
+      // Newest first, by listing start time.
+      const rows=[];
+      for(let n=0;n<nodes.length;n++){
+        const el=nodes[n];
+        const txt=(tag)=>{ const e=el.getElementsByTagName(tag)[0]; return e?e.textContent:""; };
+        const listingId=txt("ItemID");
+        const sku=txt("SKU")||listingId;
+        const start=txt("StartTime");
+        rows.push({ el, listingId, sku, start, startMs: Date.parse(start)||0 });
+      }
+      rows.sort((a,b)=>b.startMs-a.startMs); // newest listings first
+
+      for(const row of rows){
+        if(found.length>=want) break;
+        scanned++;
+        // Already in WIM? Then everything older is too — this is the "if there are only 10 new,
+        // it should know the 11th is already filed" behaviour.
+        if(known.has(String(row.sku)) || known.has(String(row.listingId))){ skipped++; continue; }
+        const el=row.el;
+        const txt=(tag)=>{ const e=el.getElementsByTagName(tag)[0]; return e?e.textContent:""; };
+        const price=txt("CurrentPrice")||txt("StartPrice")||"";
+        const qty=txt("Quantity")||"1";
+        const title=txt("Title")||row.sku;
+        const galleryUrl=txt("GalleryURL")||"";
+        const catId=txt("PrimaryCategoryID")||"";
+        // Pictures: PictureDetails/PictureURL can repeat.
+        const pics=[]; const pd=el.getElementsByTagName("PictureURL");
+        for(let k=0;k<pd.length;k++) pics.push(pd[k].textContent);
+        if(!pics.length && galleryUrl) pics.push(galleryUrl);
+        found.push({
+          ebaySku: row.sku, ebayListingId: row.listingId, offerId:null,
+          title, condEnum:"", condLabel: txt("ConditionDisplayName")||"",
+          price, qty, categoryId: catId,
+          images: pics.slice(), thumb: pics[0]||galleryUrl||"",
+          listedAt: row.start,
+          shipWeight:"", shipLength:"", shipWidth:"", shipHeight:""
+        });
+      }
+      if(page>=totalPages) break;
+      page++;
     }
     stopDots();
-    DB.pulledListings=candidates.concat((DB.pulledListings||[]).filter(p=>p.simulated)); DB.ebay.lastPullAt=new Date().toISOString(); save();
-    if(!silent) closeAllModals();
-    if(after) after(candidates);
+    DB.ebay.pnlNextPage = page;                       // where "load older" should resume
+    DB.ebay.pnlTotalPages = totalPages;
+    DB.ebay.lastPullAt = new Date().toISOString();
+    const sims=(DB.pulledListings||[]).filter(p=>p.simulated);
+    DB.pulledListings = append
+      ? (DB.pulledListings||[]).concat(found)
+      : found.concat(sims);
+    save();
+    if(!silent){
+      closeAllModals();
+      if(!found.length){
+        uiAlert(skipped
+          ? ("Nothing new — all "+skipped+" listing(s) checked are already filed in WIM.")
+          : "No active listings came back from eBay.");
+      }
+    }
+    if(after) after(found, { scanned, skipped, totalPages, morePages: page < totalPages });
   }catch(e){ stopDots(); if(!silent){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); } }
 }
 /* ============================================================ FIND BY PHOTO (eBay image search → price range) ============================================================ */
@@ -11473,8 +11566,14 @@ function createItemFromListing(c, section, subCategory, manualSlotValue){
     DB.items.push(ni); created.push(ni);
   });
   created[0].listing={ status:"listed", title:c.title, price:c.price||"", qty:String(qty), descriptionId:null,
-    ebayOfferId:c.offerId, ebaySku:c.ebaySku, ebayImageUrls:c.images.slice(), listedAt:now, delistedAt:null };
-  if(c.ebaySku){ if(!DB.ebay) DB.ebay={}; if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[]; if(!DB.ebay.filedSkus.includes(c.ebaySku)) DB.ebay.filedSkus.push(c.ebaySku); }
+    ebayOfferId:c.offerId, ebaySku:c.ebaySku, ebayListingId:c.ebayListingId||null,
+    ebayImageUrls:c.images.slice(), listedAt:(c.listedAt||now), delistedAt:null };
+  // Record BOTH eBay identifiers as filed, so a later pull can never offer this listing again.
+  // (The listing id matters as much as the SKU: a seller who lists without setting a SKU only has
+  // the listing id, and that's also what keeps three separate listings of the same book separate.)
+  if(!DB.ebay) DB.ebay={};
+  if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[];
+  [c.ebaySku, c.ebayListingId].forEach(k=>{ if(k && !DB.ebay.filedSkus.includes(String(k))) DB.ebay.filedSkus.push(String(k)); });
   addHistory(created[0],"Filed from eBay listing via bulk import"+(c.ebaySku?(" (eBay SKU "+c.ebaySku+")"):""));
   recordAdds(created, SESSION.user.id, qty>1?"Bulk Add":"Add");
   return { ok:true, created };
@@ -11484,6 +11583,7 @@ function openListedNoSku(){
   const {body}=buildWindow({id,title:"Listed, no SKU",width:1060,height:640,popoutKey:"listednosku",
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">eBay listings you've created that aren't filed in WIM yet</span>`});
   let picked=new Set(); let rowChoices={}; // id -> { section, subCategory, manualSlot, manualSlotValue }
+  let lastPullInfo=null; // { scanned, skipped, morePages } from the last pull
   function render(){
     const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId));
     list.forEach(c=>{ if(!rowChoices[c.ebaySku]){
@@ -11499,9 +11599,28 @@ function openListedNoSku(){
         <span style="flex:1;"></span><span class="smallhint">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span></div>
       <div id="pnl-msg" class="smallhint" style="padding:0 14px 6px;"></div>
       <div id="pnl-cards" style="padding:0 14px 14px;overflow:auto;"></div>`;
-    body.querySelector("#pnl-pull").onclick=()=>pullNewListings(()=>{ rowChoices={}; render(); });
+    body.querySelector("#pnl-pull").onclick=()=>pullNewListings((found,info)=>{
+      rowChoices={}; lastPullInfo=info||null; render();
+    }, false, { count:PNL_PAGE_SIZE, append:false });
     const tb=body.querySelector("#pnl-cards");
     if(!list.length){ tb.innerHTML=`<div style="color:#888;padding:20px 4px;">Nothing waiting. Click <b>Pull New Listings</b> to fetch active eBay listings that haven't been filed in WIM yet.</div>`; return; }
+    // "Load 20 older" — only needed while the back-catalogue is still being brought in. Once
+    // everything historical is filed, a normal pull finds only what's genuinely new and this
+    // button stops mattering.
+    const addOlderFooter=()=>{
+      const foot=document.createElement("div");
+      foot.style.cssText="padding:14px 4px 4px;text-align:center;border-top:1px solid #eef0f4;margin-top:8px;";
+      const info=lastPullInfo||{};
+      foot.innerHTML=`<div class="smallhint" style="margin-bottom:6px;">Showing the ${list.length} most recent unfiled listing(s)${info.skipped?" — skipped "+info.skipped+" already in WIM":""}.</div>`;
+      const b=document.createElement("button"); b.className="btn sm"; b.textContent="Load 20 older listings";
+      b.onclick=()=>{ b.disabled=true; b.textContent="Loading…";
+        pullNewListings((found,inf)=>{ lastPullInfo=inf||null;
+          if(!found || !found.length) uiAlert("No older unfiled listings found — everything further back is already in WIM.");
+          render();
+        }, false, { count:PNL_PAGE_SIZE, append:true }); };
+      foot.appendChild(b);
+      tb.appendChild(foot);
+    };
     body.querySelector("#pnl-selall").onclick=()=>{ if(picked.size===list.length){ picked.clear(); } else { list.forEach(c=>picked.add(c.ebaySku)); } render(); };
     const importBtn=body.querySelector("#pnl-import");
     if(importBtn && !importBtn.disabled) importBtn.onclick=()=>{
@@ -11548,6 +11667,7 @@ function openListedNoSku(){
       manualChk.onclick=()=>{ ch.manualSlot=!ch.manualSlot; slotInput.style.display=ch.manualSlot?"inline-block":"none"; render(); };
       slotInput.oninput=()=>{ ch.manualSlotValue=slotInput.value; };
       tb.appendChild(card); });
+    addOlderFooter();
   }
   function fileListing(c,done){
     const dupe=findDupeCandidate(null, c.title, c.condLabel);
