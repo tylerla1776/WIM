@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.58", BUILD_DATE="2026-11-20", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.60", BUILD_DATE="2026-11-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.60","Import Scans now recognises items you already have. Two bright blue indicators appear at the top of a scan card: ALREADY LISTED (a matching item is live on eBay right now) and SOLD BEFORE (you have sold this before, with how long it took). Click either one and that item opens in its own window so you can check it is really the same thing -- a match is a suggestion, not a fact. Opening a sold item now leads with a big banner: what it sold for, how long it sat (23d 7h), and whether you had to discount it or take an offer to move it. COMBINING COPIES: if a scan matches something already listed, you can tick Add this copy to the existing listing. It is locked unless the CONDITION matches, and it tells you which condition is required -- that rule is what makes the two copies genuinely interchangeable, so it does not matter which one gets pulled for a buyer. Saving tells you exactly what will change before it does anything: the warehouse count, and whether the LIVE eBay quantity goes up. If the existing listing has Reserve on, the eBay quantity stays at 1 and the extra copy waits its turn. If your Reserve setting disagrees with the listing you are joining, WIM says so and follows the existing listing. FOUND A REAL GAP: the barcode/ISBN that InventoryIQ scans was being thrown away on import -- WIM kept only the description. So it could never match a book to another copy by ISBN. It is now stored, and matching uses ISBN first and description second, which is what makes this reliable for books (comics have no barcode, so those still match on description). Import Scans also gets an Import Listing Fields button right next to the listing fields, so you can pull the eBay category and required fields without leaving the card."],
+  ["3.3.59","PRICE COMPARE WAS BROKEN EVERYWHERE -- both buttons did nothing. Cause: when the panel was pulled out into a shared component, six pieces of it were left pointing at the old screen it used to live inside. Update Listings and Pull Sold Listings both died silently on this. Same class of mistake as the crash fixed in v3.3.51 -- I found the one that threw an error and missed the five that failed quietly. All six fixed and tested in every place the panel appears. THE SOLD TAB NOW SHOWS WHAT YOU HAVE SOLD. Pull Sold Listings now searches your own catalog first with fuzzy matching, and shows every similar item YOU sold -- item number, what it actually sold for, how long it took (20d 3h), and whether you had to discount it or take an offer. Those rows are tinted GREEN and marked OURS, so your real sales are never confused with market data pasted in from eBay research. This is free and instant -- it does not need eBay approval, which is why the old button appeared to do nothing (it was calling an eBay API most accounts are not approved for). CATEGORY ON THE LANDING PAGE really works now. It was unlocked in v3.3.51, but saving then failed: changing the category auto-ticks Manually Slot, and the save then demanded you type in a slot -- for an item that was already sitting in one. It now keeps the slot the item is already in, and shows it. Manually Slot and Reserve are back on the Supervisor Review and Import Scans cards; they were dropped when the cards were unified, which was a regression, not a decision. Import Scans cards also get a subtle Delete Scan button for scans that came in wrong."],
   ["3.3.58","SERIOUS BUG: a simulated sale did not show up in Shipping at all. The item sold and then vanished. Cause: that button marked the item sold using an old leftover flag instead of the real status field, so the item still reported itself as Listed, and Shipping only shows items whose status is Sold. Every other sale path in WIM (including all real eBay sales) already did this correctly -- this one button did not. Fixed, and WIM now also repairs any item already stuck in that state when it starts up, so anything that already went missing reappears. SHIPPING CHANGES: Mark Shipped is now just SHIP, and it no longer stops to ask you for a carrier and tracking number. That was backwards -- eBay sells the label, so eBay already HAS the tracking number, and hand-typing it was asking a person to do the computer job. Ship now means one thing: it left the building. One click. The Shipped tab is renamed SHIPPING, and has three real columns: Item Status (what eBay says -- Shipped or Waiting), Tracking Number (click it to look it up in your browser -- free, no setup), and Delivery. Two buttons now: Check eBay Status is FREE and tells you whether eBay considers each order shipped plus pulls in the tracking number; Check Delivery is optional (about 3 cents a parcel) and is the only way to know a parcel actually ARRIVED -- eBay genuinely cannot tell you that, only the carrier can. Anything delivered moves to Completed by itself. And if you never press the paid button at all, items now auto-complete after 14 days as a safety net, so nothing is stranded. All three tabs still show 20 per page."],
   ["3.3.57","REAL DELIVERY TRACKING. WIM already pulls the tracking number off eBay for items you shipped through them -- it now uses that number to ask the CARRIER where the parcel actually is. The Shipped tab gets a Track Shipments button and a real Delivery Status column: In transit, Out for delivery, Delivered, plus the last known city and an estimated arrival date. Anything the carrier confirms as DELIVERED moves itself into Completed automatically. This also fixes a bug I introduced last version: eBay fulfillment status only has three values and NONE of them mean delivered -- FULFILLED just means it shipped. I had treated that as delivered, which would have bounced every item straight from Shipped to Completed the moment you shipped it. eBay simply cannot tell you a parcel arrived; only the carrier can. Tracking uses EasyPost (same key as the shipping comparison) and costs about 3 cents per parcel, billed once per parcel -- re-checking is free, and delivered items are never re-checked. It is a button, never automatic, so you control the spend. LOCAL PICKUPS are detected automatically from eBay and shown in green on the shipping screen, so nobody sits waiting for tracking that will never arrive; there is a Move to Completed button to finish those by hand (also useful for anything a carrier never reports on). COMMUNICATION FIXES: Compose used to blank the screen -- it switched to a folder that no longer existed after the inbox was reorganised, so the buyer thread was there but invisible. And when a message cannot be replied to, WIM now says WHY and offers to open it on eBay.com, instead of the reply box silently vanishing."],
   ["3.3.56","Shipping consolidation. The Recently Sold screen is gone -- it was a middle step that existed only to be clicked through, and everything it did (Mark Picked, Move to Shipping) was already in Shipping anyway. Sold items now land STRAIGHT in Shipping under Ready to Ship. Anything currently sitting in Recently Sold is moved there automatically when you first open this version, so nothing is lost. Pull Sold Orders now lives on the Ready to Ship tab -- that was the only thing Recently Sold could do that Shipping could not. The Status column is now sortable, so you can click it to group everything that still needs picking off the shelf. Mark Shipped moves the selected items over to the Shipped tab. Check for eBay.com Shipments has moved to the SHIPPED tab where it belongs: it now asks eBay for the delivery status of everything on that tab, fills in any tracking eBay knows about that WIM does not, and anything eBay reports as DELIVERED moves itself into Completed automatically. Completed is no longer something anyone has to remember to do by hand. All three tabs now show 20 items per page with page controls at the bottom. The full flow is now: item sells and appears in Ready to Ship, warehouse worker pulls it off the shelf and clicks Mark Picked (which frees the slot), the shipper takes it and clicks Mark Shipped, then Check for eBay.com Shipments on the Shipped tab moves it to Completed once it arrives."],
@@ -5493,7 +5495,7 @@ function mountPriceCompare(opts){
     if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to the mode badge (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
     const sc=subcatObj(it.section,it.subCategory); const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
     if(!q){ uiAlert("Add a description or run Find on eBay first, so there's something to compare."); return; }
-    const st=body.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Pulling listings from eBay…"; }
+    const st=tabbody.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Pulling listings from eBay…"; }
     const base="/buy/browse/v1/item_summary/search?limit=15&q="+encodeURIComponent(q);
     try{ let r=await EBAY.app(base+((sc&&sc.ebayId)?("&category_ids="+encodeURIComponent(sc.ebayId)):""));
       if(!r.ok){ if(st){ st.style.color="#c0392b"; st.textContent="eBay search failed (HTTP "+r.status+"): "+(r.body||"").slice(0,160); } return; }
@@ -5511,11 +5513,59 @@ function mountPriceCompare(opts){
   }
   function cmpFldS(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
   function cmpPriceVal(s){ const p=cmpFldS(s,["lastSoldPrice","soldPrice","price"],null); if(p==null) return ""; return (typeof p==="object")?(p.value||""):p; }
+  // OUR OWN SALES. Before asking eBay anything, look at what WE have actually sold — that's the
+  // most relevant comp there is, and it costs nothing. Fuzzy-matches the description against every
+  // sold item in the catalog and reports what it sold for, how long it took, and whether the price
+  // had to be cut or an offer accepted to get it moving.
+  function ourSoldMatches(){
+    const q=(qText()||it.desc||"").toLowerCase().trim();
+    if(!q) return [];
+    // Fuzzy match: score by how many meaningful words overlap, so "Harry Potter Sorcerer's Stone"
+    // still finds "Harry Potter and the Sorcerer's Stone - 1st ed".
+    const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
+    const words=q.split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
+    if(!words.length) return [];
+    const out=[];
+    (DB.items||[]).forEach(x=>{
+      if(x.id===it.id) return;
+      const st=itemStatus(x);
+      if(st!=="sold" && st!=="inactive") return;
+      const f=x.fulfillment; if(!f || !f.soldAt) return;
+      const hay=((x.desc||"")+" "+((x.listing&&x.listing.title)||"")).toLowerCase();
+      let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
+      const score=hits/words.length;
+      if(score < 0.5) return;                     // needs at least half the words to be a real match
+      const listedAt = x.listing && x.listing.listedAt ? new Date(x.listing.listedAt) : null;
+      const soldAt = new Date(f.soldAt);
+      let took=null;
+      if(listedAt && !isNaN(listedAt) && !isNaN(soldAt) && soldAt>listedAt){
+        const ms=soldAt-listedAt;
+        const d=Math.floor(ms/86400000), h=Math.floor((ms%86400000)/3600000);
+        took=d+"d "+h+"h";
+      }
+      // Did we have to discount it? Compare what it listed at against what it actually sold for.
+      const askedRaw=parseFloat((x.listing&&x.listing.price)||x.retail||"");
+      const gotRaw=parseFloat(f.soldPrice||"");
+      let discount=null;
+      if(!isNaN(askedRaw) && !isNaN(gotRaw) && askedRaw>0 && gotRaw < askedRaw - 0.01){
+        discount={ asked:askedRaw, got:gotRaw, pct:Math.round((1-(gotRaw/askedRaw))*100) };
+      }
+      out.push({
+        ours:true, score,
+        itemId:x.upc||"", desc:x.desc||"", price:(isNaN(gotRaw)?"":gotRaw.toFixed(2)),
+        soldAt:f.soldAt, took, discount, itemRef:x.id
+      });
+    });
+    return out.sort((a,b)=> (b.score-a.score) || (new Date(b.soldAt)-new Date(a.soldAt)) ).slice(0,25);
+  }
   async function pullSoldCompare(){
-    if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to the mode badge."); return; }
+    // Always refresh our own sales first — free, instant, and the most relevant data we have.
+    it.compareOurs={ pulledAt:new Date().toISOString(), items: ourSoldMatches() };
+    save(); compareTab();
+    if(!EBAY.ready()){ uiAlert("Showing what YOU have sold. To also pull eBay's market-wide sold data, connect to eBay first."); return; }
     const sc=subcatObj(it.section,it.subCategory); const q=it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
     if(!q){ uiAlert("Add a description or run Find on eBay first, so there's something to compare."); return; }
-    const st=body.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Checking eBay's sold-listings data…"; }
+    const st=tabbody.querySelector("#cmp-status"); if(st){ st.style.color="#555"; st.textContent="Checking eBay's sold-listings data…"; }
     const base="/buy/marketplace_insights/v1_beta/item_sales/search?limit=15&q="+encodeURIComponent(q);
     try{
       let r=await EBAY.app(base+((sc&&sc.ebayId)?("&category_ids="+encodeURIComponent(sc.ebayId)):""), "https://api.ebay.com/oauth/api_scope/buy.marketplace.insights");
@@ -5612,8 +5662,8 @@ function mountPriceCompare(opts){
         const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
         cb.onclick=()=>{ const changes=[];
           if(row.title && row.title!==(it.listing&&it.listing.title)){ if(!it.listing) it.listing={status:"none"}; changes.push("Title → "+row.title); it.listing.title=row.title; }
-          if(row.condition && row.condition!==it.condition){ changes.push("Condition → "+row.condition); it.condition=row.condition; const ci=body.querySelector("#d-condition"); if(ci) ci.value=row.condition; }
-          if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=body.querySelector("#d-price"); if(pi) pi.value=row.price; const lp=body.querySelector("#l-price"); if(lp) lp.value=row.price; }
+          if(row.condition && row.condition!==it.condition){ changes.push("Condition → "+row.condition); it.condition=row.condition; const ci=document.getElementById("d-condition"); if(ci) ci.value=row.condition; }
+          if(row.price && String(row.price)!==String(it.listing&&it.listing.price)){ if(!it.listing) it.listing={status:"none"}; changes.push("Price → $"+row.price); it.listing.price=String(row.price); const pi=document.getElementById("d-price"); if(pi) pi.value=row.price; const lp=document.getElementById("l-price"); if(lp) lp.value=row.price; }
           if(!changes.length){ uiAlert("This listing already matches the item — nothing to change."); return; }
           changes.forEach(c=>addHistory(it,"Price Compare applied: "+c)); markDirty&&markDirty(); save();
           uiAlert("Updated from comparison:\n• "+changes.join("\n• ")); };
@@ -5645,7 +5695,7 @@ function mountPriceCompare(opts){
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:100px;">Condition</th><th style="width:80px;">Price</th><th style="width:100px;">Date Listed</th><th style="width:100px;">Date Sold</th><th>Category</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:92px;">Item #</th><th style="width:76px;">Price</th><th style="width:82px;">Sold in</th><th style="width:110px;">Discounted?</th><th style="width:92px;">Date Sold</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
     tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
     const cf=tabbody.querySelector("#cmps-condfilter"); if(cf) cf.onchange=()=>{ soldCondFilter=cf.value; compareTab(); };
     const qText=()=> it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
@@ -5673,17 +5723,39 @@ function mountPriceCompare(opts){
     };
     if(!cmp && !it._compareSoldAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareSoldAutoTried=true; pullSoldCompare(); return; }
     const tb=tabbody.querySelector("#cmps-tb");
-    if(cmp&&cmp.error){ tb.innerHTML=`<tr><td colspan="8" style="color:#c0392b;">Sold listings aren't available on this connection (HTTP ${cmp.error.status}).<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.<br><br><button class="btn sm" id="cmps-gomanual" style="margin-top:6px;">Research &amp; paste sold listings manually instead</button></td></tr>`;
+    if(cmp&&cmp.error && !((it.compareOurs&&it.compareOurs.items)||[]).length){ tb.innerHTML=`<tr><td colspan="8" style="color:#c0392b;">eBay's market-wide sold data isn't available on this connection (HTTP ${cmp.error.status}), and you haven't sold anything similar yet.<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.<br><br><button class="btn sm" id="cmps-gomanual" style="margin-top:6px;">Research &amp; paste sold listings manually instead</button></td></tr>`;
       const gm=tb.querySelector("#cmps-gomanual"); if(gm) gm.onclick=()=>{ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); };
       return; }
-    if(!allRows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings yet. Click <b>Pull Sold Listings</b> or <b>Open Product Research</b> to fetch sold comps.</td></tr>`; return; }
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings match condition “${esc(soldCondFilter)}”.</td></tr>`; return; }
+    const oursCount=((it.compareOurs&&it.compareOurs.items)||[]).length;
+    if(!allRows.length && !oursCount){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold data yet. Click <b>Pull Sold Listings</b> — it searches what <b>you</b> have already sold (shown in green), and pulls eBay's market data if your account has access to it.</td></tr>`; return; }
+    if(!rows.length && !oursCount){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings match condition “${esc(soldCondFilter)}”.</td></tr>`; return; }
     tb.innerHTML="";
+    // OUR OWN SALES FIRST, tinted green. These are the strongest comps you have — you actually sold
+    // this, at this price, in this many days. Everything below is somebody else's data.
+    const ours=(it.compareOurs && it.compareOurs.items) || [];
+    ours.forEach(o=>{
+      const tr=document.createElement("tr");
+      tr.style.background="#EFF7F1"; // light green = we sold this one
+      const d=o.soldAt?new Date(o.soldAt):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
+      const disc = o.discount
+        ? `<span style="color:#B03A2E;font-weight:600;">−${o.discount.pct}%</span><div class="smallhint">asked $${o.discount.asked.toFixed(2)}</div>`
+        : `<span style="color:#1F7244;">full price</span>`;
+      tr.innerHTML=`<td><span title="You sold this" style="display:inline-block;width:38px;height:38px;line-height:38px;text-align:center;background:#1F9D55;color:#fff;font-size:10px;font-weight:700;border-radius:4px;">OURS</span></td>
+        <td style="font-size:12px;"><a href="#" class="cmps-ourlink" data-id="${esc(o.itemRef)}" style="color:#1F7244;font-weight:600;text-decoration:none;border-bottom:1px dotted #9AD3AE;">${esc(o.desc)}</a></td>
+        <td style="font-size:11.5px;font-family:Consolas,monospace;">${esc(o.itemId||"—")}</td>
+        <td style="font-weight:700;">${fmtP(o.price)}</td>
+        <td style="font-size:12px;">${o.took?esc(o.took):'<span class="smallhint">—</span>'}</td>
+        <td style="font-size:11.5px;">${disc}</td>
+        <td style="font-size:11.5px;">${dStr}</td><td></td>`;
+      const ol=tr.querySelector(".cmps-ourlink");
+      if(ol) ol.onclick=(e)=>{ e.preventDefault(); const t=(DB.items||[]).find(x=>x.id===ol.dataset.id); if(t) openItemDetail(t,"edit"); };
+      tb.appendChild(tr);
+    });
     rows.forEach((row)=>{ const tr=document.createElement("tr");
       const d=row.soldDate?new Date(row.soldDate):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
       const titleCell = row.webUrl ? `<a href="#" class="cmps-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
       tr.innerHTML=`<td>${row.thumb?`<img src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
-        <td style="font-size:12px;">${titleCell}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>—</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
+        <td style="font-size:12px;">${titleCell}</td><td style="font-size:11.5px;color:#8a95a3;">market</td><td>${fmtP(row.price)}</td><td><span class="smallhint">—</span></td><td><span class="smallhint">—</span></td><td style="font-size:11.5px;">${dStr}</td>`;
       const lk=tr.querySelector(".cmps-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
       const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
       x.onclick=()=>{ const i=it.compareSold.items.indexOf(row); if(i>=0) it.compareSold.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
@@ -5931,8 +6003,32 @@ function openItemDetail(item,mode,nav,defaultTab){
   const dl=`<datalist id="sl-${it.id}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}">`).join("")+`</datalist>`
     +`<datalist id="con-${it.id}">`+condsFor(it.section).map(c=>`<option value="${esc(c)}">`).join("")+`</datalist>`;
   const dis=ro?'disabled':'';
+  // How did this thing actually sell? If it's a sold record, that's the first thing anyone opening
+  // it wants to know — so it goes at the top, large, not buried in the history log.
+  const soldBanner=(()=>{
+    const f=it.fulfillment;
+    if(!f || !f.soldAt) return "";
+    const L=it.listing||{};
+    let took=null;
+    if(L.listedAt){
+      const a=new Date(L.listedAt), b=new Date(f.soldAt);
+      if(!isNaN(a)&&!isNaN(b)&&b>a){ const ms=b-a; took=Math.floor(ms/86400000)+"d "+Math.floor((ms%86400000)/3600000)+"h"; }
+    }
+    const asked=parseFloat(L.price||it.retail||""), got=parseFloat(f.soldPrice||"");
+    const cut=(!isNaN(asked)&&!isNaN(got)&&asked>0&&got<asked-0.01)
+      ? { pct:Math.round((1-(got/asked))*100), asked } : null;
+    return `<div style="background:#EAF3FD;border:1px solid #B8D6F5;border-left:6px solid #1477E6;border-radius:8px;padding:12px 16px;margin:10px 14px;display:flex;gap:28px;align-items:center;flex-wrap:wrap;">
+      <div><div style="font-size:10.5px;color:#5b6470;letter-spacing:.6px;">SOLD FOR</div>
+        <div style="font-size:22px;font-weight:800;color:#1F7244;">$${esc(got?got.toFixed(2):(f.soldPrice||"—"))}</div></div>
+      <div><div style="font-size:10.5px;color:#5b6470;letter-spacing:.6px;">TIME ON THE SHELF</div>
+        <div style="font-size:22px;font-weight:800;color:#1B2A41;">${took?esc(took):"—"}</div></div>
+      <div><div style="font-size:10.5px;color:#5b6470;letter-spacing:.6px;">PROMOTIONAL OFFER / DISCOUNT</div>
+        <div style="font-size:16px;font-weight:700;color:${cut?'#B03A2E':'#1F7244'};">${cut?("Yes — sold "+cut.pct+"% under the $"+cut.asked.toFixed(2)+" ask"):"No — sold at full price"}</div></div>
+    </div>`;
+  })();
   body.innerHTML=`
     <div class="d-scrollwrap">
+    ${soldBanner}
     <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':`<span style="color:${itemStatusColor(it)};font-weight:600;">${itemStatusLabel(it)}</span>`)}${(it.simulated||(it.fulfillment&&it.fulfillment.simulated))?' <span style="background:#fff7e0;color:#6b5400;border:1px solid #e6c200;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px;">SIMULATED</span>':''}</div></div>
     ${dl}
     <div class="imd-top">
@@ -6196,6 +6292,8 @@ function openItemDetail(item,mode,nav,defaultTab){
     if(!isNew && prevSection && prevSection!==it.section && it.sku && !it.manualSlot){
       it.manualSlot=true;
       const ms=body.querySelector("#d-manual"); if(ms) ms.classList.add("on"); // it's a .chk span toggle, not a real checkbox
+      // Show the slot it's keeping, so the auto-tick isn't a silent mystery.
+      const si=body.querySelector("#d-slot"); if(si && !si.value && it.slot) si.value=it.slot;
       addHistory(it,"Category changed from "+prevSection+" to "+it.section+" — item auto-flagged as manually slotted so it can stay in slot "+it.sku);
       wimToast("Category changed — item marked as manually slotted so it can stay in its current slot","success");
     }
@@ -6409,7 +6507,13 @@ function openItemDetail(item,mode,nav,defaultTab){
     const qty=isNew?Math.max(1,parseInt((body.querySelector("#d-qty")||{}).value,10)||1):1;
     let placements=[];
     if(manualOn){
-      const slotV=normSlot(slotI.value);
+      // If Manually slot is on but the slot box is empty, fall back to the slot the item is ALREADY
+      // in. This is what happens when a category change auto-flags the item as manually slotted
+      // (v3.3.51): it's sitting in a real slot, that slot is exactly where we want it to stay, and
+      // demanding the user retype it just blocked the save — which is why the category "wouldn't
+      // change". Only a genuinely new/unslotted item needs to be asked.
+      let slotV=normSlot(slotI.value);
+      if(!slotV && it.slot) slotV=normSlot(it.slot);
       if(!slotV){ status.textContent="Manual slot is on — enter a slot (e.g. A.6), or untick Manually slot to auto-assign."; return; }
       if(!slotById(slotV)){ status.textContent="Slot "+slotV+" does not exist. Create it in Warehouse Maintenance first."; return; }
       const slot=slotById(slotV);
@@ -6724,6 +6828,50 @@ async function openImportScans(){
   }
   // One card per scanned item — same shape as the Bulk Add / Supervisor Review cards, so the
   // whole app reads the same way. Editable fields save straight onto the underlying item.
+  // Find other copies of this same item already in WIM: one that's LISTED right now, and one we've
+  // SOLD before. ISBN/barcode is the reliable key and is tried first; description fuzzy-match is the
+  // fallback, because comics have no barcode and not every book scan yields one.
+  function findMatches(it){
+    const bc=(it.barcode||"").replace(/[^0-9X]/gi,"");
+    const norm=(x)=>((x&&x.desc)||"").toLowerCase();
+    const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
+    const words=norm(it).split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
+    const sameThing=(x)=>{
+      if(x.id===it.id) return false;
+      // ISBN / barcode — definitive when both have one.
+      const xbc=(x.barcode||"").replace(/[^0-9X]/gi,"");
+      if(bc && xbc) return bc===xbc;
+      // Otherwise fall back to description overlap.
+      if(!words.length) return false;
+      const hay=norm(x)+" "+(((x.listing&&x.listing.title)||"").toLowerCase());
+      let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
+      return (hits/words.length) >= 0.6;   // stricter than the price-compare matcher: this one ties records together
+    };
+    let listed=null, sold=null;
+    (DB.items||[]).forEach(x=>{
+      if(!sameThing(x)) return;
+      const st=itemStatus(x);
+      if(!listed && x.listing && x.listing.status==="listed" && st!=="sold" && st!=="inactive") listed=x;
+      if(!sold && (st==="sold"||st==="inactive") && x.fulfillment && x.fulfillment.soldAt) sold=x;
+    });
+    return { listed, sold };
+  }
+  // "23d 7h" — how long a listing took to sell.
+  function soldDuration(x){
+    const L=x.listing||{}, f=x.fulfillment||{};
+    if(!L.listedAt || !f.soldAt) return null;
+    const a=new Date(L.listedAt), b=new Date(f.soldAt);
+    if(isNaN(a)||isNaN(b)||b<=a) return null;
+    const ms=b-a;
+    return Math.floor(ms/86400000)+"d "+Math.floor((ms%86400000)/3600000)+"h";
+  }
+  // Was the sale closed with a discount or an accepted offer?
+  function soldDiscount(x){
+    const asked=parseFloat((x.listing&&x.listing.price)||x.retail||"");
+    const got=parseFloat((x.fulfillment&&x.fulfillment.soldPrice)||"");
+    if(isNaN(asked)||isNaN(got)||asked<=0||got>=asked-0.01) return null;
+    return { asked, got, pct:Math.round((1-(got/asked))*100) };
+  }
   function scanCard(r){
     const it=DB.items.find(x=>x.id===r.itemId);
     const card=document.createElement("div");
@@ -6735,12 +6883,21 @@ async function openImportScans(){
     const hasPhotos=(it.images||[]).length>0 || (r.photoCount||0)>0;
     const subs=subcatsOf(it.section||"");
     const dyn=aspectsFor(it)||[];
+    // Have we seen this thing before? (ISBN first, description second.)
+    const mt=findMatches(it);
+    const parent=mt.listed;                       // an active listing we could join
+    const condOK = parent ? ((it.condition||"").trim().toLowerCase() === (parent.condition||"").trim().toLowerCase()) : false;
+    const parentReserve = parent ? !!(parent.listing && parent.listing.reserveItem) : false;
     const L=it.listing||{};
     card.innerHTML=`
+      ${(mt.listed||mt.sold)?`<div style="display:flex;gap:8px;margin-bottom:11px;flex-wrap:wrap;">
+        ${mt.listed?`<button class="is-ind-listed" title="A matching item is listed on eBay right now — click to open it" style="cursor:pointer;background:#1477E6;border:none;color:#fff;font-size:11.5px;font-weight:700;padding:6px 12px;border-radius:6px;letter-spacing:.4px;">● ALREADY LISTED — view it</button>`:``}
+        ${mt.sold?`<button class="is-ind-sold" title="We have sold this before — click to see what it went for" style="cursor:pointer;background:#1477E6;border:none;color:#fff;font-size:11.5px;font-weight:700;padding:6px 12px;border-radius:6px;letter-spacing:.4px;">● SOLD BEFORE${soldDuration(mt.sold)?" — "+esc(soldDuration(mt.sold)):""}</button>`:``}
+      </div>`:``}
       <div style="display:flex;gap:16px;align-items:flex-start;">
         <div class="is-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
-          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · scanned ${r.importedAt?fmtDay(r.importedAt):"—"} · <b style="color:${hasPhotos?'#1f9d55':'#c0392b'};">${hasPhotos?((it.images||[]).length+" photo(s)"):"No photos yet"}</b></div>
+          <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · scanned ${r.importedAt?fmtDay(r.importedAt):"—"}${it.barcode?" · ISBN "+esc(it.barcode):""} · <b style="color:${hasPhotos?'#1f9d55':'#c0392b'};">${hasPhotos?((it.images||[]).length+" photo(s)"):"No photos yet"}</b></div>
           <div><label style="font-size:11px;color:#5b6470;">Item Description</label><input class="txt is-f" data-f="desc" value="${esc(it.desc||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt is-f" data-f="price" value="${esc(String(L.price||it.retail||""))}" inputmode="decimal" placeholder="0.00" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Cost</label><input class="txt is-f" data-f="unitCost" value="${esc(it.unitCost||"")}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
@@ -6749,16 +6906,41 @@ async function openImportScans(){
           <div><label style="font-size:11px;color:#5b6470;">Vendor</label><input class="txt is-f" data-f="vendor" value="${esc(it.vendor||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt is-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Warehouse SKU</label><input class="txt" value="${esc(it.sku||"")}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
-          <div></div>
+          <div><label style="font-size:11px;color:#5b6470;">&nbsp;</label>
+            <div style="display:flex;flex-direction:column;gap:4px;padding-top:4px;">
+              <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="is-manual" ${it.manualSlot?"checked":""}> Manually slot</label>
+              <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="is-reserve" ${it.reserve?"checked":""}> Reserve
+                ${parent&&r.joinParent&&parentReserve?`<span style="color:#8A5E10;font-size:11px;">— the listing you're joining has Reserve ON</span>`:``}
+                ${parent&&r.joinParent&&!parentReserve?`<span style="color:#8A5E10;font-size:11px;">— the listing you're joining has Reserve OFF</span>`:``}
+              </label>
+            </div></div>
+          ${parent?`<div style="grid-column:1 / -1;background:${condOK?'#EAF3FD':'#FBF4E4'};border:1px solid ${condOK?'#B8D6F5':'#E8D5A8'};border-radius:8px;padding:10px 12px;">
+            <label style="font-size:12.5px;display:flex;align-items:center;gap:8px;cursor:${condOK?'pointer':'not-allowed'};">
+              <input type="checkbox" class="is-join" ${r.joinParent?"checked":""} ${condOK?"":"disabled"}>
+              <b>Add this copy to the existing listing</b> instead of creating a new one
+              ${condOK
+                ? `<span style="color:#1F7244;font-size:11.5px;">— conditions match (${esc(parent.condition||"")})</span>`
+                : `<span style="color:#B03A2E;font-size:11.5px;">— condition must be <b>${esc(parent.condition||"—")}</b> to combine (this one is <b>${esc(it.condition||"—")}</b>)</span>`}
+            </label>
+            ${r.joinParent&&condOK?`<div style="margin-top:6px;font-size:11.5px;color:#3A4A63;">
+              On save this copy joins <b>${esc(parent.desc||"")}</b> (Item #${esc(parent.upc||"")}) and its eBay quantity goes up by 1.
+              ${(!!it.reserve)!==parentReserve?`<div style="margin-top:5px;color:#B03A2E;"><b>Reserve doesn't match.</b> The listing you're joining has Reserve <b>${parentReserve?"ON":"OFF"}</b>, but this card has it <b>${it.reserve?"ON":"OFF"}</b>. Either change it here, or <a href="#" class="is-openparent2" style="color:#2F6FB3;">open the existing listing</a> and change it there. Joining will follow whatever the existing listing says.</div>`:``}
+            </div>`:``}
+          </div>`:``}
           <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Description</label><textarea class="txt is-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
           <button class="btn sm is-open">View landing page</button>
           <button class="btn sm is-folder">📁 Photo folder</button>
+          <div style="flex:1;"></div>
+          <button class="btn sm is-delete" style="background:#FDF3F2;border-color:#EFC9C4;color:#B4574C;font-weight:500;">Delete Scan</button>
         </div>
       </div>
       ${dyn.length?`<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
-        <div class="is-lf-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isFieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Fields</b> <span style="color:#8a95a3;">(from eBay for ${esc(it.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
+          <div class="is-lf-hdr" style="font-size:11px;color:#5b6470;cursor:pointer;user-select:none;flex:1;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isFieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Fields</b> <span style="color:#8a95a3;">(from eBay for ${esc(it.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}</span></div>
+          <button class="btn sm is-findebay" title="Search eBay for this item to set its category and pull in the required listing fields" style="border-color:#378add;color:#0c447c;font-weight:600;">🔍 Import Listing Fields</button>
+        </div>
         <div class="is-lf-body" style="display:${it._isFieldsOpen?'grid':'none'};grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt is-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}
       <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
         <div class="is-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isCompareOpen?'90':'0'}deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— see what similar items are listed and sold for</span></div>
@@ -6782,6 +6964,59 @@ async function openImportScans(){
         card.querySelectorAll(".is-asp").forEach(a=>{ it.aspects[a.dataset.asp]=a.value; });
         r.desc=it.desc; r.category=it.section;
         addHistory(it,"Edited from Import Scans");
+
+        // JOINING AN EXISTING LISTING. This changes a listing a buyer may be looking at RIGHT NOW,
+        // so it never happens silently off a checkbox — the user is told exactly what will change
+        // on eBay and has to agree to it.
+        if(r.joinParent && parent){
+          const pCond=(parent.condition||"").trim().toLowerCase();
+          const iCond=(it.condition||"").trim().toLowerCase();
+          if(pCond!==iCond){
+            uiAlert("Conditions no longer match — this copy is \""+(it.condition||"—")+"\" and the existing listing is \""+(parent.condition||"—")+"\". Combining is only safe when the copies are interchangeable.");
+            save(); wimRefreshAll(); render(); return;
+          }
+          const pReserve = !!(parent.listing && parent.listing.reserveItem);
+          const curQty = groupQty(parent);
+          const newQty = curQty + 1;
+          const liveQty = pReserve ? 1 : newQty;
+          const isLive = parent.listing && parent.listing.status==="listed";
+          uiConfirm(
+            "Add this copy to the existing listing?\n\n"+
+            "\""+(parent.desc||"")+"\" (Item #"+(parent.upc||"")+")\n\n"+
+            "• This copy takes on that item's number, so the two are interchangeable.\n"+
+            "• Warehouse quantity goes from "+curQty+" to "+newQty+".\n"+
+            (isLive
+              ? (pReserve
+                  ? "• The existing listing has RESERVE ON, so its eBay quantity STAYS AT 1. The extra copy is held back and relists after the first one sells.\n"
+                  : "• THIS WILL UPDATE THE LIVE EBAY LISTING: its available quantity goes from "+curQty+" to "+liveQty+".\n")
+              : "• That listing isn't live on eBay yet, so nothing is sent to eBay now.\n")+
+            (pReserve!==(!!it.reserve) ? "\nNote: this copy will follow the existing listing's Reserve setting ("+(pReserve?"ON":"OFF")+"), not what's ticked on this card.\n" : "")+
+            "\nProceed?",
+            async ()=>{
+              // Take the parent's identity — that's what makes them one listing with a quantity.
+              it.upc = parent.upc;
+              it.reserve = pReserve;
+              if(!it.listing) it.listing={status:"none"};
+              it.listing.reserveItem = pReserve;
+              addHistory(it, "Combined with existing listing "+(parent.upc||"")+" — now an additional quantity of that item");
+              addHistory(parent, "Another copy was added from Import Scans — quantity now "+newQty);
+              r.listed = true;   // it's handled; drop it off the scan queue
+              save();
+              // Push the new quantity to eBay, but only if the listing is actually live and the
+              // quantity really changed (reserve keeps it pinned at 1).
+              if(isLive && !pReserve){
+                const res = await publishToEbay(parent, ()=>{});
+                if(!res.ok) uiAlert("Saved in WIM, but eBay wouldn't update the listing quantity:\n\n"+res.error+"\n\nThe warehouse count is correct; eBay still shows the old quantity.");
+                else wimToast("Combined — eBay quantity updated to "+liveQty,"success");
+              } else {
+                wimToast("Combined with the existing listing","success");
+              }
+              wimRefreshAll(); render();
+            },
+            { yes:"Yes, combine them", no:"Cancel" }
+          );
+          return;
+        }
         save(); wimRefreshAll(); render();
       },
       onRevert:()=>{
@@ -6803,6 +7038,60 @@ async function openImportScans(){
       openScanForListing(r);
     };
     card.querySelector(".is-folder").onclick=()=>{ if(WIM_IS_DESKTOP) wimDesktop.invoke("open_url",{url:"file:///"+importScanFolderPath(r).replace(/\\/g,"/")}).catch(()=>{}); };
+
+    // The two blue indicators. Both open the matched item in its own window so the user can compare
+    // for themselves rather than trust the match blindly — fuzzy matching is a suggestion, not a fact.
+    const indL=card.querySelector(".is-ind-listed");
+    if(indL) indL.onclick=()=>{ if(typeof popOutItem==="function" && popOutItem(parent,"edit")) return; openItemDetail(parent,"edit"); };
+    const indS=card.querySelector(".is-ind-sold");
+    if(indS) indS.onclick=()=>{ const so=mt.sold; if(typeof popOutItem==="function" && popOutItem(so,"view")) return; openItemDetail(so,"view"); };
+    const op2=card.querySelector(".is-openparent2");
+    if(op2) op2.onclick=(e)=>{ e.preventDefault(); if(typeof popOutItem==="function" && popOutItem(parent,"edit")) return; openItemDetail(parent,"edit"); };
+
+    // Join this copy to the existing listing. Only reachable when conditions match — that's the
+    // whole safety rule: if the condition is the same, the two copies are interchangeable and it
+    // genuinely doesn't matter which one gets pulled for a buyer.
+    // Import Listing Fields — the same eBay category/aspect search the landing page has. It was
+    // technically reachable via the photo panel's "Find on eBay", but nobody looks for it there:
+    // you look for it next to the fields it fills in. So it's here too.
+    const fe=card.querySelector(".is-findebay");
+    if(fe) fe.onclick=()=>openEbayFind(it, ()=>{ save(); render(); });
+
+    const joinBox=card.querySelector(".is-join");
+    if(joinBox) joinBox.onchange=()=>{ r.joinParent=joinBox.checked; save(); render(); };
+
+    // Manual Slot + Reserve — these existed on Bulk Add and the landing page but were dropped when
+    // the cards were unified. That was a regression, not a decision.
+    const isMan=card.querySelector(".is-manual");
+    if(isMan) isMan.onchange=()=>{ it.manualSlot=isMan.checked; try{ footer.markDirty(); }catch(e){} addHistory(it, isMan.checked?"Marked as manually slotted (Import Scans)":"Manual slot flag cleared (Import Scans)"); save(); };
+    const isRes=card.querySelector(".is-reserve");
+    if(isRes) isRes.onchange=()=>{ it.reserve=isRes.checked; try{ footer.markDirty(); }catch(e){} addHistory(it, isRes.checked?"Reserved — only one unit listed at a time (Import Scans)":"Reserve cleared (Import Scans)"); save(); };
+
+    // Delete Scan. A scan that came in wrong (mis-scanned barcode, duplicate, junk photo) shouldn't
+    // have to be listed just to get rid of it. This deletes the scan AND the inventory item it
+    // created — because an imported scan and its item are the same thing at this stage; the item
+    // exists only because the scan brought it in. Confirmed first, since it's destructive.
+    const delBtn=card.querySelector(".is-delete");
+    if(delBtn) delBtn.onclick=()=>{
+      uiConfirm(
+        "Delete this scan?\n\n" + (it && it.desc ? "\"" + it.desc + "\"\n\n" : "") +
+        "This removes the scan and the inventory item it created. The photo folder on the drive is left alone. This cannot be undone.",
+        ()=>{
+          const si=DB.importedScans.findIndex(x=>x===r || (r.id && x.id===r.id));
+          if(si>=0) DB.importedScans.splice(si,1);
+          if(it){
+            const ii=DB.items.findIndex(x=>x.id===it.id);
+            // Only remove the item if it never got beyond the scan stage — never delete something
+            // that's already listed, sold, or sitting in a slot with real history behind it.
+            const safe = ii>=0 && !it.sold && !(it.listing && it.listing.status==="listed");
+            if(safe) DB.items.splice(ii,1);
+          }
+          save(); wimRefreshAll(); render();
+          wimToast("Scan deleted","success");
+        },
+        { yes:"Delete", no:"Keep it" }
+      );
+    };
     // Expand/collapse in place — see the note on the Supervisor Review card: re-rendering the whole
     // list just to open one drawer threw the user back to the top of the page.
     const lfHdr=card.querySelector(".is-lf-hdr");
@@ -6843,7 +7132,9 @@ async function openImportScans(){
       for(const s of scans){
         const scanId=String(s.id);
         if(DB.importedScans.some(x=>x.scanId===scanId)){ skipped++; continue; } // never double-import
-        const rec={ scanId, desc:s.description||"", category:s.category||"", importedAt:new Date().toISOString(), photoCount:0, listed:false, itemId:null };
+        const barcode = s.barcode || s.isbn || s.upc || s.code || "";  // whatever IQ called it
+        const rec={ scanId, desc:s.description||"", category:s.category||"", barcode,
+                    importedAt:new Date().toISOString(), photoCount:0, listed:false, itemId:null };
         // Create the item shell now so opening it later goes straight to the listing flow.
         // Matches the app's standard item shape (same as Bulk Add), minus slotting/pricing,
         // which the user sets when they actually build the listing.
@@ -6856,6 +7147,7 @@ async function openImportScans(){
           images:[], imageFeatured:0, image:"", slot:"", placement:null, sku:"", manualSlot:false,
           sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null,
           caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0],
+          barcode: barcode,   // the ISBN/UPC actually scanned — NOT the same as `upc` (WIM's item number)
           fromScan:true, scanId:scanId };
         it.history=[{at:it.createdAt,desc:"Imported from InventoryIQ scan",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
         DB.items.push(it); rec.itemId=it.id;
@@ -10501,6 +10793,11 @@ function openSupervisorReview(){
           <div><label style="font-size:11px;color:#5b6470;">Condition</label><input class="txt sr-f" data-f="condition" value="${esc(it.condition||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Quantity</label><input class="txt" value="${esc(String(groupQty(it)))}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Warehouse SKU</label><input class="txt" value="${esc(it.sku||"")}" disabled style="width:100%;height:30px;box-sizing:border-box;background:#f4f6f9;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">&nbsp;</label>
+            <div style="display:flex;flex-direction:column;gap:4px;padding-top:4px;">
+              <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="sr-manual" ${it.manualSlot?"checked":""}> Manually slot</label>
+              <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" class="sr-reserve" ${it.reserve?"checked":""}> Reserve</label>
+            </div></div>
           <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Description</label><textarea class="txt sr-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc(L.descBody||"")}</textarea></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
@@ -10561,7 +10858,15 @@ function openSupervisorReview(){
       return diffs;
     }
 
-    // View landing page — its own pop-out window.
+    // Manual Slot + Reserve. These were on the old Ready-to-List screen and on Bulk Add, but got
+    // dropped when the cards were unified — a regression, not a decision. A supervisor needs to be
+    // able to reserve an item (list one at a time out of a multi-unit group) or flag it as manually
+    // slotted at the moment of review, without bouncing out to the landing page to do it.
+    const srMan=card.querySelector(".sr-manual");
+    if(srMan) srMan.onchange=()=>{ it.manualSlot=srMan.checked; try{ footer.markDirty(); }catch(e){} addHistory(it, srMan.checked?"Marked as manually slotted (Supervisor Review)":"Manual slot flag cleared (Supervisor Review)"); save(); };
+    const srRes=card.querySelector(".sr-reserve");
+    if(srRes) srRes.onchange=()=>{ it.reserve=srRes.checked; try{ footer.markDirty(); }catch(e){} addHistory(it, srRes.checked?"Reserved — only one unit listed at a time (Supervisor Review)":"Reserve cleared (Supervisor Review)"); save(); };
+
     // View landing page — opens the item in its own pop-out window (popOutItem is the purpose-built
     // path for this; falls back to an in-app window when pop-outs aren't available).
     card.querySelector(".sr-open").onclick=()=>{
