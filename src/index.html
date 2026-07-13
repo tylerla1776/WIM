@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.57", BUILD_DATE="2026-11-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.58", BUILD_DATE="2026-11-20", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.58","SERIOUS BUG: a simulated sale did not show up in Shipping at all. The item sold and then vanished. Cause: that button marked the item sold using an old leftover flag instead of the real status field, so the item still reported itself as Listed, and Shipping only shows items whose status is Sold. Every other sale path in WIM (including all real eBay sales) already did this correctly -- this one button did not. Fixed, and WIM now also repairs any item already stuck in that state when it starts up, so anything that already went missing reappears. SHIPPING CHANGES: Mark Shipped is now just SHIP, and it no longer stops to ask you for a carrier and tracking number. That was backwards -- eBay sells the label, so eBay already HAS the tracking number, and hand-typing it was asking a person to do the computer job. Ship now means one thing: it left the building. One click. The Shipped tab is renamed SHIPPING, and has three real columns: Item Status (what eBay says -- Shipped or Waiting), Tracking Number (click it to look it up in your browser -- free, no setup), and Delivery. Two buttons now: Check eBay Status is FREE and tells you whether eBay considers each order shipped plus pulls in the tracking number; Check Delivery is optional (about 3 cents a parcel) and is the only way to know a parcel actually ARRIVED -- eBay genuinely cannot tell you that, only the carrier can. Anything delivered moves to Completed by itself. And if you never press the paid button at all, items now auto-complete after 14 days as a safety net, so nothing is stranded. All three tabs still show 20 per page."],
   ["3.3.57","REAL DELIVERY TRACKING. WIM already pulls the tracking number off eBay for items you shipped through them -- it now uses that number to ask the CARRIER where the parcel actually is. The Shipped tab gets a Track Shipments button and a real Delivery Status column: In transit, Out for delivery, Delivered, plus the last known city and an estimated arrival date. Anything the carrier confirms as DELIVERED moves itself into Completed automatically. This also fixes a bug I introduced last version: eBay fulfillment status only has three values and NONE of them mean delivered -- FULFILLED just means it shipped. I had treated that as delivered, which would have bounced every item straight from Shipped to Completed the moment you shipped it. eBay simply cannot tell you a parcel arrived; only the carrier can. Tracking uses EasyPost (same key as the shipping comparison) and costs about 3 cents per parcel, billed once per parcel -- re-checking is free, and delivered items are never re-checked. It is a button, never automatic, so you control the spend. LOCAL PICKUPS are detected automatically from eBay and shown in green on the shipping screen, so nobody sits waiting for tracking that will never arrive; there is a Move to Completed button to finish those by hand (also useful for anything a carrier never reports on). COMMUNICATION FIXES: Compose used to blank the screen -- it switched to a folder that no longer existed after the inbox was reorganised, so the buyer thread was there but invisible. And when a message cannot be replied to, WIM now says WHY and offers to open it on eBay.com, instead of the reply box silently vanishing."],
   ["3.3.56","Shipping consolidation. The Recently Sold screen is gone -- it was a middle step that existed only to be clicked through, and everything it did (Mark Picked, Move to Shipping) was already in Shipping anyway. Sold items now land STRAIGHT in Shipping under Ready to Ship. Anything currently sitting in Recently Sold is moved there automatically when you first open this version, so nothing is lost. Pull Sold Orders now lives on the Ready to Ship tab -- that was the only thing Recently Sold could do that Shipping could not. The Status column is now sortable, so you can click it to group everything that still needs picking off the shelf. Mark Shipped moves the selected items over to the Shipped tab. Check for eBay.com Shipments has moved to the SHIPPED tab where it belongs: it now asks eBay for the delivery status of everything on that tab, fills in any tracking eBay knows about that WIM does not, and anything eBay reports as DELIVERED moves itself into Completed automatically. Completed is no longer something anyone has to remember to do by hand. All three tabs now show 20 items per page with page controls at the bottom. The full flow is now: item sells and appears in Ready to Ship, warehouse worker pulls it off the shelf and clicks Mark Picked (which frees the slot), the shipper takes it and clicks Mark Shipped, then Check for eBay.com Shipments on the Shipped tab moves it to Completed once it arrives."],
   ["3.3.55","Two Simulation Mode banner fixes. On the HOME screen the banner was still sitting on top of the Warehouse/Live buttons -- same root cause as the one fixed last version, but in a second place I missed: the home screen uses a different full-screen container, and it had the identical CSS problem that made it ignore the banner offset. Both are now anchored below the banner. And turning Simulation Mode off now reloads EVERY open WIM window, not just the one you clicked in -- previously the home screen and any popped-out windows kept showing the red banner and simulated data until you closed them by hand. It signals the other windows two different ways so it also reaches pop-outs, which are separate windows and do not always hear the normal one."],
@@ -1283,7 +1284,7 @@ function migrate(d){
   // Tracks which eBay orders have already been pulled into Recently Sold, so re-running
   // the pull doesn't create duplicate fulfillment records for the same sale.
   if(!Array.isArray(d.pulledOrderIds)) d.pulledOrderIds=[];
-  if(!d.fulfillmentSettings) d.fulfillmentSettings={ autoCompleteDays:7 };
+  if(!d.fulfillmentSettings) d.fulfillmentSettings={ autoCompleteDays:14 };
   if(!d.iqSettings) d.iqSettings={ baseUrl:"https://inventoryiq.tylerla17.workers.dev", token:"", photoBasePath:"G:\\My Drive\\WIM", autoDeleteAfterPublish:true };
   if(!Array.isArray(d.importedScans)) d.importedScans=[];
   // Local API-usage counters for services with no public usage endpoint (Shippo, EasyPost,
@@ -1930,6 +1931,7 @@ async function boot(){
     // someone to trust a fake number.
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const b0=document.getElementById("sim-banner"); if(b0) b0.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
     try{ migrateRecentlySold(); }catch(e){ console.warn("recentlySold migration failed", e); }
+    try{ const n=repairSoldStatus(); if(n) console.log("repaired "+n+" sold item(s) that weren't showing in Shipping"); }catch(e){ console.warn("sold-status repair failed", e); }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
     try{ localStorage.setItem("WIM_EBAY_ONLINE","0"); }catch(e){} EBAY_ONLINE=false; // a genuine app launch always starts offline
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const banner=document.getElementById("sim-banner"); if(banner) banner.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
@@ -2076,6 +2078,27 @@ function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"
 // through on the way to Shipping. Any item still parked in the old "recentlySold" stage is moved
 // into Ready to Ship, where it now belongs. Without this, those items would simply disappear along
 // with the screen that used to show them.
+// REPAIR: an item with a fulfillment record is, by definition, sold — it has an order id and a
+// buyer. But an older bug marked some items sold using only the legacy `it.sold` boolean without
+// setting the real status, and itemStatus() checks the status first. Those items reported
+// themselves as still "listed" and so never appeared in Shipping at all: sold, paid for, and
+// invisible. This finds any such ghost and puts it back where it belongs.
+function repairSoldStatus(){
+  let fixed=0;
+  (DB.items||[]).forEach(it=>{
+    const f=it.fulfillment;
+    if(!f || !f.stage) return;
+    if(["readyToShip","shipped","completed"].indexOf(f.stage)<0) return;
+    const st=itemStatus(it);
+    if(st!=="sold" && st!=="inactive"){
+      setItemStatus(it,"sold");
+      addHistory(it,"Status repaired — this item was sold but was not showing in Shipping");
+      fixed++;
+    }
+  });
+  if(fixed) save();
+  return fixed;
+}
 function migrateRecentlySold(){
   let moved=0;
   (DB.items||[]).forEach(it=>{
@@ -6532,15 +6555,21 @@ function openItemDetail(item,mode,nav,defaultTab){
   const simSellBtn2=openWindows[wid].el.querySelector('[data-act="Sell (Simulate)"]'); if(simSellBtn2) simSellBtn2.onclick=()=>{
     const buyer=DEMO_BUYERS[Math.floor(Math.random()*DEMO_BUYERS.length)];
     uiConfirm("Simulate a sale of this item to \""+buyer.name+"\" ("+buyer.city+", "+buyer.state+")? This creates a real, trackable fulfillment record — tagged as simulated so it's distinguishable from real sales — and sends it straight to Ready to Ship, same as a genuine sale.", ()=>{
-      it.sold=true; it.soldAt=new Date().toISOString(); it.soldBy=SESSION.userId;
+      // Mark it properly sold. This used to set only the legacy `it.sold` boolean — but
+      // itemStatus() checks `it.status` FIRST, so the item still reported itself as "listed",
+      // and Shipping (which filters on status === "sold") never showed it. The item sold and
+      // then vanished. setItemStatus is the one correct way to do this; every other sale path
+      // already used it.
+      it.soldAt=new Date().toISOString(); it.soldBy=SESSION.userId;
       it.fulfillment={
         orderId:"SIM-"+crypto.randomUUID().slice(0,8), lineItemId:"SIM-LI-"+crypto.randomUUID().slice(0,8),
         buyer:buyer.name, soldPrice:it.listing&&it.listing.price||it.retail||"0.00", shipCostPaid:null,
         shipTo:{ fullName:buyer.name, addressLine1:buyer.street, city:buyer.city, stateOrProvince:buyer.state, postalCode:buyer.zip, countryCode:"US" },
         stage:"readyToShip", soldAt:new Date().toISOString(), isPickup:false, simulated:true
       };
+      setItemStatus(it,"sold");
       addHistory(it,"Sold (SIMULATED) to "+buyer.name+" — sent to Ready to Ship for testing"); save(); wimRefreshAll();
-      uiAlert("Simulated sale created. Find it in Fulfillment → Recently Sold / Ready to Ship — it'll carry a SIMULATED tag throughout."); close();
+      uiAlert("Simulated sale created. Find it in Shipping → Ready to Ship — it'll carry a SIMULATED tag throughout."); close();
     });
   };
   const pbtn=openWindows[wid].el.querySelector('[data-act="Print"]'); if(pbtn) pbtn.onclick=()=>{ if(isNew){ uiAlert("Save the item first — labels print once a Warehouse SKU is assigned."); return; } openPrintMenu(it); };
@@ -8758,7 +8787,7 @@ function mapReturnReason(code){
   return m[code]||"";
 }
 function checkAutoComplete(){
-  const days=(DB.fulfillmentSettings&&DB.fulfillmentSettings.autoCompleteDays)||7;
+  const days=(DB.fulfillmentSettings&&DB.fulfillmentSettings.autoCompleteDays)||14;
   const cutoff=Date.now()-days*86400000;
   let moved=0;
   fulfillmentItems("shipped").forEach(it=>{
@@ -8933,6 +8962,41 @@ async function checkForDirectShipments(onProgress){
 // eBay knows about that WIM doesn't, and — the important part — moves anything eBay reports as
 // DELIVERED straight into Completed. Otherwise Completed only ever fills up via the timer, and an
 // item that arrived yesterday sits in Shipped looking unresolved for days.
+// FREE. Asks eBay two things it can actually answer: has this order been marked shipped, and what
+// is its tracking number. eBay's fulfillment status has exactly three values — NOT_STARTED,
+// IN_PROGRESS and FULFILLED — and FULFILLED means SHIPPED, not delivered. eBay cannot tell you a
+// parcel arrived. So this populates "Item Status" (Shipped / Waiting) and the tracking number, and
+// nothing more. Delivery is a separate, optional, paid check.
+async function checkEbayShipStatus(items, onProgress){
+  const candidates=(items||[]).filter(it=>it.fulfillment && it.fulfillment.orderId && !it.fulfillment.isPickup && !it.simulated);
+  let checked=0, shipped=0, waiting=0, tracking=0;
+  for(const it of candidates){
+    checked++; onProgress&&onProgress(checked, candidates.length);
+    try{
+      const f=it.fulfillment;
+      const r=await EBAY.user("/sell/fulfillment/v1/order/"+encodeURIComponent(f.orderId));
+      if(!r.ok) continue;
+      const order=JSON.parse(r.body);
+      const li=(order.lineItems||[]).find(x=>x.lineItemId===f.lineItemId);
+      const status=String(order.orderFulfillmentStatus||"").toUpperCase();
+      f.ebayShipStatus = status || "NOT_STARTED";
+      f.ebayShipCheckedAt = new Date().toISOString();
+      if(status==="FULFILLED") shipped++; else waiting++;
+      if(li){
+        const instr=(li.lineItemFulfillmentInstructions||[])[0] || li;
+        const tn=instr.shipmentTrackingNumber, cc=instr.shippingCarrierCode;
+        if(tn && tn!==f.trackingNumber){
+          f.trackingNumber=tn;
+          f.carrierCode=cc||f.carrierCode||"";
+          addHistory(it,"Tracking number from eBay — "+tn+(cc?" ("+cc+")":""));
+          tracking++;
+        }
+      }
+    }catch(e){ /* one bad order shouldn't abort the sweep */ }
+  }
+  if(checked){ save(); wimRefreshAll(); }
+  return { checked, shipped, waiting, tracking };
+}
 async function checkShippedDelivery(items, onProgress){
   const epKey = await carrierGetSecret2("easypost","key").catch(()=>"");
   const candidates=(items||[]).filter(it=>it.fulfillment&&it.fulfillment.orderId&&!it.fulfillment.isPickup);
@@ -9041,7 +9105,7 @@ function openShipping(){
     body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
         <button class="btn sm ${tab==='readyToShip'?'primary':''}" id="sh-tab-rts">Ready to Ship${fulfillmentItems('readyToShip').length?' ('+fulfillmentItems('readyToShip').length+')':''}</button>
-        <button class="btn sm ${tab==='shipped'?'primary':''}" id="sh-tab-shipped">Shipped${fulfillmentItems('shipped').length?' ('+fulfillmentItems('shipped').length+')':''}</button>
+        <button class="btn sm ${tab==='shipped'?'primary':''}" id="sh-tab-shipped">Shipping${fulfillmentItems('shipped').length?' ('+fulfillmentItems('shipped').length+')':''}</button>
         <button class="btn sm ${tab==='completed'?'primary':''}" id="sh-tab-completed">Completed${fulfillmentItems('completed').length?' ('+fulfillmentItems('completed').length+')':''}</button>
         ${tab==="readyToShip"?`<button class="btn sm" id="sh-pullsold" title="Fetch recent eBay orders — sold items land straight in Ready to Ship">Pull Sold Orders</button>`:``}
         ${tab==="readyToShip" && items.length?`<button class="btn sm" id="sh-checkcancel" title="Ask eBay whether any of these orders have been cancelled — do this before you ship" style="border-color:#b06000;color:#8A5E10;">⚠ Check for Cancellations</button>`:``}
@@ -9052,22 +9116,23 @@ function openShipping(){
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
         <button class="btn" id="sh-printlabel" ${!picked.size?"disabled":""}>Print Label${picked.size===1?"":"s"}${picked.size?" ("+picked.size+")":""}</button>
         <button class="btn primary" id="sh-picked" ${!picked.size?"disabled":""} style="background:#8a5cd6;border-color:#8a5cd6;" title="Confirms the item was physically taken off the shelf and moved to the shipping area — this is what actually frees up its slot position, not Mark Shipped">Mark Picked${picked.size?" ("+picked.size+")":""}</button>
-        <button class="btn primary" id="sh-shipped" ${!picked.size?"disabled":""} title="Moves the selected items to the Shipped tab — they've physically left the warehouse">Mark Shipped${picked.size?" ("+picked.size+")":""}</button>
+        <button class="btn primary" id="sh-shipped" ${!picked.size?"disabled":""} title="The item has left the warehouse. Moves it to the Shipping tab — no typing required; WIM pulls the tracking number from eBay.">Ship${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${tab==="shipped" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
-        <button class="btn sm" id="sh-checkdirect" title="Ask eBay for tracking numbers, then ask the carrier where each parcel actually is. Anything the carrier confirms as DELIVERED moves to Completed automatically.">📦 Track Shipments</button>
+        <button class="btn sm" id="sh-checkdirect" title="Free. Asks eBay whether each order is marked shipped, and pulls in its tracking number.">🔄 Check eBay Status</button>
+        <button class="btn sm" id="sh-checkdelivery" title="Optional, ~3c per parcel. Asks the carrier whether each parcel has actually been DELIVERED, and auto-completes the ones that have.">📦 Check Delivery</button>
         <button class="btn sm" id="sh-forcecomplete" ${!picked.size?"disabled":""} title="Manually move the selected items to Completed — for local pickups, or anything the carrier never reported on">Move to Completed${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${tab==="completed" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
         <button class="btn primary" id="sh-catalog" ${!picked.size?"disabled":""}>Catalog${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
-      ${!allItems.length?`<div class="note">${tab==="readyToShip"?'Nothing waiting to ship. Sold items land here automatically — click <b>Pull Sold Orders</b> to fetch recent eBay sales.':tab==="shipped"?'Nothing shipped yet. Select items in Ready to Ship and click <b>Mark Shipped</b>.':'Nothing completed yet. Items move here when eBay reports them delivered, or automatically '+DB.fulfillmentSettings.autoCompleteDays+' day(s) after shipping.'}</div>`:``}
+      ${!allItems.length?`<div class="note">${tab==="readyToShip"?'Nothing waiting to ship. Sold items land here automatically — click <b>Pull Sold Orders</b> to fetch recent eBay sales.':tab==="shipped"?'Nothing in transit. Select items in Ready to Ship and click <b>Ship</b>.':'Nothing completed yet. Items land here when a carrier confirms delivery, or automatically '+DB.fulfillmentSettings.autoCompleteDays+' day(s) after shipping as a safety net.'}</div>`:``}
       <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
         <th style="width:30px;"></th><th style="width:54px;">Photo</th>${SH_COLS.slice(0,4).map(c=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${shSort.key===c.k?` <span class="arr">${shSort.dir>0?'▲':'▼'}</span>`:""}</th>`).join("")}
         ${tab==="readyToShip"?`<th style="width:96px;cursor:pointer;" data-sortk="status">Status${shSort.key==="status"?` <span class="arr">${shSort.dir>0?'▲':'▼'}</span>`:""}</th>`:''}
-        ${tab==="shipped"?'<th style="width:130px;">Delivery Status</th><th>Tracking</th><th style="width:90px;">Shipped</th>':''}
+        ${tab==="shipped"?'<th style="width:120px;">Item Status</th><th style="width:150px;">Tracking #</th><th style="width:120px;">Delivery</th><th style="width:88px;">Shipped</th>':''}
         ${tab==="completed"?'<th>Feedback</th><th>Rating</th><th style="width:90px;">Shipped</th><th style="width:80px;">Fulfillment</th>':''}
         <th style="width:34px;">&#9993;</th><th></th>
       </tr></thead><tbody id="sh-tb"></tbody></table></div>
@@ -9160,7 +9225,24 @@ function openShipping(){
           addHistory(it,"Marked picked — physically removed from slot "+esc(it.slot||"")+", moved to shipping area"); });
         save(); wimRefreshAll(); picked.clear(); render();
       };
-      body.querySelector("#sh-shipped").onclick=()=>openMarkShippedDialog(items.filter(i=>picked.has(i.id)), ()=>{ picked.clear(); render(); });
+      // SHIP — no dialog. The old version demanded a carrier and tracking number before it would
+      // let you proceed, and then PUSHED them to eBay. That's backwards: eBay sells the label, so
+      // eBay already HAS the tracking number. Asking a shipper to hand-type data the computer can
+      // fetch is asking them to do the computer's job, and hand-typed tracking numbers are wrong
+      // often enough to matter. Ship just means "it left the building" — one click, done. The
+      // tracking number gets pulled FROM eBay afterwards on the Shipping tab.
+      body.querySelector("#sh-shipped").onclick=()=>{
+        const targets=items.filter(i=>picked.has(i.id));
+        if(!targets.length) return;
+        targets.forEach(it=>{
+          const f=ensureFulfillment(it);
+          f.stage="shipped";
+          f.shippedAt=new Date().toISOString();
+          if(!f.pickedAt) f.pickedAt=f.shippedAt; // shipped without being picked? it's off the shelf now regardless
+          addHistory(it,"Shipped — out of the warehouse");
+        });
+        save(); wimRefreshAll(); picked.clear(); page=1; tab="shipped"; render();
+      };
     }
     // Check for eBay.com Shipments now lives on the SHIPPED tab, where it belongs: it asks eBay for
     // the current delivery status of everything that's already gone out, and anything eBay reports
@@ -9168,27 +9250,51 @@ function openShipping(){
     // thing someone has to remember to do by hand.
     if(tab==="shipped" && items.length){
       body.querySelector("#sh-selall").onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
+      // FREE: ask eBay whether it considers each order shipped, and grab the tracking number.
       const checkDirectBtn=body.querySelector("#sh-checkdirect");
       if(checkDirectBtn) checkDirectBtn.onclick=async ()=>{
         if(!EBAY.ready()){ uiAlert("Not connected to eBay — connect via the mode badge first."); return; }
-        checkDirectBtn.disabled=true; const origText=checkDirectBtn.textContent;
-        const r=await checkShippedDelivery(items,(done,total)=>{ checkDirectBtn.textContent="Checking "+done+"/"+total+"…"; });
-        checkDirectBtn.disabled=false; checkDirectBtn.textContent=origText;
+        checkDirectBtn.disabled=true; const orig=checkDirectBtn.textContent;
+        const r=await checkEbayShipStatus(items,(d,t)=>{ checkDirectBtn.textContent="Checking "+d+"/"+t+"…"; });
+        checkDirectBtn.disabled=false; checkDirectBtn.textContent=orig;
+        const bits=[];
+        if(r.shipped) bits.push("<b style='color:#1f7244;'>"+r.shipped+"</b> marked shipped by eBay");
+        if(r.waiting) bits.push("<b style='color:#b06000;'>"+r.waiting+"</b> still waiting — eBay hasn't marked these shipped");
+        if(r.tracking) bits.push(r.tracking+" tracking number(s) pulled in");
+        uiModal("eBay status check", `<div style="font-size:13px;min-width:380px;">
+          <div>Checked <b>${r.checked}</b> item(s).</div>
+          ${bits.length?`<div style="margin-top:6px;line-height:1.7;">${bits.join("<br>")}</div>`:`<div style="margin-top:6px;color:#5b6470;">No changes.</div>`}
+          <div style="margin-top:8px;font-size:12px;color:#5b6470;">Click a tracking number to look it up in your browser. eBay can only say a parcel <i>shipped</i> — for whether it <i>arrived</i>, use <b>Check Delivery</b>.</div>
+        </div>`, [{label:"OK",primary:true}]);
+        picked.clear(); render(); wimRefreshAll();
+      };
+      // OPTIONAL / PAID: ask the carrier whether the parcel actually arrived.
+      const delivBtn=body.querySelector("#sh-checkdelivery");
+      if(delivBtn) delivBtn.onclick=async ()=>{
+        delivBtn.disabled=true; const orig=delivBtn.textContent;
+        const r=await checkShippedDelivery(items,(d,t)=>{ delivBtn.textContent="Checking "+d+"/"+t+"…"; });
+        delivBtn.disabled=false; delivBtn.textContent=orig;
         const bits=[];
         if(r.delivered) bits.push("<b style='color:#1f7244;'>"+r.delivered+" delivered</b> → moved to Completed");
-        if(r.tracked) bits.push(r.tracked+" tracked with the carrier");
-        if(r.updated) bits.push(r.updated+" tracking number(s) picked up from eBay");
+        if(r.tracked) bits.push(r.tracked+" checked with the carrier");
         let extra="";
         if(r.noKey) extra=`<div style="margin-top:8px;padding:8px 10px;background:#FBF4E4;border:1px solid #E8D5A8;border-radius:6px;color:#8A5E10;">
-          <b>No EasyPost key</b> — ${r.noKey} parcel(s) couldn't be tracked. eBay can only tell WIM that something <i>shipped</i>, never that it <i>arrived</i>; only the carrier knows that. Add an EasyPost key under <b>Shipping Historical Comparison → Add API keys</b> to get real delivery status. (~3¢ per parcel, billed once per parcel — re-checking is free.)</div>`;
-        uiModal("Shipment check", `<div style="font-size:13px;min-width:400px;">
+          <b>No EasyPost key set</b> — ${r.noKey} parcel(s) couldn't be checked. This is the only way to know a parcel actually <i>arrived</i>; eBay can't tell you that. Add a key under <b>Shipping Historical Comparison → Add API keys</b> (~3¢ per parcel, charged once — re-checks are free).
+          <div style="margin-top:5px;">You don't have to: anything still sitting here auto-completes after ${DB.fulfillmentSettings.autoCompleteDays} days anyway.</div></div>`;
+        uiModal("Delivery check", `<div style="font-size:13px;min-width:400px;">
           <div>Checked <b>${r.checked}</b> item(s).</div>
-          ${bits.length?`<div style="margin-top:6px;">${bits.join("<br>")}</div>`:`<div style="margin-top:6px;color:#5b6470;">Nothing new — no parcels have been delivered yet.</div>`}
+          ${bits.length?`<div style="margin-top:6px;line-height:1.7;">${bits.join("<br>")}</div>`:(r.noKey?``:`<div style="margin-top:6px;color:#5b6470;">Nothing delivered yet.</div>`)}
           ${extra}</div>`, [{label:"OK",primary:true}]);
         picked.clear(); render(); wimRefreshAll();
       };
       // Manual override — the only path for local pickups (no carrier, no tracking, nothing to
       // check), and the fallback whenever a carrier simply never reports a parcel as delivered.
+      // Tracking number → look it up in the browser. Searching a raw tracking number pulls up the
+      // carrier's own tracking page, so this costs nothing and needs no integration.
+      body.querySelectorAll("[data-gtrack]").forEach(a=>a.onclick=(e)=>{
+        e.preventDefault();
+        openExternal("https://www.google.com/search?q="+encodeURIComponent(a.dataset.gtrack));
+      });
       const fc=body.querySelector("#sh-forcecomplete");
       if(fc) fc.onclick=()=>{
         const targets=items.filter(i=>picked.has(i.id));
@@ -9226,13 +9332,25 @@ function openShipping(){
         ${tab==="readyToShip"?`<td style="font-size:11.5px;font-weight:600;color:${f.pickedAt?'#8a5cd6':'#9aa3ad'};">${f.pickedAt?"Picked":"On shelf"}${f.isPickup?`<div style="color:#1f9d55;font-weight:700;font-size:10.5px;margin-top:2px;">LOCAL PICKUP</div>`:``}</td>`:""}
         ${tab==="shipped"?`<td style="font-size:12px;">${
             f.isPickup
-              ? `<b style="color:#1f9d55;">LOCAL PICKUP</b><div class="smallhint">no tracking — complete by hand</div>`
+              ? `<b style="color:#1f9d55;">LOCAL PICKUP</b>`
+              : (f.ebayShipStatus==="FULFILLED"
+                  ? `<b style="color:#1f7244;">Shipped</b>`
+                  : (f.ebayShipStatus
+                      ? `<b style="color:#b06000;">Waiting</b><div class="smallhint">eBay hasn't marked it shipped</div>`
+                      : `<span class="smallhint">not checked</span>`))
+          }</td><td style="font-size:12px;">${
+            f.isPickup ? `<span class="smallhint">n/a</span>`
+            : (f.trackingNumber
+                ? `<a href="#" data-gtrack="${esc(f.trackingNumber)}" title="Look this tracking number up in your browser" style="text-decoration:underline;color:#2f6fb3;font-family:Consolas,monospace;">${esc(f.trackingNumber)}</a>`
+                : `<span class="smallhint">—</span>`)
+          }</td><td style="font-size:12px;">${
+            f.isPickup
+              ? `<span class="smallhint">complete by hand</span>`
               : (f.carrierStatus
                   ? `<b style="color:${carrierStatusColor(f.carrierStatus)};">${esc(carrierStatusLabel(f.carrierStatus))}</b>`
                     + (f.carrierLocation?`<div class="smallhint">${esc(f.carrierLocation)}</div>`:``)
-                    + (f.estDelivery && f.carrierStatus!=="delivered" ? `<div class="smallhint">ETA ${esc(fmtDate(f.estDelivery))}</div>`:``)
-                  : `<span class="smallhint">not checked yet</span>`)
-          }</td><td style="font-size:12px;">${f.trackingNumber?`<a href="#" data-track="${esc(it.id)}" style="text-decoration:underline;color:#2f6fb3;">${esc(f.trackingNumber)}</a>`:"—"}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
+                  : `<span class="smallhint">—</span>`)
+          }</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
         ${tab==="completed"?`<td style="font-size:12px;cursor:${fb?'pointer':'default'};" ${fb?`data-full="${esc(fb.commentText||"")}"`:""}>${fb?esc((fb.commentText||"").slice(0,25))+((fb.commentText||"").length>25?"…":""):"—"}</td><td style="font-size:12px;color:${fbColor};font-weight:600;">${fb?esc(fb.commentType):"—"}</td><td style="font-size:11px;">${f.isPickup?(f.pickedUpAt?fmtDate(f.pickedUpAt):"—"):(f.shippedAt?fmtDate(f.shippedAt):"—")}</td><td><span style="font-weight:700;font-size:11.5px;color:${f.isPickup?'#1f9d55':'#3b7dd8'};">${f.isPickup?"Pickup":"Shipping"}</span></td>`:""}
         <td style="text-align:center;">${envelopeCellHtml(f.buyer)}</td>
         <td>${tab==="readyToShip"?`<button class="btn sm" data-ship="${esc(it.id)}">Ship</button> `:""}<button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
