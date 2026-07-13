@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.63", BUILD_DATE="2026-11-25", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.66", BUILD_DATE="2026-11-28", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.66","THIS OFFER IS NOT AVAILABLE (error 25713) -- the item became permanently unlistable. When WIM creates an eBay offer it remembers the offer number so a retry reuses it instead of making duplicates. But if eBay has since thrown that offer away -- which is what your earlier failed attempts left behind -- WIM kept publishing a corpse, and no amount of clicking List would ever fix it. WIM now recognises a dead offer, forgets it, builds a fresh one and publishes that, automatically. It only does this for a genuinely missing offer; real errors are still reported to you rather than retried. SUPERVISOR REVIEW DEEP DIVE. Cards now tell you BEFORE you click List if eBay will refuse the item -- missing category mapping, no price, no policies -- listed plainly on the card, with the List button switched off until it is fixed. You should never have to click a button and decode an API error to learn the item was never listable. Also found and fixed a trap underneath several screens: the old sold flag is set to TRUE only for items that were DELETED, and FALSE for items that genuinely SOLD -- so any screen checking it was wrong in both directions. The review queue could show sold items, and Rejected and Delisted would keep showing items you had already deleted, forever. All three now check properly. Cancellations, Refunds and Returns were deliberately left alone -- they track real orders, and hiding a refund because someone deleted the item would erase a record you need."],
+  ["3.3.65","Deleting an item with several copies already let you pick which Warehouse SKUs to remove, but there was no way to say -- get rid of all of it. There is now a Select All row at the top of that list, and when everything is ticked the button reads Delete the whole item so it is obvious what is about to happen. Also re-audited every dashboard widget against the quantity and deleted-item fixes: Units on Hand and Inventory Value count one record per physical book, and every sales figure -- Items Sold, the 30-day chart, Hot Items, Fastest Turning, Most Profitable -- runs through the same check that keeps deleted and written-off items from being counted as revenue."],
+  ["3.3.64","QUANTITIES WERE INFLATING THEMSELVES. The On Hand box shows the total for the whole group, but saving an item wrote that total back onto the single record you saved -- so the number fed itself and grew every time: 2 copies became 3, then 5, then 8, then 13. That is where the 4 on an item with 2 copies came from, and where the dashboard got its wild numbers. Quantity is now simply how many copies exist, which cannot drift: one record, one book. Inflated numbers already in your data are repaired on startup. DELETE DID NOT DELETE. The trash can, Adjust Out and Sell all set an old flag that WIM stopped reading -- an item that already had a real status (Active, Listed) kept it, so it never left inventory no matter how many times you deleted it. Those are the stragglers you could not get rid of. Fixed, and any item already stuck in that state is released on startup. I told you these three were fine in a previous session -- I checked whether Inactive was the right meaning and never checked whether the app would actually return it. That was the wrong check. WAREHOUSE SKU BOX showed the FIRST copy in the group no matter which copy you were looking at -- so the dropdown said B.1.02 while the box above it said B.1.01. It now shows the copy you are actually on. THE ARROWS at the top of Item Maintenance closed the whole window instead of moving to the next record. They now page through records and leave the window open. WIDGETS: Items Sold, the 30-day sales chart, Hot Items, Fastest Turning and Most Profitable were all counting DELETED and written-off items as sales -- deleting an item stamped it with a sold date, and nothing told them apart. Deletions and write-offs no longer count as revenue. Units on Hand and Inventory Value were built on the inflated number and are now built on the real one. NEW: Local Profiles has an Erase Inventory and History button -- wipes every item, all history and all the sales and productivity figures in that profile, while keeping your users, warehouse layout, categories, descriptions and eBay connection, so you can start loading real inventory on a clean slate. It lists exactly what goes and what stays, and makes you type ERASE."],
   ["3.3.63","The saved-description dropdown is back on the Supervisor Review card -- pick one of your descriptions from Description Manager and its text drops straight into the box, exactly like it does on the item landing page. It was on the landing page but never made it onto the review card when the cards were unified, so a supervisor had to retype or paste boilerplate they already had saved. Import Scans cards were missing it too and now have it as well, since it is the same card and the same job."],
   ["3.3.62","LISTING FAILED WITH: Aspect value for aspect Topic cannot be null or empty (error 25719). WIM was sending EVERY listing field to eBay, including the ones nobody filled in, as empty text -- Topic, Publisher, Format, Genre and about thirty others all went across as blanks. eBay does not allow that: a field must either carry a real value or not be sent at all. So eBay threw out the whole listing on the first blank it hit, even though nothing was actually wrong -- leaving optional fields empty is perfectly allowed. Blank fields are now simply left out. On the listing that failed, that takes 36 fields down to the 5 that were actually filled in. SECOND PROBLEM ON THE SAME ITEM: its Category was NONE, which means no eBay category is mapped to it, and eBay cannot list something it has no category for. That would have failed next, right after the aspects were fixed. WIM now catches this BEFORE calling eBay and tells you in plain English what to do: open the item and use Find on eBay to pick the real category (the listing fields come with it), or map the category under Category Maintenance."],
   ["3.3.61","TWO REAL BUGS, BOTH FOUND BY GOING LOOKING RATHER THAN WAITING FOR THEM TO BITE. (1) MULTI-QUANTITY ORDERS WERE HALF-IGNORED. If a buyer bought 2 or 3 copies of one listing, WIM marked only ONE copy sold and moved ONE book to Ready to Ship. The shipper would pack one book, the buyer would be short, and the other copies would still be sitting on the shelf marked Active. WIM now reads how many the buyer actually bought and moves that many copies. This mattered because combining copies (v3.3.60) made multi-quantity listings easy to create -- that feature is what turned this from theoretical into likely. And if a buyer somehow buys more copies than exist in the warehouse, you now get a loud red popup naming the item, the order, how many they bought and how many were found, so you can find them or refund before the buyer notices. (2) SAVES COULD FAIL SILENTLY. If the computer could not write to storage, WIM logged a note to a console nobody looks at and carried on as though nothing happened. Everything looked normal until a refresh threw the work away. A failed save now puts a red bar across the top of the screen telling you to stop working and back up immediately. In a warehouse where people trust the screen, a silent save failure is worse than a crash -- a crash at least tells you. NOT CHANGED, ON PURPOSE: the Sell / Adjust Out / Delete paths look like they use an old sold flag, but they are correct -- those items leave inventory without an order behind them, so Inactive is the right status. I checked rather than assumed."],
@@ -1968,6 +1971,8 @@ async function boot(){
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const b0=document.getElementById("sim-banner"); if(b0) b0.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
     try{ migrateRecentlySold(); }catch(e){ console.warn("recentlySold migration failed", e); }
     try{ const n=repairSoldStatus(); if(n) console.log("repaired "+n+" sold item(s) that weren't showing in Shipping"); }catch(e){ console.warn("sold-status repair failed", e); }
+    try{ const n=repairOnHand(); if(n) console.log("normalised on-hand on "+n+" item(s) — one record is one physical copy"); }catch(e){ console.warn("on-hand repair failed", e); }
+    try{ const n=repairDeleted(); if(n) console.log("repaired "+n+" item(s) that were deleted but never actually left inventory"); }catch(e){ console.warn("deleted repair failed", e); }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
     try{ localStorage.setItem("WIM_EBAY_ONLINE","0"); }catch(e){} EBAY_ONLINE=false; // a genuine app launch always starts offline
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const banner=document.getElementById("sim-banner"); if(banner) banner.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
@@ -2119,6 +2124,36 @@ function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"
 // setting the real status, and itemStatus() checks the status first. Those items reported
 // themselves as still "listed" and so never appeared in Shipping at all: sold, paid for, and
 // invisible. This finds any such ghost and puts it back where it belongs.
+// HEAL THE INFLATED COUNTS. The old save loop wrote group totals onto individual records, so many
+// items now carry an `onHand` of 4, 13, 30... when they represent exactly one physical book. Nothing
+// reads onHand for quantity any more (groupQty counts records), but leaving the corrupted numbers in
+// the data would keep confusing anything that touches them. One record = one copy = onHand 1.
+// The stragglers. Items that were deleted/sold/adjusted-out before v3.3.64 only had the legacy
+// `sold` flag set — and itemStatus() checks `status` first, so they kept reporting themselves as
+// active or listed and never left the warehouse. You could hit Delete all day and nothing happened.
+function repairDeleted(){
+  let fixed=0;
+  (DB.items||[]).forEach(it=>{
+    if(it.sold===true && itemStatus(it)!=="inactive" && itemStatus(it)!=="sold"){
+      // It has an order behind it? Then it's genuinely sold, not deleted.
+      const f=it.fulfillment;
+      const reallySold = f && f.orderId;
+      setItemStatus(it, reallySold ? "sold" : "inactive");
+      addHistory(it, "Status repaired — this item was "+(reallySold?"sold":"removed from inventory")+" but was still showing as active");
+      fixed++;
+    }
+  });
+  if(fixed) save();
+  return fixed;
+}
+function repairOnHand(){
+  let fixed=0;
+  (DB.items||[]).forEach(it=>{
+    if(String(it.onHand)!=="1"){ it.onHand="1"; fixed++; }
+  });
+  if(fixed) save();
+  return fixed;
+}
 function repairSoldStatus(){
   let fixed=0;
   (DB.items||[]).forEach(it=>{
@@ -2217,7 +2252,13 @@ function reviewDiff(a,b){
   return out;
 }
 // The two Supervisor Review queues, and the two new warehouse discrepancies.
-function awaitingReviewItems(){ return visibleItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed"&&!i.sold); }
+// "Gone" = deleted, adjusted out, written off — it left inventory and isn't coming back on its own.
+// NOTE the trap this fixes: setItemStatus() sets the legacy `it.sold` boolean to TRUE only for
+// INACTIVE items — an item marked genuinely SOLD has it.sold === false. So `!i.sold` does NOT mean
+// "not sold", and any queue relying on it was quietly letting sold items through.
+function itemIsGone(i){ return itemStatus(i)==="inactive"; }
+function itemIsSold(i){ return itemStatus(i)==="sold"; }
+function awaitingReviewItems(){ return visibleItems().filter(i=>i.listing&&i.listing.readyToList&&i.listing.status!=="listed"&&!itemIsGone(i)&&!itemIsSold(i)); }
 function recentlyListedItems(days){
   const cutoff=Date.now()-((days||7)*24*60*60*1000);
   return visibleItems().filter(i=>{
@@ -2226,8 +2267,8 @@ function recentlyListedItems(days){
     return !isNaN(t) && t>=cutoff;
   }).sort((a,b)=>Date.parse((b.listing.listedAt||b.listing.publishedAt||0))-Date.parse((a.listing.listedAt||a.listing.publishedAt||0)));
 }
-function rejectedItems(){ return visibleItems().filter(i=>i.listing&&i.listing.rejected&&!i.listing.readyToList&&i.listing.status!=="listed"); }
-function delistedItems(){ return visibleItems().filter(i=>i.listing&&i.listing.delisted&&i.listing.status!=="listed"); }
+function rejectedItems(){ return visibleItems().filter(i=>i.listing&&i.listing.rejected&&!i.listing.readyToList&&i.listing.status!=="listed"&&!itemIsGone(i)&&!itemIsSold(i)); }
+function delistedItems(){ return visibleItems().filter(i=>i.listing&&i.listing.delisted&&i.listing.status!=="listed"&&!itemIsGone(i)&&!itemIsSold(i)); }
 function awaitingReviewCount(){ return awaitingReviewItems().length; }
 function rejectedCount(){ return rejectedItems().length; }
 function delistedCount(){ return delistedItems().length; }
@@ -2342,7 +2383,17 @@ function vendorDrawUnit(vendor, actualCost){ const p=DB.vendorCosting[vendor]; i
   p.unitsRemaining-=1; p.costRemaining=Math.max(0, p.costRemaining-(parseFloat(actualCost)||0)); }
 function unitsOf(it){ // active units of the same product (matching description/category/condition), ordered by SKU (closest to A.1.01 first)
   const k=groupKey(it); return activeItems().filter(x=>groupKey(x)===k).sort((a,b)=>skuCmp(a.sku,b.sku)); }
-function groupQty(it){ return unitsOf(it).reduce((n,u)=>n+(parseFloat(u.onHand)||1),0); }
+// Quantity of a product = HOW MANY PHYSICAL COPIES ARE ON THE SHELF = how many unit records exist.
+// That's the model everywhere else in WIM: adding 3 copies creates 3 records, each with its own
+// warehouse SKU and its own slot, because they're three real books in three real places.
+//
+// This used to SUM the `onHand` field across those records instead — and the On Hand box on the
+// landing page displays this group total while Save wrote that same total back onto the single
+// record being saved. So every save fed the total back into itself and the count exploded:
+// 2 copies -> save -> 3 -> save -> 5 -> save -> 8 -> 13. Real quantities became fiction, and the
+// dashboard's "units on hand" was summing the fiction. Counting records can't drift: one record,
+// one book.
+function groupQty(it){ return unitsOf(it).length; }
 // What actually gets sent to eBay as the listing quantity — the real count, unless Reserve
 // Item is on, in which case it's always 1 regardless of how many physical copies exist, so
 // buyers never see the real total.
@@ -2362,12 +2413,12 @@ function sellItems(items,userId,type){
   const lines=[];
   items.forEach(it=>{ const q=parseFloat(it.onHand);
     if(!isNaN(q)&&q>1){ it.onHand=String(q-1); addHistory(it,"Sold 1 (qty now "+it.onHand+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'decrement',reversed:false}); }
-    else { it.sold=true; it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Sell"; addHistory(it,"Sold (SKU "+it.sku+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'sold',reversed:false}); } });
+    else { it.sold=true; setItemStatus(it,"inactive"); it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Sell"; addHistory(it,"Sold (SKU "+it.sku+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'sold',reversed:false}); } });
   const rec=makeRecord(type||"Sell",lines,userId); save(); return rec;
 }
 function adjustItems(items,userId,reason){
   const lines=[];
-  items.forEach(it=>{ it.sold=true; it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType=reason; addHistory(it,"Adjusted out — "+reason+" (SKU "+it.sku+")");
+  items.forEach(it=>{ it.sold=true; setItemStatus(it,"inactive"); it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType=reason; addHistory(it,"Adjusted out — "+reason+" (SKU "+it.sku+")");
     lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'adjust',reversed:false}); });
   const rec=makeRecord(reason,lines,userId); save(); return rec;
 }
@@ -3322,13 +3373,22 @@ function renderDashboard(){
   const startWeek=new Date(startToday); startWeek.setDate(startToday.getDate()-startToday.getDay());
   const startMonth=new Date(now.getFullYear(),now.getMonth(),1); const startYear=new Date(now.getFullYear(),0,1);
   const dayMs=864e5;
-  const soldSince=(d)=>items.filter(i=>i.soldAt && new Date(i.soldAt)>=d).length;
+  const isRealSale=(i)=>{
+    if(!i.soldAt) return false;
+    if(i.outType==="Deleted") return false;          // deleted from inventory — not a sale
+    if(i.outType && i.outType!=="Sell") return false; // adjusted out (damaged, lost, shrink…) — not a sale
+    return true;                                      // eBay sale (no outType) or a walk-in "Sell"
+  };
+  const soldSince=(d)=>items.filter(i=>isRealSale(i) && new Date(i.soldAt)>=d).length;
   const addedSince=(d)=>items.filter(i=>i.createdAt && new Date(i.createdAt)>=d).length;
-  const units=active.reduce((s,i)=>s+(parseInt(i.onHand,10)||0),0);
-  const invValue=active.reduce((s,i)=>s+((parseFloat(i.unitCost)||0)*(parseInt(i.onHand,10)||0)),0);
+  // One active record = one physical copy on the shelf. Summing the old `onHand` field here is
+  // what made the dashboard report wildly inflated numbers (it was summing a field that had been
+  // corrupted by the save loop — see groupQty). Counting records is both correct and un-corruptible.
+  const units=active.length;
+  const invValue=active.reduce((s,i)=>s+(parseFloat(i.unitCost)||0),0);
   const discrep=active.filter(i=>i.sku && !(i.listing&&i.listing.status==="listed")).length;
   // highest value unit
-  let highest=null; active.forEach(i=>{ const val=(parseFloat(i.retail)||parseFloat(i.unitCost)||0)*(parseInt(i.onHand,10)||1); if(!highest||val>highest.val) highest={val,sku:i.sku||i.upc||"",desc:i.desc||""}; });
+  let highest=null; active.forEach(i=>{ const val=(parseFloat(i.retail)||parseFloat(i.unitCost)||0); if(!highest||val>highest.val) highest={val,sku:i.sku||i.upc||"",desc:i.desc||""}; });
   if(highest&&highest.val<=0) highest=null;
   // avg time listed (currently-listed items)
   const listedItems=items.filter(i=>i.listing&&i.listing.status==="listed"&&i.listing.listedAt);
@@ -3336,7 +3396,7 @@ function renderDashboard(){
   // 30-day daily series
   const days=[]; for(let k=29;k>=0;k--){ const d=new Date(startToday.getTime()-k*dayMs); days.push(d); }
   const sameDay=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
-  const sold30=days.map(d=>items.filter(i=>i.soldAt&&sameDay(new Date(i.soldAt),d)).length);
+  const sold30=days.map(d=>items.filter(i=>isRealSale(i)&&sameDay(new Date(i.soldAt),d)).length);
   const listed30=days.map(d=>items.filter(i=>i.listing&&i.listing.listedAt&&sameDay(new Date(i.listing.listedAt),d)).length);
   const catCount={}; active.forEach(i=>{ const cc=i.section||"—"; catCount[cc]=(catCount[cc]||0)+1; });
   const topCats=Object.entries(catCount).sort((a,b)=>b[1]-a[1]).slice(0,6); const maxCat=Math.max(1,...topCats.map(x=>x[1]));
@@ -3615,8 +3675,19 @@ function openDashWidgets(){
   render();
 }
 function saleVal(i){ return parseFloat(i.retail)||parseFloat(i.listing&&i.listing.price)||0; }
+// A SALE, not a write-off. deleteItems() and adjustOut() both stamp `sold` and `soldAt`, so every
+// item you deleted or wrote off used to be counted here as revenue — inflating Hot Items, Fastest
+// Turning and Most Profitable, and any report built on them. `outType` is what tells them apart:
+// a genuine eBay sale has none, a walk-in sale is "Sell", and everything else is an item leaving
+// inventory for a reason that isn't a customer.
+function isSaleRecord(i){
+  if(!i.soldAt) return false;
+  if(i.outType==="Deleted") return false;
+  if(i.outType && i.outType!=="Sell") return false;
+  return true;
+}
 function soldAggregate(opt){ opt=opt||{}; const {from,to,cats,byUser}=opt; const map={};
-  visibleItems().filter(i=>i.sold&&i.soldAt).forEach(i=>{ const d=new Date(i.soldAt);
+  visibleItems().filter(i=>isSaleRecord(i)).forEach(i=>{ const d=new Date(i.soldAt);
     if(from&&d<from) return; if(to&&d>to) return; if(cats&&cats.length&&!cats.includes(i.section)) return; if(byUser&&i.soldBy!==byUser) return;
     const key=(i.upc||i.desc||i.id);
     const m=map[key]||(map[key]={key,desc:i.desc||i.upc||"—",cat:i.section||"—",units:0,revenue:0,cost:0,profit:0,daysSum:0,daysN:0,last:null});
@@ -5049,7 +5120,8 @@ async function publishToEbay(it,onStep){
   if(!r.ok) return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"")+"\n\n— What WIM sent —\n"+JSON.stringify(invPayload,null,2) };
 
   let offerId=it.listing&&it.listing.offerId;
-  if(!offerId){
+  let createOffer=null;   // set below; also used to rebuild the offer if eBay has discarded it
+  {
     // Verify the inventory location actually exists on THIS account before sending it —
     // this is what produced eBay error 25002 ("Location information not found") when the
     // stored key came from a different account or environment.
@@ -5074,22 +5146,52 @@ async function publishToEbay(it,onStep){
       listingPolicies:{ fulfillmentPolicyId:DB.ebay.fulfillmentPolicyId, paymentPolicyId:DB.ebay.paymentPolicyId, returnPolicyId:DB.ebay.returnPolicyId },
       pricingSummary:{ price:{ value:String(price), currency:"USD" } },
       merchantLocationKey: DB.ebay.merchantLocationKey };
-    let or;
-    try{ or=await EBAY.postUser("/sell/inventory/v1/offer", JSON.stringify(offerPayload), EBAY_SCOPE_INV); }
-    catch(e){ return { ok:false, error:"Could not reach eBay (offer): "+(e&&e.message?e.message:e) }; }
-    if(!or.ok) return { ok:false, error:"eBay rejected the offer (HTTP "+or.status+"):\n"+(or.body||"") };
-    let od={}; try{ od=JSON.parse(or.body); }catch(e){}
-    offerId=od.offerId;
-    if(!offerId) return { ok:false, error:"eBay didn't return an offer ID:\n"+(or.body||"") };
-    if(!it.listing) it.listing={status:"none"};
-    it.listing.offerId=offerId; save();
+    createOffer = async ()=>{
+      const r = await EBAY.postUser("/sell/inventory/v1/offer", JSON.stringify(offerPayload), EBAY_SCOPE_INV);
+      if(!r.ok) return { ok:false, error:"eBay rejected the offer (HTTP "+r.status+"):\n"+(r.body||"") };
+      let d={}; try{ d=JSON.parse(r.body); }catch(e){}
+      if(!d.offerId) return { ok:false, error:"eBay didn't return an offer ID:\n"+(r.body||"") };
+      if(!it.listing) it.listing={status:"none"};
+      it.listing.offerId=d.offerId; save();
+      return { ok:true, offerId:d.offerId };
+    };
+    if(!offerId){
+      let mk;
+      try{ mk=await createOffer(); }
+      catch(e){ return { ok:false, error:"Could not reach eBay (offer): "+(e&&e.message?e.message:e) }; }
+      if(!mk.ok) return mk;
+      offerId=mk.offerId;
+    }
   }
 
   onStep&&onStep("Publishing the offer…");
+  const doPublish = (id)=> EBAY.postUser("/sell/inventory/v1/offer/"+encodeURIComponent(id)+"/publish", "{}", EBAY_SCOPE_INV);
   let pr;
-  try{ pr=await EBAY.postUser("/sell/inventory/v1/offer/"+encodeURIComponent(offerId)+"/publish", "{}", EBAY_SCOPE_INV); }
+  try{ pr=await doPublish(offerId); }
   catch(e){ return { ok:false, error:"Could not reach eBay (publish): "+(e&&e.message?e.message:e) }; }
-  if(!pr.ok) return { ok:false, error:"eBay rejected the publish (HTTP "+pr.status+"):\n"+(pr.body||"")+"\n\n(The offer itself was created — trying Publish again will reuse it, not create a duplicate.)" };
+
+  // SELF-HEAL A DEAD OFFER.
+  // WIM remembers the offer id so a retry reuses it instead of creating duplicates — good. But if
+  // eBay has since thrown that offer away (error 25713 "This Offer is not available", usually
+  // because an earlier failed attempt left it orphaned when the inventory item was rebuilt), then
+  // reusing it means every future retry publishes a corpse. The item becomes permanently
+  // unlistable and no amount of clicking List will ever fix it. So: if eBay says the offer is
+  // gone, believe it — forget the id, build a fresh offer, and publish that. Once only, so a real
+  // failure still surfaces instead of looping.
+  const offerIsDead = pr && !pr.ok && (pr.status===404 || String(pr.body||"").indexOf("25713")>=0);
+  if(offerIsDead && typeof createOffer==="function"){
+    onStep&&onStep("That offer no longer exists on eBay — rebuilding it…");
+    if(it.listing) it.listing.offerId=null;
+    let again;
+    try{ again=await createOffer(); }
+    catch(e){ return { ok:false, error:"Could not reach eBay while rebuilding the offer: "+(e&&e.message?e.message:e) }; }
+    if(!again.ok) return again;
+    offerId=again.offerId;
+    try{ pr=await doPublish(offerId); }
+    catch(e){ return { ok:false, error:"Could not reach eBay (publish): "+(e&&e.message?e.message:e) }; }
+  }
+
+  if(!pr.ok) return { ok:false, error:"eBay rejected the publish (HTTP "+pr.status+"):\n"+(pr.body||"")+"\n\n(The offer was created — trying Publish again will reuse it, not create a duplicate.)" };
   let pd={}; try{ pd=JSON.parse(pr.body); }catch(e){}
   const listingId=pd.listingId||"";
   if(!it.listing) it.listing={status:"none"};
@@ -6121,7 +6223,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         <div class="ff sm"><label style="text-align:left;">Slot</label><input class="txt" id="d-slot" list="sl-${it.id}" value="${esc(it.slot)}" ${dis}></div>
         <div class="ff sm"><label style="text-align:left;">Placement</label><input class="txt" id="d-place" value="${it.placement!=null?it.placement:''}" inputmode="numeric" ${dis}></div>
         <div class="ff sm"><label style="text-align:left;">Warehouse SKU</label>
-          <div style="display:flex;gap:4px;align-items:center;"><input class="txt" id="d-sku" value="${esc(isNew?'':firstUnit(it).sku)}" readonly style="flex:1;">
+          <div style="display:flex;gap:4px;align-items:center;"><input class="txt" id="d-sku" value="${esc(isNew?'':(it.sku||""))}" readonly style="flex:1;">
           ${(!isNew&&!isCat&&groupQty(it)>1)?`<button class="btn sm" id="d-sku-dd" title="Switch to viewing a different unit of this item">▼</button>`:''}</div></div>
         <div id="d-sku-list" style="display:none;border:1px solid #bbb;background:#fff;max-height:130px;overflow:auto;font-size:12px;"></div>
       </div>
@@ -6488,7 +6590,18 @@ function openItemDetail(item,mode,nav,defaultTab){
   if(nav && nav.list && nav.list.length){
     const navRoot=(openWindows[wid]&&openWindows[wid].el)?openWindows[wid].el:body;
     const pv=navRoot.querySelector("#d-prev"), nx=navRoot.querySelector("#d-next");
-    const go=(ni)=>{ if(ni<0||ni>=nav.list.length) return; const open=()=>{ _closeWin(); openItemDetail(nav.list[ni], mode, {list:nav.list, index:ni}); };
+    const go=(ni)=>{ if(ni<0||ni>=nav.list.length) return;
+      const open=()=>{
+        // _closeWin() is the normal close — and for a POPPED-OUT item window that closes the whole
+        // OS window (see doClose). So the arrows were shutting the window instead of paging to the
+        // next record. In a pop-out we swap the contents in place and leave the window standing.
+        if(WIM_POPOUT_MODE){
+          try{ const w=openWindows[wid]; if(w&&w.el) w.el.remove(); delete openWindows[wid]; renderTaskbar(); }catch(e){}
+        } else {
+          _closeWin();
+        }
+        openItemDetail(nav.list[ni], mode, {list:nav.list, index:ni});
+      };
       if(dirty){ uiConfirm("Discard unsaved changes and move to the other record?", open); } else open(); };
     if(pv) pv.onclick=()=>go(nav.index-1);
     if(nx) nx.onclick=()=>go(nav.index+1);
@@ -6569,7 +6682,7 @@ function openItemDetail(item,mode,nav,defaultTab){
     }
     const base={ upc, desc, condition, vendor:body.querySelector("#d-vendor").value, section:cat,
       unitCost:body.querySelector("#d-unitcost").value.trim()||"0.000", retail:body.querySelector("#d-retail").value.trim()||"0.00",
-      onHand:body.querySelector("#d-onhand").value.trim()||"1", groups:assigned, image:it.image||"",
+      onHand:"1", groups:assigned, image:it.image||"",   // one record = one physical copy; NEVER write the group total here
       manualSlot:manual.classList.contains("on"),
       category:it.category||"FRUIT", subCategory:it.subCategory||"", caseCost:it.caseCost||"0.00", casePack:it.casePack||"", base:it.base||"0.00", mixMatch:it.mixMatch||"None - 0", orderCode:it.orderCode||"", posDesc:it.posDesc||"", size:it.size||"1", sizeUnit:it.sizeUnit||"Pound", posDept:it.posDept||DB.posDepts[0] };
     const manualOn=manual.classList.contains("on");
@@ -6772,7 +6885,7 @@ function openItemDetail(item,mode,nav,defaultTab){
 }
 function deleteItems(units,userId){ // soft-delete: out of active, reversible from Records
   const lines=[];
-  units.forEach(it=>{ it.sold=true; it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Deleted"; addHistory(it,"Deleted (SKU "+it.sku+")");
+  units.forEach(it=>{ it.sold=true; setItemStatus(it,"inactive"); it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Deleted"; addHistory(it,"Deleted (SKU "+it.sku+")");
     lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'adjust',reversed:false}); });
   const rec=makeRecord("Delete",lines,userId); save(); return rec;
 }
@@ -6785,19 +6898,41 @@ function openDeleteDialog(it, after){
   }
   const picked=new Set([it.id]);
   const rowsHTML=units.map(u=>`<div class="pickrow${picked.has(u.id)?' on':''}" data-id="${u.id}"><span class="chk${picked.has(u.id)?' on':''}"></span><span><b>${esc(u.sku)}</b> &middot; slot ${esc(u.slot)}</span></div>`).join("");
-  const m=uiModal("Delete — choose SKU(s)", `<div style="font-size:13px;margin-bottom:6px;">"${esc(it.desc)}" has ${units.length} units. Select which Warehouse SKU(s) to delete. Deleted units move to the Catalog and can be restored from Records.</div>${rowsHTML}`,
+  const m=uiModal("Delete — choose SKU(s)", `<div style="font-size:13px;margin-bottom:6px;">"${esc(it.desc)}" has ${units.length} copies, each in its own slot. Pick the Warehouse SKU(s) to delete — or select them all to remove the item entirely. Deleted copies move to the Catalog and can be restored from Records.</div>
+    <div class="pickrow" id="dl-all" style="border-bottom:1px solid #d5dae1;margin-bottom:4px;font-weight:600;"><span class="chk" id="dl-allchk"></span><span>Select all ${units.length} copies (delete the whole item)</span></div>
+    ${rowsHTML}`,
     [{label:"Delete (1)",primary:true,onClick:(box)=>{ const ids=[...picked]; if(!ids.length){ return false; } const sel=units.filter(u=>picked.has(u.id)); const rec=deleteItems(sel, SESSION.user.id); if(after) after(); uiAlert(sel.length+" unit(s) deleted. Record #"+rec.num+" created (reversible)."); }},
      {label:"Cancel"}]);
   const delBtn=m.box.querySelector(".ui-modal-btns .btn.primary");
-  const upd=()=>{ delBtn.textContent="Delete ("+picked.size+")"; delBtn.disabled=picked.size===0; };
-  m.box.querySelectorAll(".pickrow").forEach(r=>{ r.onclick=()=>{ const id=r.dataset.id; if(picked.has(id)){ picked.delete(id); r.classList.remove("on"); r.querySelector(".chk").classList.remove("on"); } else { picked.add(id); r.classList.add("on"); r.querySelector(".chk").classList.add("on"); } upd(); }; });
+  const allRow=m.box.querySelector("#dl-all"), allChk=m.box.querySelector("#dl-allchk");
+  const upd=()=>{
+    delBtn.textContent = (picked.size===units.length)
+      ? ("Delete the whole item ("+units.length+" copies)")
+      : ("Delete ("+picked.size+")");
+    delBtn.disabled = picked.size===0;
+    // Keep the Select All box honest — tick it only when every copy really is selected.
+    const all = picked.size===units.length;
+    allChk.classList.toggle("on", all);
+    allRow.classList.toggle("on", all);
+  };
+  // Select all / none.
+  allRow.onclick=()=>{
+    if(picked.size===units.length){ picked.clear(); }
+    else { units.forEach(u=>picked.add(u.id)); }
+    m.box.querySelectorAll(".pickrow[data-id]").forEach(r=>{
+      const on=picked.has(r.dataset.id);
+      r.classList.toggle("on",on); r.querySelector(".chk").classList.toggle("on",on);
+    });
+    upd();
+  };
+  m.box.querySelectorAll(".pickrow[data-id]").forEach(r=>{ r.onclick=()=>{ const id=r.dataset.id; if(picked.has(id)){ picked.delete(id); r.classList.remove("on"); r.querySelector(".chk").classList.remove("on"); } else { picked.add(id); r.classList.add("on"); r.querySelector(".chk").classList.add("on"); } upd(); }; });
   upd();
 }
 function reactivateItem(it, closeCatalog){
   const histSku=it.sku, histSlot=it.slot, histPlace=it.placement;
   const conflict = histSlot && histPlace && activeItems().some(o=>o.slot===histSlot&&o.placement===histPlace);
   function reviveTo(slot,placement,manual){
-    it.sold=false; it.soldAt=null; it.soldBy=null; it.outType=null; if((parseFloat(it.onHand)||0)<1) it.onHand="1";
+    it.sold=false; setItemStatus(it,"active"); it.soldAt=null; it.soldBy=null; it.outType=null; it.onHand="1";
     it.manualSlot=!!manual; it.slot=slot||""; it.placement=placement||null; it.sku=(slot&&placement)?skuOf(slot,placement):"";
     addHistory(it,"Reactivated from catalog (SKU "+(it.sku||"unassigned")+")");
     recordAdds([it], SESSION.user.id, "Add");
@@ -8134,7 +8269,62 @@ function openLocalProfiles(){
         <button class="btn primary" id="lp-create">Create Blank Profile</button>
       </div>
       <div class="err" id="lp-err" style="margin-top:8px;"></div>
+      <div style="margin-top:22px;border-top:1px solid #e3e6ea;padding-top:14px;">
+        <div style="font-weight:700;font-size:13px;color:#922B21;margin-bottom:4px;">Start from a blank slate</div>
+        <p class="smallhint" style="margin:0 0 10px;">Wipes every item, all item history, and every sales/productivity figure in <b>this profile only</b> — so you can begin loading real inventory with nothing left over from testing. Your users, warehouse layout, categories, descriptions and eBay connection are all kept. This cannot be undone, so export a backup first.</p>
+        <button class="btn" id="lp-erase" style="background:#FDF3F2;border-color:#EFC9C4;color:#B4574C;font-weight:600;">Erase Inventory &amp; History (this profile)</button>
+      </div>
     </div>`;
+    // ERASE INVENTORY & HISTORY — start real inventory on a blank slate without losing the setup
+    // work (warehouse layout, users, categories, descriptions, eBay connection). Deliberately
+    // explicit about what goes and what stays, and it makes you type the word.
+    const eraseBtn=body.querySelector("#lp-erase");
+    if(eraseBtn) eraseBtn.onclick=()=>{
+      const m=uiModal("Erase inventory & history", `<div style="font-size:13px;min-width:460px;">
+        <div style="background:#FDECEA;border:1px solid #F0B0A8;border-left:6px solid #C0392B;border-radius:6px;padding:11px 14px;color:#922B21;margin-bottom:12px;">
+          <b>This cannot be undone.</b> Export a backup first if you're not certain.
+        </div>
+        <div style="display:flex;gap:22px;">
+          <div style="flex:1;">
+            <div style="font-weight:700;color:#922B21;font-size:12px;margin-bottom:5px;">ERASED</div>
+            <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;color:#3A4A63;">
+              <li>Every item &amp; its photos</li><li>All item history</li><li>Sales, shipping &amp; fulfillment records</li>
+              <li>Records / invoices</li><li>Imported scans</li><li>Pulled eBay listings</li>
+              <li>Supervisor review log &amp; accuracy figures</li><li>Messages, drafts &amp; claims</li><li>Print queue</li>
+            </ul>
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:700;color:#1F7244;font-size:12px;margin-bottom:5px;">KEPT</div>
+            <ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;color:#3A4A63;">
+              <li>Users &amp; permissions</li><li>Warehouse slots &amp; layout</li><li>Categories &amp; sub-categories</li>
+              <li>Saved descriptions</li><li>Message templates</li><li>Vendors</li><li>eBay connection</li>
+            </ul>
+          </div>
+        </div>
+        <div style="margin-top:14px;font-size:12.5px;">Type <b>ERASE</b> to confirm:</div>
+        <input class="txt" id="lp-erase-confirm" placeholder="ERASE" style="width:160px;margin-top:5px;text-transform:uppercase;">
+      </div>`, [
+        {label:"Erase everything", primary:true, onClick:(box)=>{
+          const typed=(box.querySelector("#lp-erase-confirm").value||"").trim().toUpperCase();
+          if(typed!=="ERASE"){ box.querySelector("#lp-erase-confirm").style.borderColor="#C0392B"; return false; }
+          // Wipe the data that represents "what has happened", keep the data that represents "how
+          // this warehouse is set up".
+          DB.items=[]; DB.invoices=[]; DB.importedScans=[]; DB.pulledListings=[]; DB.pulledOrderIds=[];
+          DB.shippingComparisons=[]; DB.reviewLog=[]; DB.printQueue=[]; DB.sentMessages=[];
+          DB.simulatedConversations=[]; DB.fulfillmentViolations=[]; DB.deletionAuditLog=[];
+          DB.agendaMessagesCache=[]; DB.agendaReadByUser={}; DB.fulfillmentViolationsReadByUser={};
+          DB.messageDrafts={}; DB.msgReadState={}; DB.msgClaims={}; DB.cachedFeedback={};
+          DB.feedbackSeenIds=[];
+          // Free every slot — nothing is on the shelves any more.
+          (DB.slots||[]).forEach(sl=>{ if(sl && sl.items) sl.items=[]; });
+          save(); wimRefreshAll();
+          uiAlert("Inventory and history erased. Your warehouse layout, users, categories and eBay connection are untouched — you're ready to load real inventory.");
+        }},
+        {label:"Cancel"}
+      ]);
+      setTimeout(()=>{ const i=m.box.querySelector("#lp-erase-confirm"); if(i) i.focus(); },50);
+    };
+
     const tb=body.querySelector("#lp-tb");
     rows.forEach(p=>{ const tr=document.createElement("tr"); const isActive=p.id===ACTIVE_PROFILE;
       tr.innerHTML=`<td>${esc(p.name)}${isActive?' <b style="color:#1f7244;">(active now)</b>':''}</td><td class="cc"></td>`;
@@ -10899,7 +11089,15 @@ function openSupervisorReview(){
     }
     const subs=subcatsOf(it.section||"");
     const dyn=aspectsFor(it)||[];
-    card.innerHTML=`${banner}
+    // WHY THIS IS HERE: a supervisor should not have to click List and then decode an eBay API
+    // error to find out the item was never listable. Everything eBay requires is knowable up
+    // front — so say it up front, on the card, before anyone wastes a click.
+    const blockers = (tab==="waiting") ? (ebayListingPrereqs(it)||[]) : [];
+    const blockerBanner = blockers.length ? `<div style="background:#FBF4E4;border:1px solid #E8D5A8;border-left:6px solid #F5A623;border-radius:8px;padding:10px 13px;margin-bottom:11px;">
+        <b style="color:#8A5E10;font-size:12.5px;">eBay won't accept this item yet — ${blockers.length} thing${blockers.length===1?'':'s'} missing:</b>
+        <ul style="margin:6px 0 0;padding-left:20px;color:#8A5E10;font-size:12px;line-height:1.6;">${blockers.map(b=>`<li>${esc(b)}</li>`).join("")}</ul>
+      </div>` : ``;
+    card.innerHTML=`${banner}${blockerBanner}
       <div style="display:flex;gap:16px;align-items:flex-start;">
         <div class="sr-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
@@ -10929,7 +11127,7 @@ function openSupervisorReview(){
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:140px;flex-shrink:0;">
           ${tab==="waiting"
-            ? `<button class="btn sm sr-list" style="background:#E6F4EA;border-color:#9AD3AE;color:#1F7244;font-weight:600;">✓ List</button>
+            ? `<button class="btn sm sr-list" ${blockers.length?'disabled':''} title="${blockers.length?"Can't list yet — see the notice on the card":"Publish this item to eBay"}" style="background:${blockers.length?'#EEF1F4':'#E6F4EA'};border-color:${blockers.length?'#d5dae1':'#9AD3AE'};color:${blockers.length?'#9aa3ad':'#1F7244'};font-weight:600;">✓ List</button>
                <button class="btn sm sr-reject" style="background:#FDECEA;border-color:#F0B0A8;color:#B03A2E;font-weight:600;">✕ Reject</button>`
             : `<button class="btn sm sr-delist" style="background:#FBF0E2;border-color:#E8C89A;color:#8A5E10;font-weight:600;">Delist</button>`}
           <button class="btn sm sr-open">View landing page</button>
