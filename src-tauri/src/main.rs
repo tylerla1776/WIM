@@ -343,6 +343,38 @@ async fn easypost_get_rates(
     }
 }
 
+// Real delivery status for a parcel whose label was bought SOMEWHERE ELSE (eBay, in our case).
+// EasyPost calls this a "standalone tracker": you hand it a tracking number + carrier, and it
+// tracks the parcel across whichever carrier actually has it.
+//
+// Cost note, because it matters operationally: EasyPost bills per UNIQUE TRACKER created
+// ($0.03 USPS / $0.02 other for standalone trackers), not per status check. Creating the same
+// tracking number twice returns the existing tracker rather than billing again — so re-checking
+// a parcel is free, and only genuinely new parcels cost anything.
+//
+// Status values it returns: pre_transit, in_transit, out_for_delivery, delivered, available_for_pickup,
+// return_to_sender, failure, cancelled, error, unknown.
+#[tauri::command]
+async fn easypost_track(api_key: String, tracking_code: String, carrier: String) -> ApiResult {
+    let url = "https://api.easypost.com/v2/trackers";
+    let body = serde_json::json!({
+        "tracker": { "tracking_code": tracking_code, "carrier": carrier }
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .basic_auth(api_key, Option::<String>::None)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await;
+    match resp {
+        Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
+            ApiResult { ok: status < 300, status, body: text } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 // Real EasyPost shipment creation — deliberately different from easypost_get_rates above.
 // That one calls /beta/rates, which their own docs say plainly returns Rate objects "that
 // do not include IDs" — fine for comparison, useless for actually buying anything. Buying a
@@ -1198,6 +1230,7 @@ fn main() {
             shippo_get_rates,
             shippo_buy_label,
             easypost_get_rates,
+            easypost_track,
             easypost_create_shipment,
             easypost_buy_label
         ])

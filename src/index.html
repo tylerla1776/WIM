@@ -378,7 +378,18 @@
   /* Simulation banner: a real top strip that pushes everything down instead of covering it */
   #sim-banner{position:fixed;top:0;left:0;right:0;height:26px;line-height:26px;z-index:100000;background:#c0392b;color:#fff;text-align:center;font-weight:700;font-size:13px;letter-spacing:.5px;}
   #sim-banner.hidden{display:none;}
-  body.sim-active #desktop{top:26px;height:calc(100% - 26px);}
+  /* #desktop is position:fixed with inset:0. "inset" is shorthand that sets top/right/bottom/left,
+     so a later "top:26px" alone loses to it unless it's more specific — which is why the banner
+     ended up FLOATING OVER the Warehouse/Live buttons instead of pushing them down. Re-declare the
+     full box so the desktop genuinely starts below the banner. */
+  /* Anything that is position:fixed with inset:0 will IGNORE a plain "top:26px" — inset is
+     shorthand that sets all four sides, so it wins. That's why the banner floated over content
+     instead of pushing it down. Every full-screen fixed container has to be re-anchored, not just
+     #desktop: .center-screen is what the home screen / launcher uses, which is why the banner kept
+     covering the Warehouse/Live buttons there even after #desktop was fixed. */
+  body.sim-active #desktop,
+  body.sim-active .center-screen{top:26px !important;right:0;bottom:0;left:0;height:calc(100% - 26px);}
+  body.sim-active .taskbar{bottom:0;} /* taskbar stays pinned to the bottom */
   body.sim-active #sim-banner{display:block;}
   /* Communication Outlook-style folder list */
   .cm-folder-item{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:13px;color:#3b434f;border-left:3px solid transparent;}
@@ -488,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.53", BUILD_DATE="2026-11-15", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.57", BUILD_DATE="2026-11-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -594,6 +605,10 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.57","REAL DELIVERY TRACKING. WIM already pulls the tracking number off eBay for items you shipped through them -- it now uses that number to ask the CARRIER where the parcel actually is. The Shipped tab gets a Track Shipments button and a real Delivery Status column: In transit, Out for delivery, Delivered, plus the last known city and an estimated arrival date. Anything the carrier confirms as DELIVERED moves itself into Completed automatically. This also fixes a bug I introduced last version: eBay fulfillment status only has three values and NONE of them mean delivered -- FULFILLED just means it shipped. I had treated that as delivered, which would have bounced every item straight from Shipped to Completed the moment you shipped it. eBay simply cannot tell you a parcel arrived; only the carrier can. Tracking uses EasyPost (same key as the shipping comparison) and costs about 3 cents per parcel, billed once per parcel -- re-checking is free, and delivered items are never re-checked. It is a button, never automatic, so you control the spend. LOCAL PICKUPS are detected automatically from eBay and shown in green on the shipping screen, so nobody sits waiting for tracking that will never arrive; there is a Move to Completed button to finish those by hand (also useful for anything a carrier never reports on). COMMUNICATION FIXES: Compose used to blank the screen -- it switched to a folder that no longer existed after the inbox was reorganised, so the buyer thread was there but invisible. And when a message cannot be replied to, WIM now says WHY and offers to open it on eBay.com, instead of the reply box silently vanishing."],
+  ["3.3.56","Shipping consolidation. The Recently Sold screen is gone -- it was a middle step that existed only to be clicked through, and everything it did (Mark Picked, Move to Shipping) was already in Shipping anyway. Sold items now land STRAIGHT in Shipping under Ready to Ship. Anything currently sitting in Recently Sold is moved there automatically when you first open this version, so nothing is lost. Pull Sold Orders now lives on the Ready to Ship tab -- that was the only thing Recently Sold could do that Shipping could not. The Status column is now sortable, so you can click it to group everything that still needs picking off the shelf. Mark Shipped moves the selected items over to the Shipped tab. Check for eBay.com Shipments has moved to the SHIPPED tab where it belongs: it now asks eBay for the delivery status of everything on that tab, fills in any tracking eBay knows about that WIM does not, and anything eBay reports as DELIVERED moves itself into Completed automatically. Completed is no longer something anyone has to remember to do by hand. All three tabs now show 20 items per page with page controls at the bottom. The full flow is now: item sells and appears in Ready to Ship, warehouse worker pulls it off the shelf and clicks Mark Picked (which frees the slot), the shipper takes it and clicks Mark Shipped, then Check for eBay.com Shipments on the Shipped tab moves it to Completed once it arrives."],
+  ["3.3.55","Two Simulation Mode banner fixes. On the HOME screen the banner was still sitting on top of the Warehouse/Live buttons -- same root cause as the one fixed last version, but in a second place I missed: the home screen uses a different full-screen container, and it had the identical CSS problem that made it ignore the banner offset. Both are now anchored below the banner. And turning Simulation Mode off now reloads EVERY open WIM window, not just the one you clicked in -- previously the home screen and any popped-out windows kept showing the red banner and simulated data until you closed them by hand. It signals the other windows two different ways so it also reaches pop-outs, which are separate windows and do not always hear the normal one."],
+  ["3.3.54","THE CANCEL BUG IS ACTUALLY FIXED. It survived four attempts because I kept rewriting JavaScript that was already correct. The real cause was in a configuration file I never looked at: Tauri only allows a window to do what it has been explicitly given permission to do, and permission to CLOSE a window was never granted. So every close call the app made was being silently rejected by Tauri itself. The inner screen would close (that needs no permission) but the actual window stayed behind as an empty shell. The permission is now granted. On top of that, if a window ever fails to close again it now says so out loud instead of failing silently -- a mute failure is what let this hide for so long. Simulation Mode banner fixes: it now sits ABOVE the Warehouse/Live buttons and pushes the app down instead of floating over them and blocking the buttons (the desktop CSS was overriding the offset). It also now appears in every popped-out window, so you can never be working in a separate window without realising you are in simulation mode. And turning Simulation Mode off now actually reloads WIM, so simulated items and counts disappear immediately rather than lingering until you fully close and reopen the app."],
   ["3.3.53","Made the Shipping Historical Comparison actually usable. The feature itself was real all along -- it genuinely calls Shippo and EasyPost for live rate quotes, pulls what eBay actually charged straight off the order, and picks a winner. The problem was that the API key fields were buried on a completely different screen (Shipping Data), so with no keys entered the Shippo and EasyPost columns just sat empty and the whole thing looked broken. Now the comparison screen tells you plainly at the top whether each service is connected, with an Add API keys button right there. Entering a key immediately tests it against the real service and tells you whether it works or was rejected, instead of saving a bad key and letting you find out later. Rate cells now say not connected instead of showing a blank dash that reads like a bug. And Fetch Missing Rates no longer silently does nothing -- it tells you if there are no API keys, or if records are missing a package weight so no carrier can quote them. Rate quotes are free on both services; WIM only ever asks for quotes and never buys labels."],
   ["3.3.52","Rewrote Pull New Listings so it can handle a real seller account. It was doing two things badly: it only ever looked at the FIRST 100 listings no matter how many existed, and it made a separate call to eBay for every single one to get its price. On an account with 1200 listings that is over a thousand calls back to back -- minutes of waiting, a good chance of hitting eBay rate limits, and an incomplete result anyway. It now pulls the 20 MOST RECENT listings that are not already in WIM, and stops. It is self-limiting: once the back catalogue is filed, a pull that finds 10 new listings does 10 items worth of work and knows the 11th is already in the system -- it never touches the other 1190. A Load 20 older listings button at the bottom lets you keep reaching further back while you are first bringing everything in. Each listing still becomes its own card and its own item with its own landing page. Fixed the duplicate logic too: it now matches on the eBay listing id and SKU only. It used to also treat WIM own warehouse SKUs and item numbers as if they were eBay ids, which are completely different things -- a collision would have silently skipped a real listing forever. And because it keys on the eBay listing id, the same book listed three separate times at 10am, 2pm and 4pm correctly comes through as three separate items, each with its own landing page, rather than being collapsed into one."],
   ["3.3.51","MAJOR FIX -- Price Compare was completely broken everywhere, including on the item landing page. When it was pulled out into a shared component in v3.3.44 it kept referencing a variable that only existed in the old screen it came from, so it threw an error the instant it opened and just blanked out. That was my mistake in that refactor. It is a proper parameter now and Price Compare works again on the landing page, Bulk Add, Import Scans and Supervisor Review. CANCEL FINALLY CLOSES THE WHOLE WINDOW. The real reason this kept coming back after being fixed twice: there were TWO separate close paths that had drifted apart, and Cancel was using the one that was never fixed. On top of that, the close call itself is asynchronous, so wrapping it in a try/catch always LOOKED successful even when it silently failed -- so the backup methods never ran. There is now exactly one close function that every Cancel, OK, X, Save-and-close and Delete goes through, and it properly waits on each method and falls back to the next if it fails. Opening the Listing Fields or Price Compare drawer on a card no longer redraws the whole list and throws you back to the top of the page -- the drawer just opens where it is. Category is no longer locked on an existing item: you can change it, and WIM automatically flags the item as manually slotted so it can stay in the slot it is physically in, instead of forcing you to delete and recreate the item. Package weight now defaults to 1 lb instead of being blank and blocking the listing. And Price Compare has a PriceCharting button that opens a pre-filled search for the item, alongside the eBay one."],
@@ -882,7 +897,11 @@ const POPOUT_APPS={
   crr:{ title:"Cancellations, Refunds, Returns", open:()=>openCancellationsRefundsReturns() },
   refunds:{ title:"Refunds", open:()=>openRefunds() },
   missingitem:{ title:"Waiting on Storage", open:()=>openMissingItem() },
-  recentlysold:{ title:"Recently Sold", open:()=>openRecentlySold() },
+  // RETIRED in v3.3.56 — Recently Sold was a middle screen that existed only to be clicked
+  // through: sold items now land straight in Shipping → Ready to Ship. No tree entry or route
+  // points here any more; the function is left in place only so nothing that might still reference
+  // it by name breaks. Safe to delete once you're confident nothing calls it.
+  recentlysold:{ title:"Recently Sold (retired)", open:()=>launchApp("shipping") },
   recentlylisted:{ title:"Recently Listed", open:()=>openRecentlyListed() },
   fulfillmentaccuracy:{ title:"Fulfillment Accuracy", open:()=>openFulfillmentAccuracy() },
   shipping:{ title:"Shipping", open:()=>openShipping() },
@@ -1071,7 +1090,22 @@ function wimRefreshAll(){ try{ if(typeof refreshSearchWindows==="function") refr
   try{ if(typeof renderTree==="function" && document.getElementById("tree-pane")) renderTree(); }catch(e){}
   try{ if(typeof renderDashboard==="function" && document.getElementById("detail-pane")) renderDashboard(); }catch(e){} }
 async function wimReloadFromStore(){ try{ let st=await idbGet(); if(!st){ const ls=localStorage.getItem(KEY); if(ls) st=JSON.parse(ls); } if(st){ DB=migrate(st); DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits; wimRefreshAll(); } }catch(e){ console.warn("WIM sync reload failed",e); } }
-try{ if(wimSyncBC) wimSyncBC.onmessage=(ev)=>{ if(ev&&ev.data&&ev.data.t==="changed") wimReloadFromStore(); }; }catch(e){}
+try{ if(wimSyncBC) wimSyncBC.onmessage=(ev)=>{
+  if(!ev||!ev.data) return;
+  if(ev.data.t==="changed") wimReloadFromStore();
+  // Simulation mode changed in ANOTHER window. Reloading only the window you clicked in left every
+  // other open window — including the home screen — still showing the red banner and still showing
+  // simulated items. Being wrong about whether you're in simulation mode is exactly how someone
+  // ends up trusting a fake number, so every window reloads.
+  if(ev.data.t==="sim-changed"){ try{ location.reload(); }catch(e){} }
+}; }catch(e){}
+// BroadcastChannel may not cross Tauri's separate webview windows, so also signal through
+// localStorage — the "storage" event DOES fire across windows and is the reliable path for pop-outs.
+try{
+  window.addEventListener("storage",(e)=>{
+    if(e && e.key==="WIM_SIM_CHANGED" && e.newValue){ try{ location.reload(); }catch(err){} }
+  });
+}catch(e){}
 
 function seed(){
   const now=new Date().toISOString();
@@ -1890,6 +1924,12 @@ async function boot(){
     if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
     try{ await restoreEbaySecretsFromVault(); }catch(e){ console.warn("WIM: eBay vault restore failed:",e); }
     try{ await idbPut(sanitizedForPersist(DB)); }catch(e){ try{ localStorage.setItem(KEY, JSON.stringify(sanitizedForPersist(DB))); }catch(_){} }
+    // Paint the simulation banner BEFORE the popout branch returns. It used to sit after this
+    // line, so a popped-out window never showed it — you could be working in a pop-out with no
+    // indication you were in simulation mode at all, which is precisely the confusion that gets
+    // someone to trust a fake number.
+    try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const b0=document.getElementById("sim-banner"); if(b0) b0.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
+    try{ migrateRecentlySold(); }catch(e){ console.warn("recentlySold migration failed", e); }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
     try{ localStorage.setItem("WIM_EBAY_ONLINE","0"); }catch(e){} EBAY_ONLINE=false; // a genuine app launch always starts offline
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const banner=document.getElementById("sim-banner"); if(banner) banner.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
@@ -1928,13 +1968,15 @@ function bootPopout(){
       WIM_ITEMDETAIL_WIN=true;
       openItemDetail(it, pend.mode||"edit", nav);
     }catch(e){ document.body.innerHTML="<pre style='padding:20px;'>Item window failed: "+String(e&&e.stack||e)+"</pre>"; }
-    const fill0=()=>{ const win=modalsEl.querySelector(".window"); if(win){ win.style.left="0px"; win.style.top="0px"; win.style.width=window.innerWidth+"px"; win.style.height=window.innerHeight+"px"; } };
+    const simTop=()=>DB.simulationMode?26:0; // leave room for the simulation banner strip
+    const fill0=()=>{ const win=modalsEl.querySelector(".window"); if(win){ const t=simTop(); win.style.left="0px"; win.style.top=t+"px"; win.style.width=window.innerWidth+"px"; win.style.height=(window.innerHeight-t)+"px"; } };
     setTimeout(fill0,30); window.addEventListener("resize",fill0); return;
   }
   const meta=POPOUT_APPS[WIM_POPOUT_KEY];
   if(!meta){ document.body.innerHTML="<pre style='padding:20px;font-family:Segoe UI,sans-serif;'>Unknown pop-out app.</pre>"; return; }
   try{ meta.open(); }catch(e){ document.body.innerHTML="<pre style='padding:20px;'>Pop-out failed: "+String(e&&e.stack||e)+"</pre>"; return; }
-  const fill=()=>{ const win=modalsEl.querySelector(".window"); if(win){ win.style.left="0px"; win.style.top="0px"; win.style.width=window.innerWidth+"px"; win.style.height=window.innerHeight+"px"; } };
+  const fillTop=()=>DB.simulationMode?26:0;
+  const fill=()=>{ const win=modalsEl.querySelector(".window"); if(win){ const t=fillTop(); win.style.left="0px"; win.style.top=t+"px"; win.style.width=window.innerWidth+"px"; win.style.height=(window.innerHeight-t)+"px"; } };
   setTimeout(fill,30); window.addEventListener("resize",fill);
 }
 
@@ -2030,7 +2072,24 @@ function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"
 // order it came from, the buyer's shipping info, and which stage it's at within
 // Fulfillment (recentlySold -> readyToShip/shipped -> completed). Kept separate from the
 // item's normal fields so a reactivated/returned item doesn't carry stale shipping data.
-function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"recentlySold", orderId:null, lineItemId:null, buyer:null, shipTo:null, isPickup:false, pickedAt:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
+// MIGRATION: the Recently Sold screen has been retired — it only ever existed to be clicked
+// through on the way to Shipping. Any item still parked in the old "recentlySold" stage is moved
+// into Ready to Ship, where it now belongs. Without this, those items would simply disappear along
+// with the screen that used to show them.
+function migrateRecentlySold(){
+  let moved=0;
+  (DB.items||[]).forEach(it=>{
+    const f=it.fulfillment;
+    if(f && f.stage==="recentlySold"){
+      f.stage="readyToShip";
+      if(!f.movedToShippingAt) f.movedToShippingAt=f.soldAt||new Date().toISOString();
+      moved++;
+    }
+  });
+  if(moved) save();
+  return moved;
+}
+function ensureFulfillment(it){ if(!it.fulfillment) it.fulfillment={ stage:"readyToShip", orderId:null, lineItemId:null, buyer:null, shipTo:null, isPickup:false, pickedAt:null, soldPrice:null, soldAt:null, movedToShippingAt:null, shippedAt:null, completedAt:null, trackingNumber:null, sentToCatalogAt:null }; return it.fulfillment; }
 function fulfillmentItems(stage){ return visibleItems().filter(i=>itemStatus(i)==="sold" && i.fulfillment && i.fulfillment.stage===stage); }
 function createdItems(){ return visibleItems().filter(i=>itemStatus(i)==="created"); }
 /* ===================== SUPERVISOR REVIEW — data model =====================
@@ -2328,22 +2387,31 @@ document.addEventListener("keydown",(e)=>{
 // attempt in turn is what actually fixes it.
 async function closePopoutWindow(){
   const T = window.__TAURI__ || {};
+  const errs=[];
   // 1) Tauri v2: getCurrentWindow()
   try{
     const W=T.window;
     const cw=W && (W.getCurrentWindow ? W.getCurrentWindow() : (W.appWindow || (W.getCurrent && W.getCurrent())));
     if(cw && cw.close){ await cw.close(); return true; }
-  }catch(e){ /* fall through to the next method */ }
+    errs.push("window.getCurrentWindow: not available");
+  }catch(e){ errs.push("window.close(): "+(e&&e.message?e.message:e)); }
   // 2) Tauri v2: getCurrentWebviewWindow()
   try{
     const WV=T.webviewWindow;
     const cur=WV && WV.getCurrentWebviewWindow && WV.getCurrentWebviewWindow();
     if(cur && cur.close){ await cur.close(); return true; }
-  }catch(e){ /* fall through */ }
+    errs.push("webviewWindow.getCurrentWebviewWindow: not available");
+  }catch(e){ errs.push("webviewWindow.close(): "+(e&&e.message?e.message:e)); }
   // 3) Last resort — plain browser close.
-  try{ window.close(); return true; }catch(e){}
+  try{ window.close(); return true; }catch(e){ errs.push("window.close(): "+(e&&e.message?e.message:e)); }
+  // Never fail silently again. A muted failure here is exactly what let the "Cancel doesn't close
+  // the window" bug survive four separate fixes: the real cause was a missing Tauri permission
+  // (core:window:allow-close), so every close call was being REJECTED, but nothing ever said so.
+  console.error("closePopoutWindow: every method failed —", errs.join(" | "));
+  try{ wimToast("This window couldn't close itself — please close it with the X. (See console for why.)","error"); }catch(e){}
   return false;
 }
+
 function buildWindow({id,title,width,height,toolbar,onClose,center=true,left,top,popoutKey,zoomGroup}){
   const win=document.createElement("div"); win.className="window"; win.dataset.wid=id;
   win.dataset.zoomgroup=zoomGroup||id;
@@ -2805,7 +2873,7 @@ function nodeActionsRaw(node){
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
   if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Import Scans","Adjust Inventory","Find by Photo"];
-  if(node.key==="fulfillment") return ["Recently Listed","Recently Sold","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
+  if(node.key==="fulfillment") return ["Recently Listed","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
   if(node.key==="financials") return ["True Net Profit","Vendor ROI Report"];
   if(node.key==="whdiscrep") return ["Listed, no SKU"];
   if(node.key==="reports") return ["Aging Inventory","Stale Listings","Low Stock","Listing Traffic","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
@@ -2972,7 +3040,7 @@ const DASH_WIDGETS={
     }},
   soldNotComplete:{title:"Items Sold, Not Complete",desc:"Items sold but not yet finished moving through Recently Sold → Shipping → Completed.",role:"all",modes:["live"],previewKind:"tile",
     render:c=>{
-      const picked=fulfillmentItems("recentlySold").length, shipping=fulfillmentItems("readyToShip").length+fulfillmentItems("shipped").length, completed=fulfillmentItems("completed").length;
+      const picked=fulfillmentItems("readyToShip").filter(i=>!(i.fulfillment&&i.fulfillment.pickedAt)).length, shipping=fulfillmentItems("readyToShip").length+fulfillmentItems("shipped").length, completed=fulfillmentItems("completed").length;
       const total=picked+shipping+completed;
       return c.tile("Sold, Not Complete", String(total), total?"#e08a1f":"#1f9d57", total?(picked+" picked · "+shipping+" shipping · "+completed+" completed"):"all caught up", ()=>launchApp("recentlysold"));
     }},
@@ -3738,7 +3806,6 @@ function actionCountBadge(label){
   else if(label==="Supervisor Review") n=awaitingReviewCount();
   else if(label==="Rejected") n=rejectedCount();
   else if(label==="Delisted") n=delistedCount();
-  else if(label==="Recently Sold") n=fulfillmentItems("recentlySold").length;
   else if(label==="Shipping") n=fulfillmentItems("readyToShip").length;
   else if(label==="Fulfillment Accuracy" && SESSION.user) n=unreadViolationCount(SESSION.user.id, null);
   else if(label==="Listed, no SKU") n=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId)).length;
@@ -3820,7 +3887,6 @@ function handleAction(k,a){
   if(k==="discrepancies"&&a==="Cancelled Orders") return launchApp("cancelledorders");
   if(k==="discrepancies"&&a==="Refunds") return launchApp("refunds");
   if(k==="discrepancies"&&a==="Waiting on Storage") return launchApp("missingitem");
-  if(k==="fulfillment"&&a==="Recently Sold") return launchApp("recentlysold");
   if(k==="fulfillment"&&a==="Recently Listed") return launchApp("recentlylisted");
   if(k==="fulfillment"&&a==="Shipping") return launchApp("shipping");
   if(k==="fulfillment"&&a==="Shipping Historical Comparison") return launchApp("shipcompare");
@@ -7979,7 +8045,7 @@ function buildDemoItem(idx,profileId,runTag){
     f.soldPrice=retail; f.soldAt=soldAt;
     const stageRoll=Math.random();
     const movedAt=demoDaysAgo(Math.max(0,soldWindowDaysAgo-1));
-    if(stageRoll<0.08){ f.stage="recentlySold"; }
+    if(stageRoll<0.08){ f.stage="readyToShip"; f.movedToShippingAt=new Date().toISOString(); }
     else if(stageRoll<0.16){ f.stage="readyToShip"; f.movedToShippingAt=movedAt; }
     else if(stageRoll<0.24){ f.stage="shipped"; f.movedToShippingAt=movedAt; f.shippedAt=demoDaysAgo(Math.max(0,soldWindowDaysAgo-2)); f.trackingNumber="1Z"+Math.floor(Math.random()*900000000+100000000); }
     else{ f.stage="completed"; f.movedToShippingAt=movedAt;
@@ -8057,7 +8123,27 @@ function openSimulationMode(){
       `}
       `:``}
       </div>`;
-    body.querySelector("#sim-toggle").onclick=()=>{ DB.simulationMode=!DB.simulationMode; save(); refreshMessageUnreadCache(); wimRefreshAll(); render(); };
+    body.querySelector("#sim-toggle").onclick=()=>{
+      const turningOn = !DB.simulationMode;
+      DB.simulationMode = turningOn; save();
+      // Turning simulation mode off used to leave WIM in a half-simulated state until the app was
+      // fully closed and reopened: simulated items stayed visible, counts stayed wrong, and the red
+      // banner lingered. Too many screens cache what's visible for a piecemeal refresh to be
+      // trustworthy — and being *wrong about whether you're in simulation mode* is exactly the kind
+      // of thing that ends with someone shipping a fake order. So it does a genuine reload, which
+      // also repaints the banner in every open pop-out window.
+      uiConfirm(
+        turningOn ? "Turn Simulation Mode ON? WIM will reload." : "Turn Simulation Mode OFF? WIM will reload so nothing simulated is left on screen.",
+        ()=>{
+          // Tell every other open WIM window (home screen, pop-outs) to reload too — otherwise they
+          // keep the banner and keep showing simulated data.
+          try{ if(wimSyncBC) wimSyncBC.postMessage({ t:"sim-changed", on:turningOn, at:Date.now() }); }catch(e){}
+          try{ localStorage.setItem("WIM_SIM_CHANGED", String(Date.now())); }catch(e){} // reaches pop-out windows
+          try{ location.reload(); }catch(e){ wimRefreshAll(); render(); }
+        },
+        { yes:"Reload now", no:"Not yet" }
+      );
+    };
     if(!on) return;
     body.querySelector("#sim-profpick").onchange=(e)=>{ if(e.target.value) switchToProfile(e.target.value); };
     body.querySelector("#sim-newprofile").onclick=()=>{
@@ -8164,7 +8250,7 @@ function openSimulateSaleDialog(profileId,onDone){
     const it=DB.items.find(i=>i.id===body.querySelector("#ss-item").value); if(!it) return;
     const buyer=body.querySelector("#ss-buyer").value;
     const f=ensureFulfillment(it);
-    f.stage="recentlySold"; f.orderId="SIM-ORDER-"+Math.floor(Math.random()*100000); f.lineItemId="SIM-LI-1";
+    f.stage="readyToShip"; f.movedToShippingAt=new Date().toISOString(); f.orderId="SIM-ORDER-"+Math.floor(Math.random()*100000); f.lineItemId="SIM-LI-1";
     f.buyer=buyer; f.shipTo={ fullName:buyer, contactAddress:{ addressLine1:"123 Test St", city:"Testville", stateOrProvince:"KS", postalCode:"00000", countryCode:"US" } };
     f.soldPrice=it.listing&&it.listing.price||it.retail||"9.99"; f.soldAt=new Date().toISOString();
     setItemStatus(it,"sold"); addHistory(it,"[Simulated] Sold to "+buyer);
@@ -8744,7 +8830,7 @@ async function pullRecentlySold(daysBack){
       const localItem = sku ? DB.items.find(i=>i.upc===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : null;
       if(!localItem){ continue; } // no local match (no Item Number, or not found) — nothing to move; left for manual handling
       const f=ensureFulfillment(localItem);
-      f.stage="recentlySold";
+      f.stage="readyToShip"; f.movedToShippingAt=f.movedToShippingAt||new Date().toISOString();
       f.orderId=order.orderId; f.lineItemId=li.lineItemId;
       f.buyer=order.buyer&&order.buyer.username||null;
       const startInstr=order.fulfillmentStartInstructions&&order.fulfillmentStartInstructions[0];
@@ -8843,6 +8929,95 @@ async function checkForDirectShipments(onProgress){
   if(found){ save(); wimRefreshAll(); }
   return { checked, found };
 }
+// For the SHIPPED tab: ask eBay what's actually happened to these parcels. Fills in any tracking
+// eBay knows about that WIM doesn't, and — the important part — moves anything eBay reports as
+// DELIVERED straight into Completed. Otherwise Completed only ever fills up via the timer, and an
+// item that arrived yesterday sits in Shipped looking unresolved for days.
+async function checkShippedDelivery(items, onProgress){
+  const epKey = await carrierGetSecret2("easypost","key").catch(()=>"");
+  const candidates=(items||[]).filter(it=>it.fulfillment&&it.fulfillment.orderId&&!it.fulfillment.isPickup);
+  let checked=0, delivered=0, updated=0, tracked=0, noKey=0;
+  for(const it of candidates){
+    checked++; onProgress&&onProgress(checked, candidates.length);
+    const f=it.fulfillment;
+    // ---- 1) Ask eBay what IT knows. -------------------------------------------------------
+    // IMPORTANT: eBay's fulfillment status has exactly three values — NOT_STARTED, IN_PROGRESS
+    // and FULFILLED — and NONE of them mean "delivered". eBay's own docs say FULFILLED means the
+    // order has SHIPPED; anything after that is "the post-order phase". An earlier version of this
+    // code treated FULFILLED as delivered, which would have bounced every item from Shipped to
+    // Completed the instant it was shipped. So FULFILLED is used for what it actually means: it
+    // confirms the parcel is on its way, and hands us the tracking number.
+    try{
+      const r=await EBAY.user("/sell/fulfillment/v1/order/"+encodeURIComponent(f.orderId));
+      if(r.ok){
+        const order=JSON.parse(r.body);
+        const li=(order.lineItems||[]).find(x=>x.lineItemId===f.lineItemId);
+        if(li){
+          const instr=(li.lineItemFulfillmentInstructions||[])[0] || li;
+          const trackingNumber=instr.shipmentTrackingNumber, carrierCode=instr.shippingCarrierCode;
+          if(trackingNumber && !f.trackingNumber){
+            f.trackingNumber=trackingNumber;
+            f.carrierCode=carrierCode||f.carrierCode||"";
+            f.trackingUrl=buildTrackingUrl(carrierCode,trackingNumber);
+            addHistory(it,"Tracking picked up from eBay — "+trackingNumber+(carrierCode?" via "+carrierCode:""));
+            updated++;
+          }
+        }
+      }
+    }catch(e){ /* one bad order shouldn't abort the sweep */ }
+
+    // ---- 2) Ask the CARRIER where the parcel actually is. ----------------------------------
+    // This is the only real source of delivery status. eBay can't tell us. EasyPost bills per
+    // unique tracker, not per check — so re-checking a parcel we've already tracked is free, and
+    // an item that's already delivered is skipped entirely.
+    if(!f.trackingNumber) continue;
+    if(f.stage!=="shipped") continue;
+    if(!epKey){ noKey++; continue; }
+    if(!WIM_IS_DESKTOP) continue;
+    try{
+      const carrier=(f.carrierCode||"USPS").toUpperCase().replace(/[^A-Z]/g,"") || "USPS";
+      const tr=await wimDesktop.invoke("easypost_track",{ apiKey:epKey, trackingCode:f.trackingNumber, carrier });
+      if(!tr || !tr.ok) continue;
+      const t=JSON.parse(tr.body||"{}");
+      const status=String(t.status||"").toLowerCase();  // pre_transit | in_transit | out_for_delivery | delivered | ...
+      tracked++;
+      f.carrierStatus=status;
+      f.carrierStatusAt=new Date().toISOString();
+      if(t.est_delivery_date) f.estDelivery=t.est_delivery_date;
+      const last=(t.tracking_details||[]).slice(-1)[0];
+      if(last && last.tracking_location){
+        const L=last.tracking_location;
+        f.carrierLocation=[L.city,L.state].filter(Boolean).join(", ");
+      }
+      if(t.public_url) f.trackingUrl=t.public_url;
+      if(status==="delivered"){
+        f.stage="completed";
+        f.completedAt=new Date().toISOString();
+        f.deliveredAt=f.completedAt;
+        addHistory(it,"Carrier confirms DELIVERED — moved to Completed");
+        delivered++;
+      }
+    }catch(e){ /* keep going */ }
+  }
+  if(delivered||updated||tracked){ save(); wimRefreshAll(); }
+  return { checked, delivered, updated, tracked, noKey };
+}
+// Plain-English label for a carrier status, so the Shipping screen reads like a human wrote it.
+function carrierStatusLabel(s){
+  const m={ pre_transit:"Label created", in_transit:"In transit", out_for_delivery:"Out for delivery",
+            delivered:"Delivered", available_for_pickup:"Ready for pickup", return_to_sender:"Returning to sender",
+            failure:"Delivery problem", cancelled:"Cancelled", error:"Tracking error", unknown:"No scans yet" };
+  return m[String(s||"").toLowerCase()] || "";
+}
+function carrierStatusColor(s){
+  const v=String(s||"").toLowerCase();
+  if(v==="delivered") return "#1f7244";
+  if(v==="out_for_delivery") return "#0f6cbd";
+  if(v==="failure"||v==="return_to_sender"||v==="error") return "#c0392b";
+  if(v==="in_transit") return "#5b6470";
+  return "#8a95a3";
+}
+
 function openShipping(){
   if(openWindows["shipping"]){ focusWin(openWindows["shipping"].el); return; }
   checkAutoComplete();
@@ -8850,40 +9025,80 @@ function openShipping(){
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real shipped-status updates to eBay; label printing uses your own printer until eBay label access is set up</span>`});
   let tab="readyToShip"; let picked=new Set();
   let shSort={key:"moved",dir:1};
-  const SH_COLS=[{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"sku",label:"SKU",get:it=>it.sku,t:"mixed"},{k:"buyer",label:"Buyer",get:it=>it.fulfillment.buyer,t:"text"},{k:"shipto",label:"Ship To",get:it=>(it.fulfillment.shipTo&&it.fulfillment.shipTo.fullName)||"",t:"text"},{k:"moved",label:"",get:it=>it.fulfillment.movedToShippingAt||"",t:"text"}];
+  let page=1;
+  const SH_PER_PAGE=20;
+  // "status" is sortable so you can group everything still waiting to be picked — that's the whole
+  // point of the column: a warehouse worker wants to see what still needs pulling off the shelf.
+  const SH_COLS=[{k:"desc",label:"Description",get:it=>it.desc,t:"text"},{k:"sku",label:"SKU",get:it=>it.sku,t:"mixed"},{k:"buyer",label:"Buyer",get:it=>it.fulfillment.buyer,t:"text"},{k:"shipto",label:"Ship To",get:it=>(it.fulfillment.shipTo&&it.fulfillment.shipTo.fullName)||"",t:"text"},{k:"status",label:"Status",get:it=>it.fulfillment.pickedAt?"Picked":"",t:"text"},{k:"moved",label:"",get:it=>it.fulfillment.movedToShippingAt||"",t:"text"}];
   function render(){
     const stage = tab==="readyToShip" ? "readyToShip" : tab;
-    const col=SH_COLS.find(c=>c.k===shSort.key);
-    const items=fulfillmentItems(stage).sort((a,b)=>cmpVal(col.get(a),col.get(b),col.t)*shSort.dir);
+    const col=SH_COLS.find(c=>c.k===shSort.key) || SH_COLS[0];
+    const allItems=fulfillmentItems(stage).sort((a,b)=>cmpVal(col.get(a),col.get(b),col.t)*shSort.dir);
+    const pages=Math.max(1,Math.ceil(allItems.length/SH_PER_PAGE));
+    if(page>pages) page=pages;
+    const items=allItems.slice((page-1)*SH_PER_PAGE, page*SH_PER_PAGE);
     const adminBar = role()==="admin" ? `<div style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:#555;">Auto-move to Completed after <input class="txt" id="sh-autodays" type="number" min="1" max="60" value="${DB.fulfillmentSettings.autoCompleteDays}" style="width:50px;text-align:center;"> days <button class="btn sm" id="sh-savedays">Save</button></div>` : "";
     body.innerHTML=`<div style="padding:14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">
         <button class="btn sm ${tab==='readyToShip'?'primary':''}" id="sh-tab-rts">Ready to Ship${fulfillmentItems('readyToShip').length?' ('+fulfillmentItems('readyToShip').length+')':''}</button>
         <button class="btn sm ${tab==='shipped'?'primary':''}" id="sh-tab-shipped">Shipped${fulfillmentItems('shipped').length?' ('+fulfillmentItems('shipped').length+')':''}</button>
         <button class="btn sm ${tab==='completed'?'primary':''}" id="sh-tab-completed">Completed${fulfillmentItems('completed').length?' ('+fulfillmentItems('completed').length+')':''}</button>
-        ${tab==="readyToShip" && items.length?`<button class="btn sm" id="sh-checkcancel" title="Ask eBay whether any of these orders have been cancelled — do this before you ship" style="border-color:#b06000;color:#8A5E10;">⚠ Check for Cancellations</button><span class="smallhint" id="sh-cancelmsg"></span>`:``}
+        ${tab==="readyToShip"?`<button class="btn sm" id="sh-pullsold" title="Fetch recent eBay orders — sold items land straight in Ready to Ship">Pull Sold Orders</button>`:``}
+        ${tab==="readyToShip" && items.length?`<button class="btn sm" id="sh-checkcancel" title="Ask eBay whether any of these orders have been cancelled — do this before you ship" style="border-color:#b06000;color:#8A5E10;">⚠ Check for Cancellations</button>`:``}
+        <span class="smallhint" id="sh-cancelmsg"></span>
         ${adminBar}
       </div>
       ${tab==="readyToShip" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
         <button class="btn" id="sh-printlabel" ${!picked.size?"disabled":""}>Print Label${picked.size===1?"":"s"}${picked.size?" ("+picked.size+")":""}</button>
         <button class="btn primary" id="sh-picked" ${!picked.size?"disabled":""} style="background:#8a5cd6;border-color:#8a5cd6;" title="Confirms the item was physically taken off the shelf and moved to the shipping area — this is what actually frees up its slot position, not Mark Shipped">Mark Picked${picked.size?" ("+picked.size+")":""}</button>
-        <button class="btn primary" id="sh-shipped" ${!picked.size?"disabled":""}>Mark Shipped${picked.size?" ("+picked.size+")":""}</button>
-        <button class="btn sm" id="sh-checkdirect" title="Checks whether any of these were shipped through eBay.com directly, or any other means outside WIM">Check for eBay.com Shipments</button>
+        <button class="btn primary" id="sh-shipped" ${!picked.size?"disabled":""} title="Moves the selected items to the Shipped tab — they've physically left the warehouse">Mark Shipped${picked.size?" ("+picked.size+")":""}</button>
+        <span class="smallhint" id="sh-msg"></span></div>`:``}
+      ${tab==="shipped" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
+        <button class="btn sm" id="sh-checkdirect" title="Ask eBay for tracking numbers, then ask the carrier where each parcel actually is. Anything the carrier confirms as DELIVERED moves to Completed automatically.">📦 Track Shipments</button>
+        <button class="btn sm" id="sh-forcecomplete" ${!picked.size?"disabled":""} title="Manually move the selected items to Completed — for local pickups, or anything the carrier never reported on">Move to Completed${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${tab==="completed" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
         <button class="btn primary" id="sh-catalog" ${!picked.size?"disabled":""}>Catalog${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
-      ${!items.length?`<div class="note">${tab==="readyToShip"?'Nothing waiting to ship. Items move here from Recently Sold.':tab==="shipped"?'Nothing shipped yet.':'Nothing completed yet. Items move here automatically '+DB.fulfillmentSettings.autoCompleteDays+' day(s) after shipping.'}</div>`:``}
+      ${!allItems.length?`<div class="note">${tab==="readyToShip"?'Nothing waiting to ship. Sold items land here automatically — click <b>Pull Sold Orders</b> to fetch recent eBay sales.':tab==="shipped"?'Nothing shipped yet. Select items in Ready to Ship and click <b>Mark Shipped</b>.':'Nothing completed yet. Items move here when eBay reports them delivered, or automatically '+DB.fulfillmentSettings.autoCompleteDays+' day(s) after shipping.'}</div>`:``}
       <div class="resultwrap" style="margin:0;flex:1;overflow:auto;"><table class="res"><thead><tr>
         <th style="width:30px;"></th><th style="width:54px;">Photo</th>${SH_COLS.slice(0,4).map(c=>`<th style="cursor:pointer;" data-sortk="${c.k}">${esc(c.label)}${shSort.key===c.k?` <span class="arr">${shSort.dir>0?'▲':'▼'}</span>`:""}</th>`).join("")}
-        ${tab==="readyToShip"?'<th style="width:90px;">Status</th>':''}
-        ${tab==="shipped"?'<th>Tracking</th><th>Shipped</th>':''}
+        ${tab==="readyToShip"?`<th style="width:96px;cursor:pointer;" data-sortk="status">Status${shSort.key==="status"?` <span class="arr">${shSort.dir>0?'▲':'▼'}</span>`:""}</th>`:''}
+        ${tab==="shipped"?'<th style="width:130px;">Delivery Status</th><th>Tracking</th><th style="width:90px;">Shipped</th>':''}
         ${tab==="completed"?'<th>Feedback</th><th>Rating</th><th style="width:90px;">Shipped</th><th style="width:80px;">Fulfillment</th>':''}
         <th style="width:34px;">&#9993;</th><th></th>
-      </tr></thead><tbody id="sh-tb"></tbody></table></div></div>`;
-    body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(shSort.key===k) shSort.dir*=-1; else shSort={key:k,dir:1}; render(); });
+      </tr></thead><tbody id="sh-tb"></tbody></table></div>
+      ${pages>1?`<div style="display:flex;align-items:center;gap:8px;padding-top:10px;font-size:12.5px;">
+        <span class="smallhint"><b>${allItems.length}</b> item(s) — showing ${(page-1)*SH_PER_PAGE+1}–${Math.min(page*SH_PER_PAGE, allItems.length)}</span>
+        <span style="flex:1;"></span>
+        <button class="btn sm" id="sh-prev" ${page<=1?"disabled":""}>‹ Prev</button>
+        <select class="cmb" id="sh-page" style="height:26px;font-size:12px;width:86px;">${Array.from({length:pages},(_,i)=>`<option value="${i+1}" ${page===i+1?"selected":""}>${i+1} / ${pages}</option>`).join("")}</select>
+        <button class="btn sm" id="sh-next" ${page>=pages?"disabled":""}>Next ›</button>
+      </div>`:``}
+      </div>`;
+    body.querySelectorAll("[data-sortk]").forEach(h=>h.onclick=()=>{ const k=h.dataset.sortk; if(shSort.key===k) shSort.dir*=-1; else shSort={key:k,dir:1}; page=1; render(); });
+    const pv=body.querySelector("#sh-prev"); if(pv) pv.onclick=()=>{ if(page>1){ page--; picked.clear(); render(); } };
+    const nx=body.querySelector("#sh-next"); if(nx) nx.onclick=()=>{ if(page<pages){ page++; picked.clear(); render(); } };
+    const pg=body.querySelector("#sh-page"); if(pg) pg.onchange=e=>{ page=parseInt(e.target.value,10)||1; picked.clear(); render(); };
+    // Pull Sold Orders — this replaces the whole Recently Sold screen. Sold items now land straight
+    // in Ready to Ship instead of sitting in a middle screen that only existed to be clicked through.
+    const psBtn=body.querySelector("#sh-pullsold");
+    if(psBtn) psBtn.onclick=async ()=>{
+      const msg=body.querySelector("#sh-cancelmsg");
+      if(!EBAY.ready()){ uiAlert("Not connected to eBay — click Connect next to the mode badge, then try again."); return; }
+      psBtn.disabled=true; psBtn.textContent="Pulling…";
+      try{
+        const r=await pullRecentlySold(30);
+        if(msg){ msg.style.color="#1f7244"; msg.textContent=(r&&r.added!=null)?("Pulled "+r.added+" new sold item(s)."+(r.skipped?(" "+r.skipped+" already here."):"")):"Pull complete."; }
+        picked.clear(); page=1; render(); wimRefreshAll();
+      }catch(e){
+        if(msg){ msg.style.color="#c0392b"; msg.textContent="Couldn't pull sold orders: "+(e&&e.message?e.message:e); }
+        psBtn.disabled=false; psBtn.textContent="Pull Sold Orders";
+      }
+    };
     const tb=body.querySelector("#sh-tb");
     body.querySelector("#sh-tab-rts").onclick=()=>{ tab="readyToShip"; picked.clear(); render(); };
     // Check for Cancellations — the safety net before anything gets shipped. eBay only reveals a
@@ -8946,14 +9161,45 @@ function openShipping(){
         save(); wimRefreshAll(); picked.clear(); render();
       };
       body.querySelector("#sh-shipped").onclick=()=>openMarkShippedDialog(items.filter(i=>picked.has(i.id)), ()=>{ picked.clear(); render(); });
+    }
+    // Check for eBay.com Shipments now lives on the SHIPPED tab, where it belongs: it asks eBay for
+    // the current delivery status of everything that's already gone out, and anything eBay reports
+    // as DELIVERED moves itself to Completed. That's the whole point — Completed shouldn't be a
+    // thing someone has to remember to do by hand.
+    if(tab==="shipped" && items.length){
+      body.querySelector("#sh-selall").onclick=()=>{ if(picked.size===items.length){ picked.clear(); } else { items.forEach(i=>picked.add(i.id)); } render(); };
       const checkDirectBtn=body.querySelector("#sh-checkdirect");
       if(checkDirectBtn) checkDirectBtn.onclick=async ()=>{
         if(!EBAY.ready()){ uiAlert("Not connected to eBay — connect via the mode badge first."); return; }
         checkDirectBtn.disabled=true; const origText=checkDirectBtn.textContent;
-        const r=await checkForDirectShipments((done,total)=>{ checkDirectBtn.textContent="Checking "+done+"/"+total+"…"; });
+        const r=await checkShippedDelivery(items,(done,total)=>{ checkDirectBtn.textContent="Checking "+done+"/"+total+"…"; });
         checkDirectBtn.disabled=false; checkDirectBtn.textContent=origText;
-        uiAlert(r.found ? (r.found+" item(s) were shipped through eBay.com directly — moved to Shipped with real tracking.") : "Checked "+r.checked+" item(s) — none had been shipped outside WIM yet.");
-        render();
+        const bits=[];
+        if(r.delivered) bits.push("<b style='color:#1f7244;'>"+r.delivered+" delivered</b> → moved to Completed");
+        if(r.tracked) bits.push(r.tracked+" tracked with the carrier");
+        if(r.updated) bits.push(r.updated+" tracking number(s) picked up from eBay");
+        let extra="";
+        if(r.noKey) extra=`<div style="margin-top:8px;padding:8px 10px;background:#FBF4E4;border:1px solid #E8D5A8;border-radius:6px;color:#8A5E10;">
+          <b>No EasyPost key</b> — ${r.noKey} parcel(s) couldn't be tracked. eBay can only tell WIM that something <i>shipped</i>, never that it <i>arrived</i>; only the carrier knows that. Add an EasyPost key under <b>Shipping Historical Comparison → Add API keys</b> to get real delivery status. (~3¢ per parcel, billed once per parcel — re-checking is free.)</div>`;
+        uiModal("Shipment check", `<div style="font-size:13px;min-width:400px;">
+          <div>Checked <b>${r.checked}</b> item(s).</div>
+          ${bits.length?`<div style="margin-top:6px;">${bits.join("<br>")}</div>`:`<div style="margin-top:6px;color:#5b6470;">Nothing new — no parcels have been delivered yet.</div>`}
+          ${extra}</div>`, [{label:"OK",primary:true}]);
+        picked.clear(); render(); wimRefreshAll();
+      };
+      // Manual override — the only path for local pickups (no carrier, no tracking, nothing to
+      // check), and the fallback whenever a carrier simply never reports a parcel as delivered.
+      const fc=body.querySelector("#sh-forcecomplete");
+      if(fc) fc.onclick=()=>{
+        const targets=items.filter(i=>picked.has(i.id));
+        if(!targets.length) return;
+        uiConfirm("Move "+targets.length+" item(s) to Completed?", ()=>{
+          targets.forEach(it=>{ const f=it.fulfillment;
+            f.stage="completed"; f.completedAt=new Date().toISOString();
+            addHistory(it, f.isPickup ? "Local pickup — collected by buyer, moved to Completed manually"
+                                      : "Moved to Completed manually"); });
+          save(); wimRefreshAll(); picked.clear(); render();
+        });
       };
     }
     if(tab==="completed" && items.length){
@@ -8977,8 +9223,16 @@ function openShipping(){
         <td style="font-size:12px;">${esc(it.sku||"—")}</td>
         <td style="font-size:12px;">${esc(f.buyer||"—")}</td>
         <td style="font-size:12px;">${esc(shipToText)}</td>
-        ${tab==="readyToShip"?`<td style="font-size:11.5px;font-weight:600;color:${f.pickedAt?'#8a5cd6':'#9aa3ad'};">${f.pickedAt?"Picked":"On shelf"}</td>`:""}
-        ${tab==="shipped"?`<td style="font-size:12px;">${f.trackingNumber?`<a href="#" data-track="${esc(it.id)}" style="text-decoration:underline;color:#2f6fb3;">${esc(f.trackingNumber)}</a>`:"—"}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
+        ${tab==="readyToShip"?`<td style="font-size:11.5px;font-weight:600;color:${f.pickedAt?'#8a5cd6':'#9aa3ad'};">${f.pickedAt?"Picked":"On shelf"}${f.isPickup?`<div style="color:#1f9d55;font-weight:700;font-size:10.5px;margin-top:2px;">LOCAL PICKUP</div>`:``}</td>`:""}
+        ${tab==="shipped"?`<td style="font-size:12px;">${
+            f.isPickup
+              ? `<b style="color:#1f9d55;">LOCAL PICKUP</b><div class="smallhint">no tracking — complete by hand</div>`
+              : (f.carrierStatus
+                  ? `<b style="color:${carrierStatusColor(f.carrierStatus)};">${esc(carrierStatusLabel(f.carrierStatus))}</b>`
+                    + (f.carrierLocation?`<div class="smallhint">${esc(f.carrierLocation)}</div>`:``)
+                    + (f.estDelivery && f.carrierStatus!=="delivered" ? `<div class="smallhint">ETA ${esc(fmtDate(f.estDelivery))}</div>`:``)
+                  : `<span class="smallhint">not checked yet</span>`)
+          }</td><td style="font-size:12px;">${f.trackingNumber?`<a href="#" data-track="${esc(it.id)}" style="text-decoration:underline;color:#2f6fb3;">${esc(f.trackingNumber)}</a>`:"—"}</td><td style="font-size:11px;">${f.shippedAt?fmtDate(f.shippedAt):"—"}</td>`:""}
         ${tab==="completed"?`<td style="font-size:12px;cursor:${fb?'pointer':'default'};" ${fb?`data-full="${esc(fb.commentText||"")}"`:""}>${fb?esc((fb.commentText||"").slice(0,25))+((fb.commentText||"").length>25?"…":""):"—"}</td><td style="font-size:12px;color:${fbColor};font-weight:600;">${fb?esc(fb.commentType):"—"}</td><td style="font-size:11px;">${f.isPickup?(f.pickedUpAt?fmtDate(f.pickedUpAt):"—"):(f.shippedAt?fmtDate(f.shippedAt):"—")}</td><td><span style="font-weight:700;font-size:11.5px;color:${f.isPickup?'#1f9d55':'#3b7dd8'};">${f.isPickup?"Pickup":"Shipping"}</span></td>`:""}
         <td style="text-align:center;">${envelopeCellHtml(f.buyer)}</td>
         <td>${tab==="readyToShip"?`<button class="btn sm" data-ship="${esc(it.id)}">Ship</button> `:""}<button class="btn sm" data-open="${esc(it.id)}">Open</button></td>`;
@@ -12275,7 +12529,17 @@ function openCommunication(focusUsername){
       replyWrap.innerHTML=`<div class="smallhint">Replying isn't simulated — this is just a one-way test message to preview how it looks in the inbox.</div>`;
       return;
     }
-    if(!cid){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load full thread. Use “Show raw response” to inspect the fields.</div>`; replyWrap.innerHTML=`<div class="smallhint">No conversation id — can't reply.</div>`; return; }
+    if(!cid){
+      msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No conversation id on this record — can't load the full thread. Use “Show raw response” to inspect the fields.</div>`;
+      // Don't just hide the reply box and leave the user wondering where it went — say why, and
+      // still give them a way to answer the buyer.
+      replyWrap.innerHTML=`<div style="font-size:12px;color:#8A5E10;background:#FBF4E4;border:1px solid #E8D5A8;border-radius:6px;padding:8px 10px;">
+        <b>Can't reply to this one from WIM.</b> eBay didn't give this record a conversation id, so there's no thread to reply into.
+        <button class="btn sm" id="cm-open-ebay-nocid" style="margin-left:8px;">Open on eBay.com</button></div>`;
+      const ob=replyWrap.querySelector("#cm-open-ebay-nocid");
+      if(ob) ob.onclick=()=>openExternal("https://mesg.ebay.com/mesgweb/ViewMessages/0");
+      return;
+    }
     const convType=fld(c,["conversationType"],"");
     if(convType==="FROM_EBAY"){
       // These are eBay's own automated notifications. Historically WIM didn't even try to load
@@ -12298,15 +12562,13 @@ function openCommunication(focusUsername){
       replyWrap.innerHTML=`<div class="smallhint">eBay's own notifications can't be replied to.</div>`;
       return;
     }
-    // Phase 2 (reply): best-effort against eBay's REST Commerce Message API. There is no
-    // confirmed real buyer/seller conversation to test this against yet, so this is built
-    // from the same endpoint conventions used elsewhere in the API, not verified documentation.
-    // If it's wrong, the error shown will include the exact request/response for diagnosis,
-    // the same way the read side got fixed.
+    // The reply box. Sending goes through eBay's documented Trading API (AddMemberMessageRTQ /
+    // AddMemberMessageAAQToPartner), which supports photo attachments — buyers constantly ask for
+    // more pictures, so that matters. If eBay refuses a message, its own error text is shown.
     replyWrap.innerHTML=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;"><select class="cmb sm" id="cm-tpl-pick" style="max-width:220px;"><option value="">Insert template…</option>${DB.messageTemplates.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></div>
       <textarea id="cm-reply-text" placeholder="Write a reply…" style="width:100%;height:60px;font-family:inherit;font-size:13px;padding:6px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;resize:vertical;">${esc(DB.messageDrafts[cid]||"")}</textarea>
       <div id="cm-attach-list" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><button class="btn primary sm" id="cm-reply-send">Send reply</button><button class="btn sm" id="cm-attach-btn">Attach photo</button><input type="file" id="cm-attach-file" accept="image/*" multiple style="display:none;"><span class="smallhint" id="cm-reply-msg">Experimental — first real attempt at sending through eBay's API; if it errors, send me the message shown here.</span></div>`;
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><button class="btn primary sm" id="cm-reply-send">Send reply</button><button class="btn sm" id="cm-attach-btn">Attach photo</button><input type="file" id="cm-attach-file" accept="image/*" multiple style="display:none;"><span class="smallhint" id="cm-reply-msg"></span></div>`;
     const sendBtn=replyWrap.querySelector("#cm-reply-send"), replyMsg=replyWrap.querySelector("#cm-reply-msg"), replyTxt=replyWrap.querySelector("#cm-reply-text");
     const tplPick=replyWrap.querySelector("#cm-tpl-pick");
     if(tplPick) tplPick.onchange=()=>{ const t=DB.messageTemplates.find(x=>x.id===tplPick.value); tplPick.value="";
@@ -12416,7 +12678,7 @@ function openCommunication(focusUsername){
         <div style="font-weight:600;font-size:13px;color:#28313f;">${esc(b.buyer)}</div>
         <div style="font-size:11.5px;color:#8a919c;">re: ${esc(b.desc)} · ${b.soldAt?fmtDay(b.soldAt):""}</div></div>`).join("");
     uiModal("Compose — start a message", `<div style="font-size:12px;color:#5b6470;margin-bottom:8px;">eBay only lets you message people you've had an order with. Pick a recent buyer to open their conversation and write a message.</div>
-      <div style="max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;">${rows||'<div class="smallhint" style="padding:12px;">No buyers on record yet — buyers appear here once orders come in through Recently Sold.</div>'}</div>`,
+      <div style="max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;">${rows||'<div class="smallhint" style="padding:12px;">No buyers on record yet — buyers appear here once orders come in (Shipping → Pull Sold Orders).</div>'}</div>`,
       [{label:"Close"}]);
     setTimeout(()=>{
       document.querySelectorAll(".cm-compose-row").forEach(r=>r.onclick=()=>{ const b=r.dataset.buyer; closeAllModals();
@@ -12424,8 +12686,15 @@ function openCommunication(focusUsername){
         // been loaded or no thread exists yet, be honest that a reply has to start from a
         // message eBay already links to the order, rather than silently failing.
         const existing=convos.find(c=>counterparty(c)===b);
-        if(existing){ folder="inbox"; current=convos.indexOf(existing); paintFolderTabs(); paintList(); openThread(existing); }
-        else { uiAlert("No existing message thread with "+b+" is loaded. Click Load Inbox first — if there's still no thread, eBay requires the buyer to have messaged first, or for you to start it from the order on eBay.com. WIM will pull it in here once it exists."); }
+        if(existing){
+          // Switch to "buyers", not "inbox". Compose used to set folder="inbox" — but after the
+          // folders were reworked, the buyer's thread isn't in that view, so the list came back
+          // EMPTY and the screen looked blank with the message nowhere to be seen.
+          folder="buyers";
+          current=convos.indexOf(existing);
+          paintFolderTabs(); paintList(); openThread(existing);
+        }
+        else { uiAlert("No existing message thread with "+b+" is loaded. Click Load Inbox first — if there's still no thread, eBay requires the buyer to have messaged you first, or for you to start it from the order on eBay.com. WIM will pull it in here once it exists."); }
       });
     },30);
   }
