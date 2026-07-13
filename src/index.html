@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.60", BUILD_DATE="2026-11-22", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.61", BUILD_DATE="2026-11-23", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.61","TWO REAL BUGS, BOTH FOUND BY GOING LOOKING RATHER THAN WAITING FOR THEM TO BITE. (1) MULTI-QUANTITY ORDERS WERE HALF-IGNORED. If a buyer bought 2 or 3 copies of one listing, WIM marked only ONE copy sold and moved ONE book to Ready to Ship. The shipper would pack one book, the buyer would be short, and the other copies would still be sitting on the shelf marked Active. WIM now reads how many the buyer actually bought and moves that many copies. This mattered because combining copies (v3.3.60) made multi-quantity listings easy to create -- that feature is what turned this from theoretical into likely. And if a buyer somehow buys more copies than exist in the warehouse, you now get a loud red popup naming the item, the order, how many they bought and how many were found, so you can find them or refund before the buyer notices. (2) SAVES COULD FAIL SILENTLY. If the computer could not write to storage, WIM logged a note to a console nobody looks at and carried on as though nothing happened. Everything looked normal until a refresh threw the work away. A failed save now puts a red bar across the top of the screen telling you to stop working and back up immediately. In a warehouse where people trust the screen, a silent save failure is worse than a crash -- a crash at least tells you. NOT CHANGED, ON PURPOSE: the Sell / Adjust Out / Delete paths look like they use an old sold flag, but they are correct -- those items leave inventory without an order behind them, so Inactive is the right status. I checked rather than assumed."],
   ["3.3.60","Import Scans now recognises items you already have. Two bright blue indicators appear at the top of a scan card: ALREADY LISTED (a matching item is live on eBay right now) and SOLD BEFORE (you have sold this before, with how long it took). Click either one and that item opens in its own window so you can check it is really the same thing -- a match is a suggestion, not a fact. Opening a sold item now leads with a big banner: what it sold for, how long it sat (23d 7h), and whether you had to discount it or take an offer to move it. COMBINING COPIES: if a scan matches something already listed, you can tick Add this copy to the existing listing. It is locked unless the CONDITION matches, and it tells you which condition is required -- that rule is what makes the two copies genuinely interchangeable, so it does not matter which one gets pulled for a buyer. Saving tells you exactly what will change before it does anything: the warehouse count, and whether the LIVE eBay quantity goes up. If the existing listing has Reserve on, the eBay quantity stays at 1 and the extra copy waits its turn. If your Reserve setting disagrees with the listing you are joining, WIM says so and follows the existing listing. FOUND A REAL GAP: the barcode/ISBN that InventoryIQ scans was being thrown away on import -- WIM kept only the description. So it could never match a book to another copy by ISBN. It is now stored, and matching uses ISBN first and description second, which is what makes this reliable for books (comics have no barcode, so those still match on description). Import Scans also gets an Import Listing Fields button right next to the listing fields, so you can pull the eBay category and required fields without leaving the card."],
   ["3.3.59","PRICE COMPARE WAS BROKEN EVERYWHERE -- both buttons did nothing. Cause: when the panel was pulled out into a shared component, six pieces of it were left pointing at the old screen it used to live inside. Update Listings and Pull Sold Listings both died silently on this. Same class of mistake as the crash fixed in v3.3.51 -- I found the one that threw an error and missed the five that failed quietly. All six fixed and tested in every place the panel appears. THE SOLD TAB NOW SHOWS WHAT YOU HAVE SOLD. Pull Sold Listings now searches your own catalog first with fuzzy matching, and shows every similar item YOU sold -- item number, what it actually sold for, how long it took (20d 3h), and whether you had to discount it or take an offer. Those rows are tinted GREEN and marked OURS, so your real sales are never confused with market data pasted in from eBay research. This is free and instant -- it does not need eBay approval, which is why the old button appeared to do nothing (it was calling an eBay API most accounts are not approved for). CATEGORY ON THE LANDING PAGE really works now. It was unlocked in v3.3.51, but saving then failed: changing the category auto-ticks Manually Slot, and the save then demanded you type in a slot -- for an item that was already sitting in one. It now keeps the slot the item is already in, and shows it. Manually Slot and Reserve are back on the Supervisor Review and Import Scans cards; they were dropped when the cards were unified, which was a regression, not a decision. Import Scans cards also get a subtle Delete Scan button for scans that came in wrong."],
   ["3.3.58","SERIOUS BUG: a simulated sale did not show up in Shipping at all. The item sold and then vanished. Cause: that button marked the item sold using an old leftover flag instead of the real status field, so the item still reported itself as Listed, and Shipping only shows items whose status is Sold. Every other sale path in WIM (including all real eBay sales) already did this correctly -- this one button did not. Fixed, and WIM now also repairs any item already stuck in that state when it starts up, so anything that already went missing reappears. SHIPPING CHANGES: Mark Shipped is now just SHIP, and it no longer stops to ask you for a carrier and tracking number. That was backwards -- eBay sells the label, so eBay already HAS the tracking number, and hand-typing it was asking a person to do the computer job. Ship now means one thing: it left the building. One click. The Shipped tab is renamed SHIPPING, and has three real columns: Item Status (what eBay says -- Shipped or Waiting), Tracking Number (click it to look it up in your browser -- free, no setup), and Delivery. Two buttons now: Check eBay Status is FREE and tells you whether eBay considers each order shipped plus pulls in the tracking number; Check Delivery is optional (about 3 cents a parcel) and is the only way to know a parcel actually ARRIVED -- eBay genuinely cannot tell you that, only the carrier can. Anything delivered moves to Completed by itself. And if you never press the paid button at all, items now auto-complete after 14 days as a safety net, so nothing is stranded. All three tabs still show 20 per page."],
@@ -863,8 +864,39 @@ function sanitizedForPersist(d){
   }
   return clone;
 }
-function save(){ MEM=DB; const persistCopy=sanitizedForPersist(DB); idbPut(persistCopy).catch(()=>{ try{ localStorage.setItem(KEY, JSON.stringify(persistCopy)); }catch(e){ console.warn("WIM: could not persist data",e); } });
-  try{ if(wimSyncBC) wimSyncBC.postMessage({t:"changed",at:Date.now()}); }catch(e){} }
+// If a save fails, the app keeps looking completely normal — the item is in memory, the screen
+// updates, everyone carries on. Then a refresh eats the day's work. In a warehouse where people
+// trust what's on the screen, a silent save failure is worse than a crash: a crash tells you.
+// So a failed write is now loud, sticky, and impossible to miss.
+let WIM_SAVE_BROKEN=false;
+function showSaveFailureBanner(reason){
+  if(WIM_SAVE_BROKEN) return;        // already shouting; don't stack banners
+  WIM_SAVE_BROKEN=true;
+  try{
+    const bar=document.createElement("div");
+    bar.id="wim-save-broken";
+    bar.style.cssText="position:fixed;left:0;right:0;top:0;z-index:2147483647;background:#C0392B;color:#fff;"
+      +"font:600 13px 'Segoe UI',Arial;padding:10px 16px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.35);";
+    bar.innerHTML='⚠ <b>WIM CANNOT SAVE.</b> Your recent changes are only in memory and <b>will be lost</b> if this window closes. '
+      +'Stop entering work, and back up now (Configuration → Backup). <span style="opacity:.85;font-weight:400;">('+String(reason||"storage write failed")+')</span>';
+    document.body.appendChild(bar);
+  }catch(e){}
+  try{ console.error("WIM: PERSISTENCE FAILED —", reason); }catch(e){}
+}
+function save(){
+  MEM=DB;
+  const persistCopy=sanitizedForPersist(DB);
+  idbPut(persistCopy).catch((e1)=>{
+    // IndexedDB refused. Fall back to localStorage — but localStorage is much smaller, so with
+    // photos on board this will very often fail too. Either way the user gets told.
+    try{
+      localStorage.setItem(KEY, JSON.stringify(persistCopy));
+    }catch(e2){
+      showSaveFailureBanner((e2&&e2.name)||(e1&&e1.name)||"quota exceeded or storage blocked");
+    }
+  });
+  try{ if(wimSyncBC) wimSyncBC.postMessage({t:"changed",at:Date.now()}); }catch(e){}
+}
 /* ---- Pop-out: open a tool in its own desktop window (experimental, additive) ---- */
 const POPOUT_APPS={
   itemsearch:{ title:"Item Maintenance", open:()=>openItemSearch() },
@@ -9143,13 +9175,30 @@ async function pullRecentlySold(daysBack){
   const data=await EBAY.getOrders(daysBack||30);
   const orders=data.orders||[];
   let added=0, skipped=0;
+  const shortfalls=[];   // order lines where the buyer bought more copies than we can find
   for(const order of orders){
     for(const li of (order.lineItems||[])){
       const orderLineKey=order.orderId+"::"+li.lineItemId;
       if(DB.pulledOrderIds.includes(orderLineKey)){ skipped++; continue; }
       const sku=li.sku;
-      const localItem = sku ? DB.items.find(i=>i.upc===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : null;
-      if(!localItem){ continue; } // no local match (no Item Number, or not found) — nothing to move; left for manual handling
+      // HOW MANY DID THEY ACTUALLY BUY? This used to be ignored entirely — one order line marked
+      // exactly ONE physical copy sold, no matter what. If a buyer bought 2 of a combined listing,
+      // WIM moved one book to Ready to Ship, the shipper packed one book, and the second copy sat
+      // on the shelf still marked active while the buyer waited for something that was never
+      // coming. Combining copies (v3.3.60) made multi-quantity listings easy to create, which is
+      // what turned this from theoretical into likely.
+      const qtySold = Math.max(1, parseInt(li.quantity,10) || 1);
+      const available = sku ? DB.items.filter(i=>i.upc===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : [];
+      if(!available.length){ continue; } // no local match — nothing to move; left for manual handling
+      // The copies are interchangeable by design: identical condition is what allows them to share
+      // an item number at all, so it genuinely doesn't matter which ones get pulled.
+      const picked = available.slice(0, qtySold);
+      // Sold more than we can find on the shelf? Say so, loudly. This is a real oversell and the
+      // buyer is owed something we may not have.
+      if(picked.length < qtySold){
+        shortfalls.push({ desc:(picked[0]&&picked[0].desc)||sku||"(unknown item)", orderId:order.orderId, bought:qtySold, found:picked.length });
+      }
+      for(const localItem of picked){
       const f=ensureFulfillment(localItem);
       f.stage="readyToShip"; f.movedToShippingAt=f.movedToShippingAt||new Date().toISOString();
       f.orderId=order.orderId; f.lineItemId=li.lineItemId;
@@ -9164,8 +9213,7 @@ async function pullRecentlySold(daysBack){
       f.shipCostPaid=(li.deliveryCost&&li.deliveryCost.value)||null;
       f.soldAt=order.creationDate||new Date().toISOString();
       setItemStatus(localItem,"sold");
-      DB.pulledOrderIds.push(orderLineKey);
-      addHistory(localItem,"Sold on eBay (order "+order.orderId+") — moved to Recently Sold");
+      addHistory(localItem,"Sold on eBay (order "+order.orderId+")"+(qtySold>1?" — buyer bought "+qtySold+"; this is copy "+(picked.indexOf(localItem)+1)+" of "+picked.length:"")+" — moved to Ready to Ship");
       added++;
       // Real record for the Shipping Historical Comparison tool — created the moment a sale
       // is detected, using the item's own weight/dimensions if they were ever entered, and
@@ -9188,10 +9236,12 @@ async function pullRecentlySold(daysBack){
           }catch(e){ addHistory(next,"Reserve Item auto-list failed: "+(e&&e.message?e.message:e)+" — needs manual attention"); }
         }
       }
+      }  // end of the per-copy loop
+      DB.pulledOrderIds.push(orderLineKey);   // once per ORDER LINE, not once per copy
     }
   }
   save(); wimRefreshAll();
-  return { added, skipped, totalOrders:orders.length };
+  return { added, skipped, totalOrders:orders.length, shortfalls };
 }
 // Packing slip — a real, useful print right now using WIM's own printer, standing in for
 // an actual eBay-generated shipping label until/unless Logistics API access (a separate,
@@ -9450,6 +9500,21 @@ function openShipping(){
       try{
         const r=await pullRecentlySold(30);
         if(msg){ msg.style.color="#1f7244"; msg.textContent=(r&&r.added!=null)?("Pulled "+r.added+" new sold item(s)."+(r.skipped?(" "+r.skipped+" already here."):"")):"Pull complete."; }
+        // OVERSELL. A buyer paid for more copies than we can find. Nobody should discover this by
+        // noticing a book missing from a box — it goes up in front of them, immediately.
+        if(r && r.shortfalls && r.shortfalls.length){
+          uiModal("⚠ Sold more than you have", `<div style="font-size:13px;min-width:440px;">
+            <div style="background:#FDECEA;border:1px solid #F0B0A8;border-left:6px solid #C0392B;border-radius:6px;padding:11px 14px;color:#922B21;">
+              <b>A buyer has paid for copies you don't have on the shelf.</b>
+            </div>
+            <table class="res" style="margin-top:10px;"><thead><tr><th>Item</th><th style="width:70px;">Bought</th><th style="width:70px;">Found</th><th>Order</th></tr></thead><tbody>
+            ${r.shortfalls.map(s=>`<tr><td style="font-size:12px;">${esc(s.desc)}</td><td style="font-weight:700;">${s.bought}</td><td style="font-weight:700;color:#C0392B;">${s.found}</td><td style="font-size:11px;font-family:Consolas,monospace;">${esc(s.orderId)}</td></tr>`).join("")}
+            </tbody></table>
+            <div style="margin-top:10px;font-size:12.5px;color:#3A4A63;">
+              What WIM did: the copies it <i>could</i> find are in Ready to Ship. The rest don't exist in the warehouse.
+              <div style="margin-top:6px;"><b>You need to either find the missing copies, or cancel/refund the difference on eBay.</b></div>
+            </div></div>`, [{label:"Got it",primary:true}]);
+        }
         picked.clear(); page=1; render(); wimRefreshAll();
       }catch(e){
         if(msg){ msg.style.color="#c0392b"; msg.textContent="Couldn't pull sold orders: "+(e&&e.message?e.message:e); }
