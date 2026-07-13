@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.66", BUILD_DATE="2026-11-28", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.69", BUILD_DATE="2026-12-01", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.69","PACKAGE WEIGHT NO LONGER BLOCKS A LISTING. Your shipping is flat and free, so eBay does not need the weight to publish -- it only matters for calculated shipping. WIM was refusing to list over it, which was WIM being stricter than eBay for no benefit. It still collects the weight, because your postage comparison depends on it, but it will not stop an item going live. BOOK TYPES WITH REAL WEIGHTS. Books and Magazines now has sub categories for Comic Book, Manga, Magazine, Paperback, Trade Paperback, Hardcover and Textbook, each carrying a typical shipping weight -- a comic starts at 0.3 lb instead of everyone guessing 1 lb, a hardcover at 1.8. Pick the sub category and the weight fills itself in, on the item page, in Supervisor Review, and on imported scans. No sub category still means 1 lb, as before. A weight you type by hand is NEVER overwritten -- if you weighed it, you know better than the default. The weights are editable in Category Maintenance so you can tune them once you have seen real postage. Note the new sub categories inherit the eBay category mapping already in use for books, so adding them cannot make anything unlistable -- you can refine each one later with Find on eBay."],
+  ["3.3.68","INVALID SHIPPING POLICY (error 25007). Your shipping, payment and return policies are picked once from a dropdown, saved as ID numbers, and then sent to eBay on every listing forever after -- and nothing ever checked they were still real. If a policy is deleted or renamed on eBay, or the saved ID came from a different account, eBay refuses the listing and WIM would keep sending the same dead ID every time you clicked List. Being present in WIM is not the same as being valid on eBay. WIM now checks all three against your actual eBay account before publishing. If only one policy of that type exists it quietly uses it. Otherwise it tells you exactly which policy is wrong and lists the real ones on your account, instead of relaying eBay error codes at you. It also rebuilds the offer when a policy changes -- eBay bakes the policy into an offer when it is created, so an offer made with the old bad policy would keep failing no matter how right WIM got. The check is cached, so listing a large backlog does not fire thousands of pointless calls at eBay."],
+  ["3.3.67","FOUND WHY AUTO-UPDATE KEPT FAILING WITH SIGNATURE DID NOT MATCH. An old copy of the release workflow was still sitting in the live workflows folder under a backup filename. GitHub runs everything in that folder -- calling a file backup does not make it inactive. So every version tag built WIM TWICE on two machines. Each one compiled its own installer and signed it with its own signature, then both raced to upload to the same release. One won the installer, the other won the signature file -- so the signature WIM checked belonged to an installer that was never actually published, and the update was correctly rejected. The security check was working; it was protecting you from our own broken release. This also explains the Not Found release asset error I previously told you was harmless -- it was the losing build failing to overwrite the winner, and it was the warning sign. It likely also caused the update failures blamed on WIM still being open. The duplicate workflow is removed, and the real one now refuses to build a tag twice and clears any half-built release first, so the installer and its signature always come from the same build."],
   ["3.3.66","THIS OFFER IS NOT AVAILABLE (error 25713) -- the item became permanently unlistable. When WIM creates an eBay offer it remembers the offer number so a retry reuses it instead of making duplicates. But if eBay has since thrown that offer away -- which is what your earlier failed attempts left behind -- WIM kept publishing a corpse, and no amount of clicking List would ever fix it. WIM now recognises a dead offer, forgets it, builds a fresh one and publishes that, automatically. It only does this for a genuinely missing offer; real errors are still reported to you rather than retried. SUPERVISOR REVIEW DEEP DIVE. Cards now tell you BEFORE you click List if eBay will refuse the item -- missing category mapping, no price, no policies -- listed plainly on the card, with the List button switched off until it is fixed. You should never have to click a button and decode an API error to learn the item was never listable. Also found and fixed a trap underneath several screens: the old sold flag is set to TRUE only for items that were DELETED, and FALSE for items that genuinely SOLD -- so any screen checking it was wrong in both directions. The review queue could show sold items, and Rejected and Delisted would keep showing items you had already deleted, forever. All three now check properly. Cancellations, Refunds and Returns were deliberately left alone -- they track real orders, and hiding a refund because someone deleted the item would erase a record you need."],
   ["3.3.65","Deleting an item with several copies already let you pick which Warehouse SKUs to remove, but there was no way to say -- get rid of all of it. There is now a Select All row at the top of that list, and when everything is ticked the button reads Delete the whole item so it is obvious what is about to happen. Also re-audited every dashboard widget against the quantity and deleted-item fixes: Units on Hand and Inventory Value count one record per physical book, and every sales figure -- Items Sold, the 30-day chart, Hot Items, Fastest Turning, Most Profitable -- runs through the same check that keeps deleted and written-off items from being counted as revenue."],
   ["3.3.64","QUANTITIES WERE INFLATING THEMSELVES. The On Hand box shows the total for the whole group, but saving an item wrote that total back onto the single record you saved -- so the number fed itself and grew every time: 2 copies became 3, then 5, then 8, then 13. That is where the 4 on an item with 2 copies came from, and where the dashboard got its wild numbers. Quantity is now simply how many copies exist, which cannot drift: one record, one book. Inflated numbers already in your data are repaired on startup. DELETE DID NOT DELETE. The trash can, Adjust Out and Sell all set an old flag that WIM stopped reading -- an item that already had a real status (Active, Listed) kept it, so it never left inventory no matter how many times you deleted it. Those are the stragglers you could not get rid of. Fixed, and any item already stuck in that state is released on startup. I told you these three were fine in a previous session -- I checked whether Inactive was the right meaning and never checked whether the app would actually return it. That was the wrong check. WAREHOUSE SKU BOX showed the FIRST copy in the group no matter which copy you were looking at -- so the dropdown said B.1.02 while the box above it said B.1.01. It now shows the copy you are actually on. THE ARROWS at the top of Item Maintenance closed the whole window instead of moving to the next record. They now page through records and leave the window open. WIDGETS: Items Sold, the 30-day sales chart, Hot Items, Fastest Turning and Most Profitable were all counting DELETED and written-off items as sales -- deleting an item stamped it with a sold date, and nothing told them apart. Deletions and write-offs no longer count as revenue. Units on Hand and Inventory Value were built on the inflated number and are now built on the real one. NEW: Local Profiles has an Erase Inventory and History button -- wipes every item, all history and all the sales and productivity figures in that profile, while keeping your users, warehouse layout, categories, descriptions and eBay connection, so you can start loading real inventory on a clean slate. It lists exactly what goes and what stays, and makes you type ERASE."],
@@ -1346,8 +1349,36 @@ function migrate(d){
   if(d.sections && d.sections.includes("Books & Magazines")){
     if(!d.subcats) d.subcats={};
     if(!d.subcats["Books & Magazines"]) d.subcats["Books & Magazines"]=[];
-    const want=["Books","Comics","Manga","None"];
-    want.forEach(n=>{ if(!d.subcats["Books & Magazines"].some(s=>s.name===n)) d.subcats["Books & Magazines"].push({name:n,ebayId:"",ebayName:"",aspects:[]}); });
+    const list=d.subcats["Books & Magazines"];
+    // Typical shipping weights, so a scanned item lands with a sensible number instead of everyone
+    // guessing 1 lb. These are starting points -- tune them in Category Maintenance once you've
+    // seen real postage. Anything with no sub-category still defaults to 1 lb.
+    const want=[
+      { name:"Comic Book",       defaultWeight:"0.3" },   // single issue
+      { name:"Manga",            defaultWeight:"0.5" },
+      { name:"Magazine",         defaultWeight:"0.5" },
+      { name:"Paperback",        defaultWeight:"0.7" },
+      { name:"Trade Paperback",  defaultWeight:"1.0" },   // graphic novel / TPB collection
+      { name:"Hardcover",        defaultWeight:"1.8" },
+      { name:"Textbook",         defaultWeight:"3.0" },
+      { name:"Books",            defaultWeight:"1.0" },   // pre-existing, kept
+      { name:"Comics",           defaultWeight:"0.3" },   // pre-existing, kept
+      { name:"None",             defaultWeight:""    },
+    ];
+    // IMPORTANT: a sub-category with no eBay category mapped makes its items UNLISTABLE (WIM blocks
+    // the publish, by design). So a brand-new sub-category inherits the eBay mapping already in use
+    // for this section -- they're all books, the same eBay category is a valid starting point --
+    // and can be refined per type later with Find on eBay. Adding these must not break listing.
+    const donor = list.find(s=>s.ebayId) || null;
+    want.forEach(w=>{
+      const found=list.find(s=>s.name===w.name);
+      if(found){
+        if(found.defaultWeight==null && w.defaultWeight!=="") found.defaultWeight=w.defaultWeight;
+      } else {
+        list.push({ name:w.name, ebayId:(donor?donor.ebayId:""), ebayName:(donor?donor.ebayName:""),
+                    aspects:[], defaultWeight:w.defaultWeight });
+      }
+    });
   }
   if(!Array.isArray(d.deletionAuditLog)) d.deletionAuditLog=[];
   if(!d.cachedFeedback) d.cachedFeedback={};
@@ -1896,6 +1927,28 @@ function findSubcatByEbayId(ebayId){
   return null;
 }
 function subcatObj(cat,name){ return subcatsOf(cat).find(s=>s.name===name)||null; }
+// Default shipping weight for a sub-category (Comic 0.3 lb, Hardcover 1.8, …). No sub-category, or
+// no default set on it, falls back to 1 lb.
+function defaultWeightFor(it){
+  const sc=subcatObj(it.section, it.subCategory);
+  const w=sc && sc.defaultWeight;
+  return (w && !isNaN(parseFloat(w)) && parseFloat(w)>0) ? String(w) : "1";
+}
+// Fill in the weight from the sub-category — but NEVER stomp a weight someone actually typed.
+// An item is "untouched" if it has no weight, or still carries the default from whatever
+// sub-category it had before. Returns true if it changed anything.
+function applyDefaultWeight(it, prevSubCategory){
+  const target=defaultWeightFor(it);
+  const cur=String(it.shipWeight||"").trim();
+  if(!cur){ it.shipWeight=target; return true; }
+  if(it.shipWeightManual) return false;              // they typed it; leave it alone
+  if(prevSubCategory!==undefined){
+    const prevDefault = (()=>{ const sc=subcatObj(it.section, prevSubCategory);
+      const w=sc&&sc.defaultWeight; return (w&&!isNaN(parseFloat(w))&&parseFloat(w)>0)?String(w):"1"; })();
+    if(cur===prevDefault && cur!==target){ it.shipWeight=target; return true; }
+  }
+  return false;
+}
 // Listing fields (eBay aspects) are driven by the eBay CATEGORY, never the sub-category.
 // Sub-category is an internal WIM tag only and has zero effect on which fields appear.
 // Category-level aspects are cached in DB.categoryAspects (keyed by category name); the eBay
@@ -5013,7 +5066,11 @@ function ebayListingPrereqs(it){
   // has a weight. Catch it here with a clear message instead of a cryptic HTTP 400 at publish
   // time. (Scan-imported items come in with no weight by default, so this is the usual trigger.)
   const wt=parseFloat(it.shipWeight);
-  if(!it.shipWeight || isNaN(wt) || wt<=0) missing.push("a package weight (open the item → Shipping/Package section → enter Weight; even ~1 lb for a small item)");
+  // Package weight is NOT a blocker. With flat or free shipping, eBay doesn't need it to publish —
+  // it only matters for CALCULATED shipping, and for WIM's own postage comparison. Refusing to list
+  // over it was WIM being stricter than eBay for no benefit. It's still collected (and now
+  // auto-filled from the sub-category), and it still matters to your margins — but it won't stop a
+  // listing going live.
   return missing;
 }
 // Full Sell Inventory API publish: createOrReplaceInventoryItem -> createOffer (once) -> publishOffer.
@@ -5039,6 +5096,77 @@ async function refreshAspectDefsIfStale(it, onStep){
 // across accounts either. Rather than fail the publish, verify the key against the live
 // account and self-heal: adopt an existing location if the account has one, or create one
 // from the Ship From address (Shipping Data screen).
+// Verify the three listing policies still exist on THIS eBay account, right before publishing.
+//
+// WHY: the policies are picked once from a dropdown in Configuration, stored as ID strings, and
+// then sent to eBay on every listing forever after. Nothing ever checks they're still real. If a
+// policy is deleted or renamed on eBay, or the stored ID came from a different account or from the
+// sandbox, eBay rejects the publish with error 25007 -- "You've provided an invalid shipping
+// policy" -- and WIM would keep sending the same dead ID on every retry, exactly like it used to
+// keep republishing a dead offer. Presence in WIM is not the same thing as validity on eBay.
+//
+// If exactly one policy of a type exists on the account, WIM quietly adopts it. Otherwise it says
+// precisely which policy is wrong and what the real choices are, instead of relaying eBay's error.
+const EBAY_SCOPE_ACCT_RO="https://api.ebay.com/oauth/api_scope/sell.account.readonly";
+let WIM_POLICIES_OK="";   // cache: which exact policy set we've already verified this session
+async function ensureListingPolicies(onStep){
+  const mkt=DB.ebay.marketplace||"EBAY_US";
+  // Don't re-check on every single listing. Verifying costs three API calls, and listing a backlog
+  // of a thousand items would burn thousands of calls proving the same thing over and over. Once
+  // we've confirmed this exact set of policies is good, trust it — until one of them changes, or
+  // eBay tells us otherwise (a 25007 on publish still forces a rebuild regardless of this cache).
+  const fingerprint=[mkt,DB.ebay.fulfillmentPolicyId,DB.ebay.paymentPolicyId,DB.ebay.returnPolicyId].join("|");
+  if(WIM_POLICIES_OK===fingerprint) return { ok:true, changed:false };
+  const kinds=[
+    { path:"fulfillment_policy", listKey:"fulfillmentPolicies", idKey:"fulfillmentPolicyId",
+      store:"fulfillmentPolicyId", nameStore:"fulfillmentPolicyName", label:"shipping policy" },
+    { path:"payment_policy",     listKey:"paymentPolicies",     idKey:"paymentPolicyId",
+      store:"paymentPolicyId",     nameStore:"paymentPolicyName",     label:"payment policy" },
+    { path:"return_policy",      listKey:"returnPolicies",      idKey:"returnPolicyId",
+      store:"returnPolicyId",      nameStore:"returnPolicyName",      label:"return policy" },
+  ];
+  onStep&&onStep("Checking your eBay business policies…");
+  let changed=false;
+  for(const k of kinds){
+    const stored=DB.ebay[k.store];
+    let r;
+    try{ r=await EBAY.user("/sell/account/v1/"+k.path+"?marketplace_id="+mkt, EBAY_SCOPE_ACCT_RO); }
+    catch(e){ return { ok:false, error:"Could not reach eBay to check your "+k.label+": "+(e&&e.message?e.message:e) }; }
+    if(!r.ok){
+      // Can't read the policies (permissions, token scope). Don't block on a check we can't perform —
+      // let eBay have the final word rather than inventing a failure.
+      continue;
+    }
+    let d={}; try{ d=JSON.parse(r.body); }catch(e){}
+    const list=(d[k.listKey]||[]);
+    if(!list.length){
+      return { ok:false, error:"Your eBay account has no "+k.label+" set up for this marketplace.\n\n"+
+        "Create one on eBay (Account → Business policies), then pick it in Configuration → eBay Connection → Listing setup." };
+    }
+    const found = stored ? list.find(p=>String(p[k.idKey])===String(stored)) : null;
+    if(found){
+      // Keep the display name honest in case it was renamed on eBay.
+      if(DB.ebay[k.nameStore]!==found.name){ DB.ebay[k.nameStore]=found.name; changed=true; }
+      continue;
+    }
+    if(list.length===1){
+      DB.ebay[k.store]=list[0][k.idKey];
+      DB.ebay[k.nameStore]=list[0].name;
+      changed=true;
+      onStep&&onStep("Your "+k.label+" was out of date — using \""+list[0].name+"\" instead.");
+      continue;
+    }
+    const names=list.map(p=>"• "+p.name).join("\n");
+    if(changed) save();
+    return { ok:false, error:
+      "The "+k.label+" saved in WIM doesn't exist on this eBay account any more"+(stored?(" (id "+stored+")"):"")+", which is why eBay refused the listing.\n\n"+
+      "Your account has these "+k.label+"s:\n"+names+"\n\n"+
+      "Pick the right one in Configuration → eBay Connection → Listing setup, then list again." };
+  }
+  if(changed) save();
+  WIM_POLICIES_OK=[mkt,DB.ebay.fulfillmentPolicyId,DB.ebay.paymentPolicyId,DB.ebay.returnPolicyId].join("|");
+  return { ok:true, changed };
+}
 async function ensureMerchantLocation(onStep){
   const stored=DB.ebay.merchantLocationKey;
   // 1) Verify the stored key actually exists on THIS account.
@@ -5127,6 +5255,17 @@ async function publishToEbay(it,onStep){
     // stored key came from a different account or environment.
     const locCheck=await ensureMerchantLocation(onStep);
     if(!locCheck.ok) return { ok:false, error:locCheck.error };
+    // Same idea as the location check above: confirm the policies WIM is about to send still exist
+    // on this account, instead of letting eBay bounce the listing with error 25007.
+    const polCheck=await ensureListingPolicies(onStep);
+    if(!polCheck.ok) return { ok:false, error:polCheck.error };
+    // If we just corrected a policy, any offer we made EARLIER still has the wrong one baked into
+    // it — eBay stores the policy on the offer at creation time. Reusing that offer would fail with
+    // the same 25007 no matter how right WIM now is. So throw it away and build a fresh one.
+    if(polCheck.changed && it.listing && it.listing.offerId){
+      onStep&&onStep("Rebuilding the offer with the corrected policy…");
+      it.listing.offerId=null; offerId=null; save();
+    }
     onStep&&onStep("Creating the eBay offer…");
     const sc=subcatObj(it.section,it.subCategory);
     // An item with no real eBay category mapped (Category = NONE, or a sub-category that was never
@@ -5178,7 +5317,9 @@ async function publishToEbay(it,onStep){
   // unlistable and no amount of clicking List will ever fix it. So: if eBay says the offer is
   // gone, believe it — forget the id, build a fresh offer, and publish that. Once only, so a real
   // failure still surfaces instead of looping.
-  const offerIsDead = pr && !pr.ok && (pr.status===404 || String(pr.body||"").indexOf("25713")>=0);
+  // A reused offer can also carry a policy that has since become invalid (error 25007) — the policy
+  // is baked into the offer when it's created. Rebuilding is the fix for that too.
+  const offerIsDead = pr && !pr.ok && (pr.status===404 || String(pr.body||"").indexOf("25713")>=0 || String(pr.body||"").indexOf("25007")>=0);
   if(offerIsDead && typeof createOffer==="function"){
     onStep&&onStep("That offer no longer exists on eBay — rebuilding it…");
     if(it.listing) it.listing.offerId=null;
@@ -6353,7 +6494,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         <div style="margin-top:10px;">
           <div style="font-size:11px;color:#7b828e;font-weight:600;margin-bottom:4px;">Shipping weight &amp; dimensions — used for the real Shipping Historical Comparison tool (Fulfillment)</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <label class="fld" style="width:auto;">Weight (lb)</label><input class="txt" id="l-weight" value="${esc(it.shipWeight)}" inputmode="decimal" style="width:70px;">
+            <label class="fld" style="width:auto;">Weight (lb)</label><input class="txt" id="l-weight" value="${esc(it.shipWeight)}" inputmode="decimal" style="width:70px;" title="Auto-filled from the Sub Category. Type your own and WIM will keep it.">
             <label class="fld" style="width:auto;">L (in)</label><input class="txt" id="l-length" value="${esc(it.shipLength)}" inputmode="decimal" style="width:60px;">
             <label class="fld" style="width:auto;">W (in)</label><input class="txt" id="l-width" value="${esc(it.shipWidth)}" inputmode="decimal" style="width:60px;">
             <label class="fld" style="width:auto;">H (in)</label><input class="txt" id="l-height" value="${esc(it.shipHeight)}" inputmode="decimal" style="width:60px;">
@@ -6397,7 +6538,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         unitsOf(it).forEach(u=>{ u.listing.reserveItem=next; });
         markDirty&&markDirty(); renderListing();
       }; }
-      const wIn=lwrap.querySelector("#l-weight"); if(wIn) wIn.oninput=()=>{ it.shipWeight=wIn.value; markDirty&&markDirty(); };
+      const wIn=lwrap.querySelector("#l-weight"); if(wIn) wIn.oninput=()=>{ it.shipWeight=wIn.value; it.shipWeightManual=true; markDirty&&markDirty(); };
       const lIn=lwrap.querySelector("#l-length"); if(lIn) lIn.oninput=()=>{ it.shipLength=lIn.value; markDirty&&markDirty(); };
       const wdIn=lwrap.querySelector("#l-width"); if(wdIn) wdIn.oninput=()=>{ it.shipWidth=wdIn.value; markDirty&&markDirty(); };
       const hIn=lwrap.querySelector("#l-height"); if(hIn) hIn.oninput=()=>{ it.shipHeight=hIn.value; markDirty&&markDirty(); };
@@ -6474,7 +6615,18 @@ function openItemDetail(item,mode,nav,defaultTab){
       await fetchCategoryAspects(cat); renderListing();
     }
   });
-  if(subSel) subSel.addEventListener("change",()=>{ it.subCategory=subSel.value; markDirty&&markDirty(); }); // sub-category is an internal tag; no field effect
+  // Sub-category is an internal tag with no effect on the eBay listing FIELDS — but it does now
+  // carry the default shipping weight, so a Comic Book lands at 0.3 lb instead of everything
+  // guessing 1 lb. A weight typed by hand is never overwritten.
+  if(subSel) subSel.addEventListener("change",()=>{
+    const prev=it.subCategory;
+    it.subCategory=subSel.value;
+    if(applyDefaultWeight(it, prev)){
+      const wEl=body.querySelector("#l-weight");
+      if(wEl) wEl.value=it.shipWeight;
+    }
+    markDirty&&markDirty();
+  });
   fillSubcats(); renderListing();
 
   // Price Compare now lives in the reusable mountPriceCompare() factory (top level), so the
@@ -7273,6 +7425,15 @@ async function openImportScans(){
 
     // Manual Slot + Reserve — these existed on Bulk Add and the landing page but were dropped when
     // the cards were unified. That was a regression, not a decision.
+    const isSub=card.querySelector('.is-f[data-f="subCategory"]');
+    if(isSub) isSub.onchange=()=>{
+      const prev=it.subCategory;
+      it.subCategory=isSub.value;
+      applyDefaultWeight(it, prev);
+      try{ footer.markDirty(); }catch(e){}
+      save();
+    };
+
     const isTpl=card.querySelector(".is-desctpl");
     if(isTpl) isTpl.onchange=()=>{
       if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};
@@ -10936,6 +11097,8 @@ function openSubcatManager(cat){
       det.innerHTML=`<div style="font-size:14px;font-weight:600;margin-bottom:10px;">${esc(sc.name)}</div>
         <div class="ff" style="grid-template-columns:130px 1fr;margin-bottom:8px;"><label class="fld">eBay category name</label><input class="txt" id="sc-ename" value="${esc(sc.ebayName||"")}" placeholder="e.g. Movies & TV > DVDs"></div>
         <div class="ff" style="grid-template-columns:130px 1fr;margin-bottom:8px;"><label class="fld">eBay category ID</label><input class="txt" id="sc-eid" value="${esc(sc.ebayId||"")}" placeholder="filled automatically by Find on eBay"></div>
+        <div class="ff" style="grid-template-columns:130px 1fr;margin-bottom:4px;"><label class="fld">Default weight (lb)</label><input class="txt" id="sc-wt" value="${esc(sc.defaultWeight||"")}" inputmode="decimal" placeholder="blank = 1 lb"></div>
+        <div class="smallhint" style="margin-bottom:8px;">Items put in this sub category start at this weight, so nobody has to guess. A weight typed by hand on an item is never overwritten. Blank means 1 lb.</div>
         <div class="col-title" style="text-align:left;margin-top:10px;">Listing fields (aspects)</div>
         <div class="smallhint" style="margin-bottom:6px;">These show on the item's landing page for this sub category. Use the Find on eBay / magnifying-glass search to fill them from eBay automatically.</div>
         <div id="sc-aspects"></div>
@@ -10950,7 +11113,10 @@ function openSubcatManager(cat){
       det.querySelector("#sc-aadd").onclick=()=>{ const n=det.querySelector("#sc-aname").value.trim(); if(!n) return; if(!sc.aspects)sc.aspects=[];
         if(sc.aspects.some(a=>a.name.toLowerCase()===n.toLowerCase())){ det.querySelector("#sc-msg").textContent="That field already exists."; return; }
         sc.aspects.push({name:n,required:req.classList.contains("on"),type:"text"}); save(); render(); };
-      det.querySelector("#sc-save").onclick=()=>{ sc.ebayName=det.querySelector("#sc-ename").value.trim(); sc.ebayId=det.querySelector("#sc-eid").value.trim(); save(); det.querySelector("#sc-msg").style.color="#1f7244"; det.querySelector("#sc-msg").textContent="Saved."; render(); };
+      det.querySelector("#sc-save").onclick=()=>{ sc.ebayName=det.querySelector("#sc-ename").value.trim(); sc.ebayId=det.querySelector("#sc-eid").value.trim();
+        const w=det.querySelector("#sc-wt").value.trim();
+        sc.defaultWeight = (w && !isNaN(parseFloat(w)) && parseFloat(w)>0) ? w : "";
+        save(); det.querySelector("#sc-msg").style.color="#1f7244"; det.querySelector("#sc-msg").textContent="Saved."; render(); };
       const del=det.querySelector("#sc-del"); if(del) del.onclick=()=>{ uiConfirm('Delete sub category "'+sc.name+'"? Items using it will fall back to the default.',()=>{
         DB.items.forEach(it=>{ if(it.section===cat&&it.subCategory===sc.name) it.subCategory=cat; });
         DB.subcats[cat]=DB.subcats[cat].filter(x=>x.name!==sc.name); sel=null; save(); render(); }); };
@@ -11190,6 +11356,20 @@ function openSupervisorReview(){
     // Description templates — the saved descriptions from Description Manager. This dropdown was on
     // the landing page but never made it onto the review card, so a supervisor had to retype or
     // paste boilerplate they already had saved.
+    // Sub-category drives the default shipping weight (Comic 0.3 lb, Hardcover 1.8, …). Applied the
+    // moment it's chosen, so the supervisor sees the weight rather than discovering it later.
+    const srSub=card.querySelector('.sr-f[data-f="subCategory"]');
+    if(srSub) srSub.onchange=()=>{
+      const prev=it.subCategory;
+      it.subCategory=srSub.value;
+      if(applyDefaultWeight(it, prev)){
+        const m=body.querySelector("#sr-msg");
+        if(m){ m.style.color="#1f7244"; m.textContent="Shipping weight set to "+it.shipWeight+" lb for "+(it.subCategory||"no sub-category")+"."; }
+      }
+      try{ footer.markDirty(); }catch(e){}
+      save();
+    };
+
     const srTpl=card.querySelector(".sr-desctpl");
     if(srTpl) srTpl.onchange=()=>{
       if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};

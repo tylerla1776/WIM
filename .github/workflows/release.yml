@@ -16,6 +16,22 @@ on:
     tags:
       - "v*"
 
+# Only ever ONE release build per tag.
+#
+# This exists because of a real failure: an old copy of this workflow was still sitting in
+# .github/workflows/ under a "backup" filename. GitHub runs EVERYTHING in that folder, so every
+# tag built WIM twice, on two runners. Each one compiled its own installer and SIGNED it with its
+# own signature, then both raced to upload to the same Release. One won the .msi, the other won
+# latest.json -- so the published signature described a binary that was never uploaded, and every
+# auto-update died with "signature didn't match". The loser's failed upload was the
+# "Not Found - update-a-release-asset" error that looked harmless and wasn't.
+#
+# The duplicate file is gone. This guard makes sure a second run can never quietly corrupt a
+# release again: if one somehow starts, it is cancelled rather than allowed to overwrite.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -23,6 +39,21 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      # The installer and its signature MUST come from the same build. If a release already exists
+      # for this tag (a re-run, or a re-pushed tag), clear it out first so we never end up with a
+      # binary from one build and a latest.json from another.
+      - name: Clear any existing release for this tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "A release already exists for ${{ github.ref_name }} -- deleting it so this build owns both the installer and its signature."
+            gh release delete "${{ github.ref_name }}" --repo "${{ github.repository }}" --yes
+          else
+            echo "No existing release for ${{ github.ref_name }}. Good."
+          fi
 
       - name: Set up Node
         uses: actions/setup-node@v4
