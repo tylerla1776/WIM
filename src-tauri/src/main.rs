@@ -963,6 +963,72 @@ async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload:
     }
 }
 
+// PUT using a USER token.
+//
+// eBay's Inventory API treats an offer as something a SKU HAS, not something you keep creating:
+// there is exactly one offer per SKU per marketplace, and you UPDATE it. WIM only had POST, so it
+// could create an offer but never correct one — which is how it managed to fail in both directions:
+// republishing a dead offer (25713), then trying to create a second one for the same SKU (25002).
+async fn do_put(env: &str, token: &str, marketplace: &str, path: &str, payload: &str) -> ApiResult {
+    let url = format!("{}{}", base_url(env), path);
+    let client = reqwest::Client::new();
+    let mut req = client
+        .put(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .header("Content-Language", "en-US")
+        .body(payload.to_string());
+    if !marketplace.is_empty() {
+        req = req.header("X-EBAY-C-MARKETPLACE-ID", marketplace);
+    }
+    match req.send().await {
+        Ok(r) => {
+            let status = r.status().as_u16();
+            let body = r.text().await.unwrap_or_default();
+            let ok = (200..300).contains(&status);
+            let body = if ok {
+                body
+            } else {
+                format!("[PUT {}]\nSent: {}\n{}", url, payload, body)
+            };
+            ApiResult { ok, status, body }
+        }
+        Err(e) => ApiResult {
+            ok: false,
+            status: 0,
+            body: format!("[PUT {}]\nSent: {}\n{}", url, payload, e),
+        },
+    }
+}
+
+#[tauri::command]
+async fn ebay_put_user(
+    env: String,
+    app_id: String,
+    cert_id: String,
+    refresh_token: String,
+    scope: String,
+    marketplace: String,
+    path: String,
+    payload_json: String,
+) -> ApiResult {
+    // Same scope fallback as ebay_post_user — an empty scope means "the inventory scope".
+    let sc = if scope.is_empty() {
+        "https://api.ebay.com/oauth/api_scope/sell.inventory".to_string()
+    } else {
+        scope.clone()
+    };
+    match get_user_token(&env, &app_id, &cert_id, &refresh_token, &sc).await {
+        Ok(tok) => do_put(&env, &tok, &marketplace, &path, &payload_json).await,
+        // get_user_token returns Err((status, body)) — a tuple, not a plain String.
+        Err((s, b)) => ApiResult {
+            ok: false,
+            status: s,
+            body: format!("user token error: {}", b),
+        },
+    }
+}
+
 // POST using a USER token — for write operations like sending a message reply.
 #[tauri::command]
 async fn ebay_post_user(
@@ -1231,6 +1297,7 @@ fn main() {
             shippo_buy_label,
             easypost_get_rates,
             easypost_track,
+            ebay_put_user,
             easypost_create_shipment,
             easypost_buy_label
         ])

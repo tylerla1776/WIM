@@ -4625,7 +4625,7 @@ dependencies = [
 
 [[package]]
 name = "wim"
-version = "3.3.54"
+version = "3.3.71"
 dependencies = [
  "base64 0.22.1",
  "bcrypt",

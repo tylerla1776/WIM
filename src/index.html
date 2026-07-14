@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.69", BUILD_DATE="2026-12-01", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.71", BUILD_DATE="2026-12-02", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.71","Build fix. The new eBay update command I added in 3.3.70 would not compile -- I copied its error handling from an older function whose error type was different, so it expected plain text where the real one hands back a status code and a message together. One line. It never built, which is why you saw the compiler error rather than a working app. Fixed, and the command now matches the existing eBay POST command exactly, including its handling of a blank permission scope."],
+  ["3.3.70","OFFER ENTITY ALREADY EXISTS (25002) -- and this one was my fault. eBay allows exactly ONE offer per item, ever. You do not keep making offers, you UPDATE the one the item already has. WIM only ever knew how to CREATE, and that single gap caused every listing error in a row: reuse a stale offer forever and you get This Offer Is Not Available; throw it away and make a new one and you get Offer Already Exists. My previous fix swapped one for the other. WIM can now update an offer, which it has never been able to do. Listing an item brings its offer up to date -- price, quantity, category, policies, description -- instead of trying to build another one. If eBay says an offer already exists, WIM takes the offer number eBay hands back in the error and updates that one. If the offer is genuinely gone, it builds a fresh one. Whatever the situation, it lands on the single offer your item is allowed to have, carrying current data. This also quietly fixes something nobody had noticed: changing a price or quantity in WIM after the first listing attempt never reached eBay at all, because the offer was only ever written once."],
   ["3.3.69","PACKAGE WEIGHT NO LONGER BLOCKS A LISTING. Your shipping is flat and free, so eBay does not need the weight to publish -- it only matters for calculated shipping. WIM was refusing to list over it, which was WIM being stricter than eBay for no benefit. It still collects the weight, because your postage comparison depends on it, but it will not stop an item going live. BOOK TYPES WITH REAL WEIGHTS. Books and Magazines now has sub categories for Comic Book, Manga, Magazine, Paperback, Trade Paperback, Hardcover and Textbook, each carrying a typical shipping weight -- a comic starts at 0.3 lb instead of everyone guessing 1 lb, a hardcover at 1.8. Pick the sub category and the weight fills itself in, on the item page, in Supervisor Review, and on imported scans. No sub category still means 1 lb, as before. A weight you type by hand is NEVER overwritten -- if you weighed it, you know better than the default. The weights are editable in Category Maintenance so you can tune them once you have seen real postage. Note the new sub categories inherit the eBay category mapping already in use for books, so adding them cannot make anything unlistable -- you can refine each one later with Find on eBay."],
   ["3.3.68","INVALID SHIPPING POLICY (error 25007). Your shipping, payment and return policies are picked once from a dropdown, saved as ID numbers, and then sent to eBay on every listing forever after -- and nothing ever checked they were still real. If a policy is deleted or renamed on eBay, or the saved ID came from a different account, eBay refuses the listing and WIM would keep sending the same dead ID every time you clicked List. Being present in WIM is not the same as being valid on eBay. WIM now checks all three against your actual eBay account before publishing. If only one policy of that type exists it quietly uses it. Otherwise it tells you exactly which policy is wrong and lists the real ones on your account, instead of relaying eBay error codes at you. It also rebuilds the offer when a policy changes -- eBay bakes the policy into an offer when it is created, so an offer made with the old bad policy would keep failing no matter how right WIM got. The check is cached, so listing a large backlog does not fire thousands of pointless calls at eBay."],
   ["3.3.67","FOUND WHY AUTO-UPDATE KEPT FAILING WITH SIGNATURE DID NOT MATCH. An old copy of the release workflow was still sitting in the live workflows folder under a backup filename. GitHub runs everything in that folder -- calling a file backup does not make it inactive. So every version tag built WIM TWICE on two machines. Each one compiled its own installer and signed it with its own signature, then both raced to upload to the same release. One won the installer, the other won the signature file -- so the signature WIM checked belonged to an installer that was never actually published, and the update was correctly rejected. The security check was working; it was protecting you from our own broken release. This also explains the Not Found release asset error I previously told you was harmless -- it was the losing build failing to overwrite the winner, and it was the warning sign. It likely also caused the update failures blamed on WIM still being open. The duplicate workflow is removed, and the real one now refuses to build a tag twice and clears any half-built release first, so the installer and its signature always come from the same build."],
@@ -5259,13 +5261,11 @@ async function publishToEbay(it,onStep){
     // on this account, instead of letting eBay bounce the listing with error 25007.
     const polCheck=await ensureListingPolicies(onStep);
     if(!polCheck.ok) return { ok:false, error:polCheck.error };
-    // If we just corrected a policy, any offer we made EARLIER still has the wrong one baked into
-    // it — eBay stores the policy on the offer at creation time. Reusing that offer would fail with
-    // the same 25007 no matter how right WIM now is. So throw it away and build a fresh one.
-    if(polCheck.changed && it.listing && it.listing.offerId){
-      onStep&&onStep("Rebuilding the offer with the corrected policy…");
-      it.listing.offerId=null; offerId=null; save();
-    }
+    // A corrected policy no longer means destroying the offer. The offer is UPDATED below with
+    // today's policies, price, quantity and category — which is what should have been happening all
+    // along. (Deleting the id here is what caused error 25002, "Offer entity already exists": eBay
+    // permits one offer per SKU, so trying to create a second one was always going to fail.)
+    if(polCheck.changed) onStep&&onStep("Updating the offer with the corrected policy…");
     onStep&&onStep("Creating the eBay offer…");
     const sc=subcatObj(it.section,it.subCategory);
     // An item with no real eBay category mapped (Category = NONE, or a sub-category that was never
@@ -5285,16 +5285,68 @@ async function publishToEbay(it,onStep){
       listingPolicies:{ fulfillmentPolicyId:DB.ebay.fulfillmentPolicyId, paymentPolicyId:DB.ebay.paymentPolicyId, returnPolicyId:DB.ebay.returnPolicyId },
       pricingSummary:{ price:{ value:String(price), currency:"USD" } },
       merchantLocationKey: DB.ebay.merchantLocationKey };
-    createOffer = async ()=>{
-      const r = await EBAY.postUser("/sell/inventory/v1/offer", JSON.stringify(offerPayload), EBAY_SCOPE_INV);
-      if(!r.ok) return { ok:false, error:"eBay rejected the offer (HTTP "+r.status+"):\n"+(r.body||"") };
-      let d={}; try{ d=JSON.parse(r.body); }catch(e){}
-      if(!d.offerId) return { ok:false, error:"eBay didn't return an offer ID:\n"+(r.body||"") };
-      if(!it.listing) it.listing={status:"none"};
-      it.listing.offerId=d.offerId; save();
-      return { ok:true, offerId:d.offerId };
+    // CREATE **OR UPDATE** THE OFFER.
+    //
+    // eBay allows exactly ONE offer per SKU per marketplace. That single fact is what makes this
+    // tricky, and getting it wrong produced two opposite errors in a row:
+    //   • Reuse a stale offer id forever  -> 25713 "This Offer is not available"
+    //   • Throw the id away and POST a new one -> 25002 "Offer entity already exists"
+    // Both are the same underlying mistake: treating an offer as something you create, rather than
+    // something a SKU *has*. The right model is: find the SKU's offer, and update it in place.
+    //
+    // So: update an offer we know about (PUT). If eBay says it's gone, create one. If eBay says one
+    // already exists, take the id it hands back in the error and update THAT. Whatever happens,
+    // converge on the one offer this SKU is allowed to have, carrying today's price, quantity,
+    // category and policies.
+    const putOffer = async (id)=>{
+      const r = await EBAY.putUser("/sell/inventory/v1/offer/"+encodeURIComponent(id), JSON.stringify(offerPayload), EBAY_SCOPE_INV);
+      if(r.ok || r.status===204){
+        if(!it.listing) it.listing={status:"none"};
+        it.listing.offerId=id; save();
+        return { ok:true, offerId:id };
+      }
+      return { ok:false, status:r.status, body:r.body||"" };
     };
-    if(!offerId){
+    const postOffer = async ()=>{
+      const r = await EBAY.postUser("/sell/inventory/v1/offer", JSON.stringify(offerPayload), EBAY_SCOPE_INV);
+      if(r.ok){
+        let d={}; try{ d=JSON.parse(r.body); }catch(e){}
+        if(!d.offerId) return { ok:false, error:"eBay didn't return an offer ID:\n"+(r.body||"") };
+        if(!it.listing) it.listing={status:"none"};
+        it.listing.offerId=d.offerId; save();
+        return { ok:true, offerId:d.offerId };
+      }
+      // "Offer entity already exists" — eBay tells us the id of the offer that's in the way.
+      // That's not a failure, it's the answer: update that one instead of fighting it.
+      const body=String(r.body||"");
+      if(body.indexOf("25002")>=0 && body.indexOf("already exists")>=0){
+        let existing=null;
+        try{
+          const j=JSON.parse(body);
+          (j.errors||[]).forEach(e=>{ (e.parameters||[]).forEach(p=>{ if(/offerId/i.test(p.name||"")) existing=p.value; }); });
+        }catch(e){}
+        if(existing){
+          const up=await putOffer(existing);
+          if(up.ok) return up;
+          return { ok:false, error:"eBay already has an offer ("+existing+") for this item, but wouldn't let WIM update it (HTTP "+up.status+"):\n"+up.body };
+        }
+      }
+      return { ok:false, error:"eBay rejected the offer (HTTP "+r.status+"):\n"+body };
+    };
+    // Named createOffer for the callers above; it's really "make the offer correct, whatever it takes".
+    createOffer = async ()=>{
+      const known = it.listing && it.listing.offerId;
+      if(known){
+        const up=await putOffer(known);
+        if(up.ok) return up;
+        // Gone? Then genuinely make a new one.
+        const dead = up.status===404 || String(up.body||"").indexOf("25713")>=0;
+        if(!dead) return { ok:false, error:"eBay wouldn't update the existing offer (HTTP "+up.status+"):\n"+up.body };
+        if(it.listing) it.listing.offerId=null;
+      }
+      return await postOffer();
+    };
+    {
       let mk;
       try{ mk=await createOffer(); }
       catch(e){ return { ok:false, error:"Could not reach eBay (offer): "+(e&&e.message?e.message:e) }; }
@@ -5309,17 +5361,12 @@ async function publishToEbay(it,onStep){
   try{ pr=await doPublish(offerId); }
   catch(e){ return { ok:false, error:"Could not reach eBay (publish): "+(e&&e.message?e.message:e) }; }
 
-  // SELF-HEAL A DEAD OFFER.
-  // WIM remembers the offer id so a retry reuses it instead of creating duplicates — good. But if
-  // eBay has since thrown that offer away (error 25713 "This Offer is not available", usually
-  // because an earlier failed attempt left it orphaned when the inventory item was rebuilt), then
-  // reusing it means every future retry publishes a corpse. The item becomes permanently
-  // unlistable and no amount of clicking List will ever fix it. So: if eBay says the offer is
-  // gone, believe it — forget the id, build a fresh offer, and publish that. Once only, so a real
-  // failure still surfaces instead of looping.
-  // A reused offer can also carry a policy that has since become invalid (error 25007) — the policy
-  // is baked into the offer when it's created. Rebuilding is the fix for that too.
-  const offerIsDead = pr && !pr.ok && (pr.status===404 || String(pr.body||"").indexOf("25713")>=0 || String(pr.body||"").indexOf("25007")>=0);
+  // LAST-DITCH SELF-HEAL. The offer was already brought up to date (created or updated) just above,
+  // so most stale-offer problems are gone before we get here. But if eBay still says the offer it
+  // just handed us is missing (25713 / 404), the id we hold is a corpse: drop it and let
+  // createOffer() rebuild from scratch, then publish once more. Only once — a real, honest failure
+  // must still reach the user rather than spin.
+  const offerIsDead = pr && !pr.ok && (pr.status===404 || String(pr.body||"").indexOf("25713")>=0);
   if(offerIsDead && typeof createOffer==="function"){
     onStep&&onStep("That offer no longer exists on eBay — rebuilding it…");
     if(it.listing) it.listing.offerId=null;
@@ -5332,7 +5379,7 @@ async function publishToEbay(it,onStep){
     catch(e){ return { ok:false, error:"Could not reach eBay (publish): "+(e&&e.message?e.message:e) }; }
   }
 
-  if(!pr.ok) return { ok:false, error:"eBay rejected the publish (HTTP "+pr.status+"):\n"+(pr.body||"")+"\n\n(The offer was created — trying Publish again will reuse it, not create a duplicate.)" };
+  if(!pr.ok) return { ok:false, error:"eBay rejected the publish (HTTP "+pr.status+"):\n"+(pr.body||"")+"\n\n(Your offer is saved and up to date on eBay — clicking List again updates it, it will not create a duplicate.)" };
   let pd={}; try{ pd=JSON.parse(pr.body); }catch(e){}
   const listingId=pd.listingId||"";
   if(!it.listing) it.listing={status:"none"};
@@ -12079,6 +12126,10 @@ const EBAY={
   app(path,scope){ return wimDesktop.invoke("ebay_get_app",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,scope:scope||EBAY_SCOPE_APP,marketplace:this.mkt(),path}); },
   user(path,scope){ return wimDesktop.invoke("ebay_get_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path}); },
   postUser(path,payloadJson,scope){ return wimDesktop.invoke("ebay_post_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path,payloadJson}); },
+  // PUT — used to UPDATE an existing eBay offer. eBay allows one offer per SKU, so correcting a
+  // listing means updating that offer, not creating another one. WIM had no PUT at all, which is
+  // why it could only ever create.
+  putUser(path,payloadJson,scope){ return wimDesktop.invoke("ebay_put_user",{env:(DB.ebay.env||"sandbox"),appId:DB.ebay.appId,certId:DB.ebay.certId,refreshToken:DB.ebay.refreshToken,scope:scope||EBAY_SCOPE_INV,marketplace:this.mkt(),path,payloadJson}); },
   // Pulls orders that have completed checkout (Fulfillment API — this is the real
   // "what's sold and needs handled" call, not a listing report). Filters to orders
   // created in the last N days by default. Each line item carries its SKU, which is
