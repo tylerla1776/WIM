@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.72", BUILD_DATE="2026-12-03", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.74", BUILD_DATE="2026-12-05", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.74","PULL NEW LISTINGS HANGING ON PAGE 1. Two causes, both real. First, NONE of WIM calls to eBay had a time limit -- twenty different connections, not one of them with a timeout. So a slow or wedged request would hang forever and the app would just sit there spinning with nothing to show you. A request that never comes back is worse than one that fails, because a failure at least tells you something. Every call now gives up after 90 seconds and reports what happened. Second, WIM was asking eBay for the COMPLETE record of every one of the 50 listings on a page, when it only reads about eight fields from each. On an account your partner size that is an enormous response and slow enough to look frozen. It now asks only for what it actually uses, which is dramatically faster -- and if that trimmed request ever comes back empty, WIM automatically retries the old full request rather than wrongly telling you there is nothing new."],
+  ["3.3.73","Corrected the reconnect instructions -- I pointed you at the wrong button. The Connect badge at the top only switches WIM online using the permission it ALREADY has; it never asks eBay for anything new, which is why you saw no approval screen. Signing in to eBay again is done in Configuration, then eBay Connection, then Connect with eBay -- that is the one that opens your browser to eBay approval page and issues a fresh connection carrying the missing permission. WIM error message now says this properly."],
   ["3.3.72","PULL NEW LISTINGS AND BUYER MESSAGES COULD NEVER HAVE WORKED. When you connect WIM to eBay, eBay asks you to approve a list of permissions -- and that list was missing the basic one. Both Pull New Listings and replying to a buyer go through eBay older Trading system, which uses exactly that permission and no other, so eBay was refusing them outright with an invalid scope error. Not a fault in either feature: they were never allowed to run. The permission is now requested. IMPORTANT -- YOU MUST RECONNECT TO EBAY. Permissions are locked in at the moment you approve them, so your current connection is stuck with the old list forever. Click the mode badge at the top, click Connect, and approve eBay consent screen again. Nothing is lost and nothing else is affected. WIM now also explains this in plain words when it happens, instead of showing you a raw error you cannot act on. Also: GitHub builds were taking 20-30 minutes because every release recompiled all 400 code libraries from scratch. They are now cached, so after the next one builds should take a few minutes."],
   ["3.3.71","Build fix. The new eBay update command I added in 3.3.70 would not compile -- I copied its error handling from an older function whose error type was different, so it expected plain text where the real one hands back a status code and a message together. One line. It never built, which is why you saw the compiler error rather than a working app. Fixed, and the command now matches the existing eBay POST command exactly, including its handling of a blank permission scope."],
   ["3.3.70","OFFER ENTITY ALREADY EXISTS (25002) -- and this one was my fault. eBay allows exactly ONE offer per item, ever. You do not keep making offers, you UPDATE the one the item already has. WIM only ever knew how to CREATE, and that single gap caused every listing error in a row: reuse a stale offer forever and you get This Offer Is Not Available; throw it away and make a new one and you get Offer Already Exists. My previous fix swapped one for the other. WIM can now update an offer, which it has never been able to do. Listing an item brings its offer up to date -- price, quantity, category, policies, description -- instead of trying to build another one. If eBay says an offer already exists, WIM takes the offer number eBay hands back in the error and updates that one. If the offer is genuinely gone, it builds a fresh one. Whatever the situation, it lands on the single offer your item is allowed to have, carrying current data. This also quietly fixes something nobody had noticed: changing a price or quantity in WIM after the first listing attempt never reached eBay at all, because the offer was only ever written once."],
@@ -12096,10 +12098,13 @@ function openMissingItem(){
 function ebayScopeError(body){
   if(String(body||"").indexOf("invalid_scope")<0) return null;
   return "This eBay connection doesn't have the permission this feature needs.\n\n"+
-         "That permission is granted once, when you connect — so it can't be fixed from here, and "+
-         "trying again won't help. You need to reconnect.\n\n"+
-         "Click the mode badge at the top → Connect, and approve eBay's consent screen again. "+
-         "Nothing else in WIM is affected, and you won't lose any data.";
+         "That permission is granted once, when you sign in to eBay — so it can't be fixed from here, "+
+         "and clicking Connect on the badge won't help either: that just switches WIM online using the "+
+         "permission it already has.\n\n"+
+         "You have to sign in to eBay again:\n\n"+
+         "   Configuration → eBay Connection → Connect with eBay\n\n"+
+         "Your browser opens eBay's approval page — sign in and click Agree. That issues a new "+
+         "connection carrying the missing permission. Nothing is lost and nothing else is affected.";
 }
 const EBAY_SCOPE_APP="https://api.ebay.com/oauth/api_scope";
 // Parses eBay's GetFeedback XML response (Trading API) into a plain JS object. Real
@@ -12695,18 +12700,50 @@ async function pullNewListings(after,silent,opts){
     // Walk pages until we have `want` new ones, or run out of listings.
     while(found.length < want && page <= totalPages + 0){
       set("Reading page "+page+" of your eBay listings — "+found.length+" new so far");
+      // Ask eBay for ONLY the fields we actually read. This used to send DetailLevel=ReturnAll,
+      // which makes eBay assemble and return the complete record for all 50 listings — an enormous
+      // response on an account with a thousand-plus items, slow enough to look like the app had
+      // frozen. OutputSelector cuts it down to the handful of fields the code below parses, which
+      // is dramatically faster and returns the same information.
       const xml=`<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">`+
         `<ActiveList><Sort>TimeLeft</Sort><Pagination><EntriesPerPage>50</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>`+
-        `<DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
+        `<OutputSelector>ActiveList.PaginationResult.TotalNumberOfPages</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.ItemID</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.SKU</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.Title</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.StartTime</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.Quantity</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.SellingStatus.CurrentPrice</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.StartPrice</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.PrimaryCategoryID</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.PictureDetails.GalleryURL</OutputSelector>`+
+        `</GetMyeBaySellingRequest>`;
       const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xml });
       if(!r.ok){ stopDots(); if(!silent){ closeAllModals();
         const scopeMsg=ebayScopeError(r.body);
         uiAlert(scopeMsg || ("eBay listing read failed (HTTP "+r.status+"): "+(r.body||"").slice(0,300))); } return; }
 
-      const doc=new DOMParser().parseFromString(r.body,"text/xml");
-      const pagesEl=doc.getElementsByTagName("TotalNumberOfPages")[0];
+      let doc=new DOMParser().parseFromString(r.body,"text/xml");
+      let pagesEl=doc.getElementsByTagName("TotalNumberOfPages")[0];
       totalPages = pagesEl ? (parseInt(pagesEl.textContent,10)||1) : 1;
-      const nodes=doc.getElementsByTagName("Item");
+      let nodes=doc.getElementsByTagName("Item");
+      // SAFETY NET for the trimmed request above. If asking eBay for a narrow set of fields somehow
+      // comes back with no listings at all, don't quietly report "nothing new" — that would look
+      // exactly like an empty account and hide the problem. Fall back to the old full-detail request
+      // once and use whatever that returns. Slower, but correct beats fast.
+      if(!nodes.length && page===1){
+        const xmlFull=`<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">`+
+          `<ActiveList><Sort>TimeLeft</Sort><Pagination><EntriesPerPage>50</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>`+
+          `<DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
+        set("Reading page "+page+" — retrying with full detail…");
+        const r2=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xmlFull });
+        if(r2 && r2.ok){
+          doc=new DOMParser().parseFromString(r2.body,"text/xml");
+          pagesEl=doc.getElementsByTagName("TotalNumberOfPages")[0];
+          totalPages = pagesEl ? (parseInt(pagesEl.textContent,10)||1) : 1;
+          nodes=doc.getElementsByTagName("Item");
+        }
+      }
       if(!nodes.length) break;
 
       // Newest first, by listing start time.

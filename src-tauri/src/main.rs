@@ -48,6 +48,18 @@ fn base_url(env: &str) -> &'static str {
 }
 
 // Exchange the long-lived refresh token for a short-lived USER access token.
+// Every outbound HTTP request goes through this. It exists because the app previously built twenty
+// separate `reqwest::Client::new()` instances, none of which had a timeout — so a slow or wedged
+// eBay call would hang forever, with the UI stuck on a spinner and no error to report. A request
+// that hangs is worse than one that fails: a failure tells you something.
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(90))   // generous: some eBay calls are genuinely slow
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 async fn get_user_token(
     env: &str,
     app_id: &str,
@@ -62,7 +74,7 @@ async fn get_user_token(
         ("refresh_token", refresh_token),
         ("scope", scope),
     ];
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(&url)
         .header("Authorization", format!("Basic {}", basic))
@@ -98,7 +110,7 @@ async fn ebay_token_probe(env: String, app_id: String, cert_id: String, refresh_
         ("refresh_token", refresh_token.as_str()),
         ("scope", sc.as_str()),
     ];
-    let client = reqwest::Client::new();
+    let client = http_client();
     match client
         .post(&url)
         .header("Authorization", format!("Basic {}", basic))
@@ -234,7 +246,7 @@ async fn exchange_auth_code(
         ("code", code),
         ("redirect_uri", ru_name),
     ];
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(&url)
         .header("Authorization", format!("Basic {}", basic))
@@ -294,7 +306,7 @@ async fn shippo_get_rates(
         }],
         "async": false
     });
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(url)
         .header("Authorization", format!("ShippoToken {}", token))
@@ -328,7 +340,7 @@ async fn easypost_get_rates(
             "parcel": { "length": length_in, "width": width_in, "height": height_in, "weight": weight_oz }
         }
     });
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(url)
         .basic_auth(api_key, Option::<String>::None)
@@ -360,7 +372,7 @@ async fn easypost_track(api_key: String, tracking_code: String, carrier: String)
     let body = serde_json::json!({
         "tracker": { "tracking_code": tracking_code, "carrier": carrier }
     });
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(url)
         .basic_auth(api_key, Option::<String>::None)
@@ -396,7 +408,7 @@ async fn easypost_create_shipment(
             "parcel": { "length": length_in, "width": width_in, "height": height_in, "weight": weight_oz }
         }
     });
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client.post(url).basic_auth(api_key, Option::<String>::None).header("Content-Type","application/json").json(&body).send().await;
     match resp {
         Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
@@ -409,7 +421,7 @@ async fn easypost_create_shipment(
 async fn easypost_buy_label(api_key: String, shipment_id: String, rate_id: String) -> ApiResult {
     let url = format!("https://api.easypost.com/v2/shipments/{}/buy", shipment_id);
     let body = serde_json::json!({ "rate": { "id": rate_id } });
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client.post(&url).basic_auth(api_key, Option::<String>::None).header("Content-Type","application/json").json(&body).send().await;
     match resp {
         Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
@@ -425,7 +437,7 @@ async fn easypost_buy_label(api_key: String, shipment_id: String, rate_id: Strin
 async fn shippo_buy_label(token: String, rate_id: String) -> ApiResult {
     let url = "https://api.goshippo.com/transactions";
     let body = serde_json::json!({ "rate": rate_id, "async": false, "label_file_type": "PDF_4x6" });
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client.post(url).header("Authorization", format!("ShippoToken {}", token)).header("Content-Type","application/json").json(&body).send().await;
     match resp {
         Ok(r) => { let status = r.status().as_u16(); let text = r.text().await.unwrap_or_default();
@@ -446,7 +458,7 @@ async fn supabase_rpc(url: String, anon_key: String, function_name: String, payl
         return ApiResult { ok: false, status: 0, body: "Refused: URL is not a valid Supabase project host".to_string() };
     }
     let full_url = format!("{}/rest/v1/rpc/{}", trimmed, function_name);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let req = client
         .post(&full_url)
         .header("apikey", &anon_key)
@@ -486,7 +498,7 @@ async fn ebay_trading_call(env: String, app_id: String, cert_id: String, refresh
         Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("token error: {}", b) },
     };
     let host = if env == "production" { "https://api.ebay.com/ws/api.dll" } else { "https://api.sandbox.ebay.com/ws/api.dll" };
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(host)
         .header("X-EBAY-API-SITEID", site_id)
@@ -597,7 +609,7 @@ async fn pick_photos_in_folder(app: tauri::AppHandle, default_dir: String) -> Re
 // Calls the InventoryIQ Cloudflare Worker to pull accepted scans. Bearer-token authed.
 #[tauri::command]
 async fn iq_fetch_scans(base_url: String, token: String) -> ApiResult {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = format!("{}/api/pending-scans", base_url.trim_end_matches('/'));
     match client.get(&url).header("Authorization", format!("Bearer {}", token)).send().await {
         Ok(resp) => {
@@ -612,7 +624,7 @@ async fn iq_fetch_scans(base_url: String, token: String) -> ApiResult {
 // Marks one scan imported so InventoryIQ stops returning it.
 #[tauri::command]
 async fn iq_mark_imported(base_url: String, token: String, scan_id: String) -> ApiResult {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = format!("{}/api/scans/{}/imported", base_url.trim_end_matches('/'), scan_id);
     match client.post(&url).header("Authorization", format!("Bearer {}", token)).header("Content-Type", "application/json").body("{}").send().await {
         Ok(resp) => {
@@ -915,7 +927,7 @@ async fn get_app_token(
     let url = format!("{}/identity/v1/oauth2/token", base_url(env));
     let basic = general_purpose::STANDARD.encode(format!("{}:{}", app_id, cert_id));
     let params = [("grant_type", "client_credentials"), ("scope", scope)];
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(&url)
         .header("Authorization", format!("Basic {}", basic))
@@ -940,7 +952,7 @@ async fn get_app_token(
 
 async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload: &str) -> ApiResult {
     let url = format!("{}{}", base_url(env), path);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut req = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -979,7 +991,7 @@ async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload:
 // republishing a dead offer (25713), then trying to create a second one for the same SKU (25002).
 async fn do_put(env: &str, token: &str, marketplace: &str, path: &str, payload: &str) -> ApiResult {
     let url = format!("{}{}", base_url(env), path);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut req = client
         .put(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -1066,7 +1078,7 @@ async fn ebay_post_user(
 
 async fn do_get(env: &str, token: &str, marketplace: &str, path: &str) -> ApiResult {
     let url = format!("{}{}", base_url(env), path);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut req = client
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -1130,7 +1142,7 @@ async fn ebay_put_inventory_item(env: String, app_id: String, cert_id: String, r
         Err((s, b)) => return ApiResult { ok: false, status: s, body: format!("token error: {}", b) },
     };
     let url = format!("{}/sell/inventory/v1/inventory_item/{}", base_url(&env), sku);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .put(&url)
         .header("Authorization", format!("Bearer {}", token))
@@ -1191,7 +1203,7 @@ async fn ebay_upload_picture(env: String, app_id: String, cert_id: String, refre
     let form = reqwest::multipart::Form::new()
         .text("XML Payload", xml)
         .part("image", part);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(endpoint)
         .header("X-EBAY-API-CALL-NAME", "UploadSiteHostedPictures")
@@ -1236,7 +1248,7 @@ async fn ebay_search_by_image(env: String, app_id: String, cert_id: String, scop
     let off = if offset.is_empty() { "0".to_string() } else { offset };
     let url = format!("{}/buy/browse/v1/item_summary/search_by_image?limit={}&offset={}", base_url(&env), lim, off);
     let body = format!("{{\"image\":\"{}\"}}", image_base64.replace('"', ""));
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut req = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", tok))
