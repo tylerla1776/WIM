@@ -63,6 +63,16 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Cache the compiled Rust dependencies between builds. Without this, every single release
+      # recompiles all ~400 Tauri crates from an empty machine — which is why builds were taking
+      # 20-30 minutes. Only WIM's own code needs rebuilding each time; the libraries underneath it
+      # do not change. First build after this is still slow (it has to fill the cache); after that
+      # they should land in a few minutes.
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Install dependencies
         run: npm install
 

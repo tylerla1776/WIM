@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.71", BUILD_DATE="2026-12-02", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.72", BUILD_DATE="2026-12-03", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.72","PULL NEW LISTINGS AND BUYER MESSAGES COULD NEVER HAVE WORKED. When you connect WIM to eBay, eBay asks you to approve a list of permissions -- and that list was missing the basic one. Both Pull New Listings and replying to a buyer go through eBay older Trading system, which uses exactly that permission and no other, so eBay was refusing them outright with an invalid scope error. Not a fault in either feature: they were never allowed to run. The permission is now requested. IMPORTANT -- YOU MUST RECONNECT TO EBAY. Permissions are locked in at the moment you approve them, so your current connection is stuck with the old list forever. Click the mode badge at the top, click Connect, and approve eBay consent screen again. Nothing is lost and nothing else is affected. WIM now also explains this in plain words when it happens, instead of showing you a raw error you cannot act on. Also: GitHub builds were taking 20-30 minutes because every release recompiled all 400 code libraries from scratch. They are now cached, so after the next one builds should take a few minutes."],
   ["3.3.71","Build fix. The new eBay update command I added in 3.3.70 would not compile -- I copied its error handling from an older function whose error type was different, so it expected plain text where the real one hands back a status code and a message together. One line. It never built, which is why you saw the compiler error rather than a working app. Fixed, and the command now matches the existing eBay POST command exactly, including its handling of a blank permission scope."],
   ["3.3.70","OFFER ENTITY ALREADY EXISTS (25002) -- and this one was my fault. eBay allows exactly ONE offer per item, ever. You do not keep making offers, you UPDATE the one the item already has. WIM only ever knew how to CREATE, and that single gap caused every listing error in a row: reuse a stale offer forever and you get This Offer Is Not Available; throw it away and make a new one and you get Offer Already Exists. My previous fix swapped one for the other. WIM can now update an offer, which it has never been able to do. Listing an item brings its offer up to date -- price, quantity, category, policies, description -- instead of trying to build another one. If eBay says an offer already exists, WIM takes the offer number eBay hands back in the error and updates that one. If the offer is genuinely gone, it builds a fresh one. Whatever the situation, it lands on the single offer your item is allowed to have, carrying current data. This also quietly fixes something nobody had noticed: changing a price or quantity in WIM after the first listing attempt never reached eBay at all, because the offer was only ever written once."],
   ["3.3.69","PACKAGE WEIGHT NO LONGER BLOCKS A LISTING. Your shipping is flat and free, so eBay does not need the weight to publish -- it only matters for calculated shipping. WIM was refusing to list over it, which was WIM being stricter than eBay for no benefit. It still collects the weight, because your postage comparison depends on it, but it will not stop an item going live. BOOK TYPES WITH REAL WEIGHTS. Books and Magazines now has sub categories for Comic Book, Manga, Magazine, Paperback, Trade Paperback, Hardcover and Textbook, each carrying a typical shipping weight -- a comic starts at 0.3 lb instead of everyone guessing 1 lb, a hardcover at 1.8. Pick the sub category and the weight fills itself in, on the item page, in Supervisor Review, and on imported scans. No sub category still means 1 lb, as before. A weight you type by hand is NEVER overwritten -- if you weighed it, you know better than the default. The weights are editable in Category Maintenance so you can tune them once you have seen real postage. Note the new sub categories inherit the eBay category mapping already in use for books, so adding them cannot make anything unlistable -- you can refine each one later with Find on eBay."],
@@ -12087,6 +12088,19 @@ function openMissingItem(){
 }
 
 /* ============================================================ eBay READ API (v2.2.4) ============================================================ */
+// eBay's "invalid_scope" means the CONNECTION was granted without the permission this feature needs.
+// It can never fix itself: the permissions on a refresh token are frozen at the moment you consent.
+// Re-clicking the button, waiting, or changing anything on the Developer Portal will not help — the
+// only fix is to reconnect, so eBay issues a new token that carries the permission. Say so plainly
+// rather than showing people an OAuth error they can't act on.
+function ebayScopeError(body){
+  if(String(body||"").indexOf("invalid_scope")<0) return null;
+  return "This eBay connection doesn't have the permission this feature needs.\n\n"+
+         "That permission is granted once, when you connect — so it can't be fixed from here, and "+
+         "trying again won't help. You need to reconnect.\n\n"+
+         "Click the mode badge at the top → Connect, and approve eBay's consent screen again. "+
+         "Nothing else in WIM is affected, and you won't lose any data.";
+}
 const EBAY_SCOPE_APP="https://api.ebay.com/oauth/api_scope";
 // Parses eBay's GetFeedback XML response (Trading API) into a plain JS object. Real
 // Positive/Neutral/Negative + comment per entry, plus the account-wide positive
@@ -12189,6 +12203,10 @@ const EBAY={
     const xml=`<?xml version="1.0" encoding="utf-8"?><${callName}Request xmlns="urn:ebay:apis:eBLBaseComponents">${inner}</${callName}Request>`;
     const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName, siteId:"0", xmlBody:xml });
     if(!r.ok){
+      // Replying to a buyer also goes through the Trading API, so it needs the same base permission
+      // Pull New Listings does — and it was missing from the connection too. Same plain explanation.
+      const scopeMsg=ebayScopeError(r.body);
+      if(scopeMsg) throw new Error(scopeMsg);
       // Surface eBay's own error text — the Trading API buries it in the XML even on HTTP 200.
       const m=/<LongMessage>([^<]*)<\/LongMessage>/.exec(r.body||"") || /<ShortMessage>([^<]*)<\/ShortMessage>/.exec(r.body||"");
       throw new Error((m?m[1]:("HTTP "+r.status))+"\n\nCall: "+callName+"\n"+(r.body||"").slice(0,400));
@@ -12681,7 +12699,9 @@ async function pullNewListings(after,silent,opts){
         `<ActiveList><Sort>TimeLeft</Sort><Pagination><EntriesPerPage>50</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>`+
         `<DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
       const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xml });
-      if(!r.ok){ stopDots(); if(!silent){ closeAllModals(); uiAlert("eBay listing read failed (HTTP "+r.status+"): "+(r.body||"").slice(0,300)); } return; }
+      if(!r.ok){ stopDots(); if(!silent){ closeAllModals();
+        const scopeMsg=ebayScopeError(r.body);
+        uiAlert(scopeMsg || ("eBay listing read failed (HTTP "+r.status+"): "+(r.body||"").slice(0,300))); } return; }
 
       const doc=new DOMParser().parseFromString(r.body,"text/xml");
       const pagesEl=doc.getElementsByTagName("TotalNumberOfPages")[0];
