@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.86", BUILD_DATE="2026-12-17", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.87", BUILD_DATE="2026-12-18", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.87","FIVE FIXES FROM YOUR NOTES. One: when eBay refuses an item condition, WIM now says so in plain words -- this category does not allow New, here are the conditions it accepts -- instead of dumping the raw error and the whole payload on you. Two: the Condition field is a proper WIM dropdown again (click, see the list, pick one) instead of the type-and-guess suggestion box -- which is how a magazine quietly ended up marked New in the first place. New items also no longer default to New; the condition starts blank so someone consciously picks it. Three: Find on eBay inside a popped-out window no longer closes the whole screen when you click Use this. It now opens as its own layer on top; Use this closes just that layer and the fields underneath refresh with the imported category and details. Four: new items default their category to Books and Magazines. Five: the photo editor grew up -- zoom now actually works and goes from 10 percent to 500 percent with a live preview, and there is a Crop tool: click the scissors, drag a box over the part you want to keep, save. Crop is measured at true size so the box you draw is exactly what you get."],
   ["3.3.86","FIXED THE LISTING ERROR (eBay 2004 Invalid request). Two causes, both about item condition. One: eBay condition values are not the same for every category -- a book category rejects NEW outright, it wants Like New or one of the Used grades. WIM was sending whatever condition you picked without checking, so a book marked New got a cryptic error with no explanation. WIM now asks eBay which conditions the category actually allows and, if yours is not on the list, quietly switches to the closest one that is -- your Fantastic Four book listed as New becomes Like New and goes through. It tells you in the status line when it adjusts. Two: one of WIM own condition codes -- Used Excellent -- was not a real eBay value at all, so anything set to it failed instantly. That is corrected to Used Very Good. The allowed conditions per category are remembered so it is one quick check, not a delay on every item."],
   ["3.3.85","MESSAGING AND TEMPLATES, from your notes. Conversations now read like a real chat: your messages sit on the RIGHT with a light blue bubble, the buyer stays on the LEFT in gray, so you can tell at a glance who said what. Under your own messages it now says who sent it -- WIM and the user name if it went through WIM, or eBay user if it was sent from eBay directly -- instead of repeating the item name. Where the list said eBay member or Buyer of..., it now shows the buyer actual username. The Support info button is gone and Diagnose is now admin-only. The message list is capped at the newest 100 with a Load 20 more button at the bottom. TEMPLATES: inserting one now fills in the buyer real name, the dropdown stays on the template you picked, and inserting OVERWRITES the box instead of stacking a second message under the first. And creating a new template no longer blanks the whole Communication screen -- that was closing the window by mistake; you can now make a template, save, and insert it right away. PHOTO EDITOR: the grey Edit icon (top-left of a photo, rotate/flip/resize) is confirmed wired on item pages, Bulk Add, Import Scans and Supervisor Review -- if you could not see it before, it is because it arrived in a version newer than the one you had installed."],
   ["3.3.84","THE MONEY SCREENS NOW TELL THE TRUTH. Vendor ROI was built on the backwards legacy sold flag -- the same one that broke the review queues in 3.3.66 -- so it was reporting on the wrong items entirely. It now uses real sales, includes eBay fees (real ones where pulled, your account own effective rate as the estimate where not), uses the real label cost, counts refunds, and -- new -- counts WRITE-OFFS: money you spent on a vendor stock that got junked now shows against that vendor instead of vanishing, so a vendor whose books keep getting damaged stops looking better than one whose books all sell. True Net Profit now uses the real label bill from the fee pull instead of ignoring it, and subtracts refunds. SEND OFFERS TO WATCHERS grew the safety it was missing: a BREAK-EVEN FLOOR -- WIM works out what each discounted offer would actually net you after eBay cut, postage and what you paid, and refuses to send any offer that loses money, naming the items and the loss. And offers now show a review screen first -- every item, current price, offer price, and what you would make -- before anything is sent to a buyer."],
@@ -5343,7 +5344,22 @@ async function publishToEbay(it,onStep){
   let r;
   try{ r=await wimDesktop.invoke("ebay_put_inventory_item",{ env:DB.ebay.env||"sandbox", appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, marketplace:DB.ebay.marketplace||"EBAY_US", sku, payloadJson:JSON.stringify(invPayload) }); }
   catch(e){ return { ok:false, error:"Could not reach eBay (inventory item): "+(e&&e.message?e.message:e) }; }
-  if(!r.ok) return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"")+"\n\n— What WIM sent —\n"+JSON.stringify(invPayload,null,2) };
+  if(!r.ok){
+    // eBay's 2004 "Invalid request" names no field, but in practice on this call it is almost
+    // always the CONDITION — a value the category doesn't allow (books and magazines reject New).
+    // Say that in plain words, with the conditions this category actually accepts, instead of
+    // dumping the raw error and the whole payload on the user.
+    if(String(r.body||"").indexOf('"errorId":2004')>=0){
+      let allowedTxt="";
+      try{
+        const sc2=subcatObj(it.section,it.subCategory);
+        const allowed2=sc2&&sc2.ebayId?await allowedConditionsFor(sc2.ebayId):null;
+        if(allowed2&&allowed2.length) allowedTxt="\n\nThis category accepts: "+allowed2.map(ebayCondLabel).join(", ")+".";
+      }catch(e){}
+      return { ok:false, error:"eBay refused this item's condition — \u201c"+(ebayCondLabel(invPayload.condition)||it.condition||"(none)")+"\u201d isn't allowed in this eBay category."+allowedTxt+"\n\nOpen the item, pick a condition from the dropdown, and try again. (Books and magazines can't be listed as New unless they truly are brand new sealed stock.)" };
+    }
+    return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"")+"\n\n— What WIM sent —\n"+JSON.stringify(invPayload,null,2) };
+  }
 
   let offerId=it.listing&&it.listing.offerId;
   let createOffer=null;   // set below; also used to rebuild the offer if eBay has discarded it
@@ -6384,30 +6400,43 @@ function openPhotoEditor(it, idx, onDone){
   const src=(it.images||[])[idx];
   if(!src){ uiAlert("No photo to edit."); return; }
   let rot=0, flipH=false, flipV=false, scale=1;
-  const m=uiModal("Edit photo", `<div style="min-width:520px;">
-      <div style="background:#2b3440;border-radius:8px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:320px;">
-        <img id="pe-img" src="${esc(src)}" style="max-width:460px;max-height:300px;transition:transform .15s;">
+  let cropMode=false, crop=null;   // crop = {x,y,w,h} in DISPLAYED-image coordinates
+  const m=uiModal("Edit photo", `<div style="min-width:540px;">
+      <div id="pe-stage" style="background:#2b3440;border-radius:8px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:330px;overflow:hidden;position:relative;">
+        <div id="pe-imgwrap" style="position:relative;display:inline-block;">
+          <img id="pe-img" src="${esc(src)}" style="max-width:470px;max-height:300px;display:block;transition:transform .12s;transform-origin:center center;" draggable="false">
+          <div id="pe-croprect" style="display:none;position:absolute;border:2px dashed #FFD34D;background:rgba(255,211,77,.15);pointer-events:none;"></div>
+        </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
         <button class="btn sm" id="pe-rl">↺ Rotate left</button>
         <button class="btn sm" id="pe-rr">↻ Rotate right</button>
         <button class="btn sm" id="pe-fh">⇄ Flip across</button>
         <button class="btn sm" id="pe-fv">⇅ Flip down</button>
+        <button class="btn sm" id="pe-crop">✂ Crop</button>
         <span style="flex:1;"></span>
-        <label style="font-size:12px;color:#5b6470;">Size</label>
-        <input type="range" id="pe-scale" min="40" max="100" value="100" style="width:120px;">
-        <span id="pe-pct" style="font-size:12px;width:38px;color:#5b6470;">100%</span>
+        <label style="font-size:12px;color:#5b6470;">Zoom</label>
+        <input type="range" id="pe-scale" min="10" max="500" value="100" style="width:130px;">
+        <span id="pe-pct" style="font-size:12px;width:42px;color:#5b6470;">100%</span>
       </div>
-      <div class="smallhint" style="margin-top:8px;">Rotating or flipping changes the photo that goes to eBay. Size only reduces the file — smaller means faster uploads and less storage; it never enlarges beyond the original.</div>
+      <div class="smallhint" id="pe-hint" style="margin-top:8px;">Rotate, flip, zoom and crop change the photo that goes to eBay. Zoom under 100% shrinks the file (faster uploads); over 100% enlarges it — fine for trimming into a crop, but a photo can't gain detail it never had.</div>
     </div>`,
     [{label:"Cancel"},{label:"Save photo",primary:true,onClick:()=>{ commit(); return true; }}]);
 
   const img=m.box.querySelector("#pe-img");
+  const wrap=m.box.querySelector("#pe-imgwrap");
+  const rect=m.box.querySelector("#pe-croprect");
+  const hint=m.box.querySelector("#pe-hint");
   const paint=()=>{
     const t=[];
     if(rot) t.push("rotate("+rot+"deg)");
     if(flipH) t.push("scaleX(-1)");
     if(flipV) t.push("scaleY(-1)");
+    // The zoom slider previews too — before, scale was silently ignored in the preview, which is
+    // exactly why it "didn't do anything". EXCEPT while cropping: CSS scale changes the on-screen
+    // geometry the crop box is measured against, so cropping happens at 100% and the zoom is applied
+    // to the final saved image instead.
+    if(scale!==1 && !cropMode) t.push("scale("+scale+")");
     img.style.transform=t.join(" ");
   };
   m.box.querySelector("#pe-rl").onclick=()=>{ rot=(rot+270)%360; paint(); };
@@ -6415,28 +6444,66 @@ function openPhotoEditor(it, idx, onDone){
   m.box.querySelector("#pe-fh").onclick=()=>{ flipH=!flipH; paint(); };
   m.box.querySelector("#pe-fv").onclick=()=>{ flipV=!flipV; paint(); };
   const sl=m.box.querySelector("#pe-scale"), pct=m.box.querySelector("#pe-pct");
-  sl.oninput=()=>{ scale=parseInt(sl.value,10)/100; pct.textContent=sl.value+"%"; };
+  sl.oninput=()=>{ scale=parseInt(sl.value,10)/100; pct.textContent=sl.value+"%"; paint(); };
 
-  // Bake the changes into the actual pixels. The preview above is only a CSS transform — eBay would
-  // still receive the original, sideways image if we didn't redraw it for real.
+  // ---- CROP: click ✂, then drag a box over the picture. Drag again to redo it. ----
+  const cropBtn=m.box.querySelector("#pe-crop");
+  cropBtn.onclick=()=>{
+    cropMode=!cropMode;
+    cropBtn.style.background=cropMode?"#FFD34D":"";
+    if(cropMode){ hint.textContent="Drag a box over the part of the photo you want to KEEP. Drag again to redo it. Click ✂ Crop again to cancel."; }
+    else { crop=null; rect.style.display="none"; hint.textContent="Crop cleared."; }
+    paint();   // entering crop mode shows the photo at 100% so the box lines up exactly
+  };
+  let dragStart=null;
+  wrap.addEventListener("mousedown",(e)=>{
+    if(!cropMode) return;
+    const r=img.getBoundingClientRect();
+    dragStart={ x:Math.max(0,e.clientX-r.left), y:Math.max(0,e.clientY-r.top) };
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove",(e)=>{
+    if(!cropMode||!dragStart) return;
+    const r=img.getBoundingClientRect();
+    const cx=Math.min(Math.max(0,e.clientX-r.left), r.width);
+    const cy=Math.min(Math.max(0,e.clientY-r.top), r.height);
+    crop={ x:Math.min(dragStart.x,cx), y:Math.min(dragStart.y,cy), w:Math.abs(cx-dragStart.x), h:Math.abs(cy-dragStart.y) };
+    rect.style.display="block";
+    rect.style.left=crop.x+"px"; rect.style.top=crop.y+"px";
+    rect.style.width=crop.w+"px"; rect.style.height=crop.h+"px";
+  });
+  window.addEventListener("mouseup",()=>{ if(dragStart){ dragStart=null;
+    if(crop && (crop.w<8||crop.h<8)){ crop=null; rect.style.display="none"; } } });
+
+  // Bake everything into real pixels: crop first (cut from the ORIGINAL), then rotate/flip, then
+  // zoom-resize the output. The preview is only CSS — without this redraw eBay would still get the
+  // untouched original.
   function commit(){
     const im=new Image();
     im.onload=()=>{
-      const swap = (rot===90 || rot===270);
-      const w=Math.round((swap?im.height:im.width)*scale);
-      const h=Math.round((swap?im.width:im.height)*scale);
-      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      // Map the crop (drawn in displayed pixels) back onto the original's real pixels.
+      let sx=0, sy=0, sw=im.width, sh=im.height;
+      if(crop && crop.w>4 && crop.h>4){
+        const disp=img.getBoundingClientRect();
+        const rx=im.width/disp.width, ry=im.height/disp.height;
+        sx=Math.round(crop.x*rx); sy=Math.round(crop.y*ry);
+        sw=Math.max(1,Math.round(crop.w*rx)); sh=Math.max(1,Math.round(crop.h*ry));
+      }
+      const swap=(rot===90||rot===270);
+      const outW=Math.max(1,Math.round((swap?sh:sw)*scale));
+      const outH=Math.max(1,Math.round((swap?sw:sh)*scale));
+      const c=document.createElement("canvas"); c.width=outW; c.height=outH;
       const g=c.getContext("2d");
-      g.translate(w/2,h/2);
+      g.translate(outW/2,outH/2);
       g.rotate(rot*Math.PI/180);
       g.scale(flipH?-1:1, flipV?-1:1);
-      const dw=Math.round(im.width*scale), dh=Math.round(im.height*scale);
-      g.drawImage(im, -dw/2, -dh/2, dw, dh);
+      const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
+      g.drawImage(im, sx, sy, sw, sh, -dw/2, -dh/2, dw, dh);
       const out=c.toDataURL("image/jpeg", 0.85);
       it.images[idx]=out;
       if(idx===0) it.image=out;
       saveIfSaved(it);
-      addHistory(it,"Photo edited (rotate/flip/resize)");
+      addHistory(it,"Photo edited"+(crop?" (cropped)":"")+(rot?" (rotated)":"")+(scale!==1?" (zoom "+Math.round(scale*100)+"%)":""));
       onDone&&onDone();
     };
     im.onerror=()=>uiAlert("Couldn't read that photo to edit it.");
@@ -6511,7 +6578,12 @@ function openItemDetail(item,mode,nav,defaultTab){
      && ((window.__TAURI__&&window.__TAURI__.webviewWindow&&window.__TAURI__.webviewWindow.WebviewWindow)||(window.__TAURI__&&window.__TAURI__.window&&window.__TAURI__.window.WebviewWindow))){
     if(popOutItem(item, mode, nav)) return;
   }
-  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:(DB.pinnedVendor||""),condition:"New",shipWeight:"1",section:(DB.sections[1]||DB.sections[0]||""),
+  // New items: default the category to Books and Magazines (that's what the warehouse mostly adds),
+  // and leave condition EMPTY so someone consciously picks it. It used to default to "New" — which,
+  // for a used-goods reseller, meant every unedited item went to eBay as brand new and book/magazine
+  // categories rejected it with a cryptic error. A blank that makes you pick beats a wrong default.
+  const _defSection=(DB.sections||[]).find(x=>/books?\s*(and|&)\s*magazines?/i.test(String(x)))||DB.sections[1]||DB.sections[0]||"";
+  const it=isNew?Object.assign({id:crypto.randomUUID(),upc:"",desc:"",vendor:(DB.pinnedVendor||""),condition:"",shipWeight:"1",section:_defSection,
     unitCost:"0.000",retail:"0.00",onHand:"1",groups:[],category:"FRUIT",subCategory:"",image:"",slot:"",placement:null,sku:"",
     manualSlot:false,sold:false,createdAt:null,soldAt:null,soldBy:null,caseCost:"0.00",casePack:"",base:"0.00",mixMatch:"None - 0",
     posDesc:"",size:"1",sizeUnit:"Pound",posDept:DB.posDepts[0],orderCode:""}, item||{}):item;
@@ -7037,7 +7109,12 @@ function openItemDetail(item,mode,nav,defaultTab){
 
   const manual=body.querySelector("#d-manual"), slotI=body.querySelector("#d-slot"), placeI=body.querySelector("#d-place"), skuI=body.querySelector("#d-sku");
   const catSel=body.querySelector("#d-section");
-  attachAutofill(body.querySelector("#d-condition"), ()=>condsFor(catSel.value));
+  // Condition is a pick-from-list field, not a type-ahead. attachAutofill gave it Google-suggest
+  // behaviour (type and it guesses), which made it easy to end up with a condition that isn't in
+  // the list at all — like "NEW" on a used book, which eBay then rejects. wimCombo is the native
+  // WIM dropdown used everywhere else: click, see the real options, pick one.
+  { const condInp=body.querySelector("#d-condition");
+    if(condInp) wimCombo(condInp, ()=>condsFor(catSel.value), ()=>{}); }
   const conDL=body.querySelector("#con-"+it.id);
   catSel.addEventListener("change",()=>{ if(conDL) conDL.innerHTML=condsFor(catSel.value).map(c=>`<option value="${esc(c)}">`).join(""); });
   function setManualUI(){ const on=manual.classList.contains("on"); slotI.disabled=!on; placeI.disabled=!on;
@@ -13144,9 +13221,29 @@ const EBAY={
 };
 function openEbayFind(it, onDone){
   if(!EBAY.ready()){ uiAlert("Not connected to eBay yet — click Connect next to the mode badge (or set up keys in Configuration → eBay Connection if you haven't yet)."); return; }
-  const id="ebay-find-"+it.id; if(openWindows[id]){ openWindows[id].el.remove(); delete openWindows[id]; if(typeof renderTaskbar==="function") renderTaskbar(); }
-  const {body,close}=buildWindow({id,title:"Find on eBay — "+(it.desc||""),width:700,height:640,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Search eBay, pick the category, then edit &amp; accept</span>`});
+  let body, close;
+  if(WIM_POPOUT_MODE || WIM_ITEMDETAIL_WIN || WIM_ACTION_WIN){
+    // Inside a popped-out OS window, buildWindow FILLS the window and its close button closes the
+    // whole OS window — so "Use this" was closing the entire Add Inventory screen and losing the
+    // half-entered item. Here, Find on eBay renders as a LAYER on top of the current screen: its
+    // close removes only the layer, the screen underneath survives, and onDone refreshes its fields.
+    const ov=document.createElement("div");
+    ov.style.cssText="position:fixed;inset:0;z-index:99990;background:rgba(20,26,34,.45);display:flex;align-items:center;justify-content:center;";
+    const panel=document.createElement("div");
+    panel.style.cssText="background:#fff;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.35);width:min(720px,94vw);height:min(660px,92vh);display:flex;flex-direction:column;overflow:hidden;";
+    panel.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:9px 14px;background:#1B2A41;color:#fff;">
+        <b style="font-size:13px;">Find on eBay — ${esc(it.desc||"")}</b><span style="flex:1;"></span>
+        <button class="winbtn close" style="color:#fff;" title="Close">&#10005;</button></div>
+      <div class="ef-ov-body" style="flex:1;overflow:auto;position:relative;"></div>`;
+    ov.appendChild(panel); document.body.appendChild(ov);
+    body=panel.querySelector(".ef-ov-body");
+    close=()=>{ try{ ov.remove(); }catch(e){} };
+    panel.querySelector(".winbtn.close").onclick=close;
+  } else {
+    const id="ebay-find-"+it.id; if(openWindows[id]){ openWindows[id].el.remove(); delete openWindows[id]; if(typeof renderTaskbar==="function") renderTaskbar(); }
+    ({body,close}=buildWindow({id,title:"Find on eBay — "+(it.desc||""),width:700,height:640,
+      toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Search eBay, pick the category, then edit &amp; accept</span>`}));
+  }
   let chosen=null;            // {id, leaf, path} of the picked eBay category
   let foundTitle="";          // suggested listing title from Browse
   let lastQuery="";           // the search text used
