@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.83", BUILD_DATE="2026-12-14", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.85", BUILD_DATE="2026-12-16", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.85","MESSAGING AND TEMPLATES, from your notes. Conversations now read like a real chat: your messages sit on the RIGHT with a light blue bubble, the buyer stays on the LEFT in gray, so you can tell at a glance who said what. Under your own messages it now says who sent it -- WIM and the user name if it went through WIM, or eBay user if it was sent from eBay directly -- instead of repeating the item name. Where the list said eBay member or Buyer of..., it now shows the buyer actual username. The Support info button is gone and Diagnose is now admin-only. The message list is capped at the newest 100 with a Load 20 more button at the bottom. TEMPLATES: inserting one now fills in the buyer real name, the dropdown stays on the template you picked, and inserting OVERWRITES the box instead of stacking a second message under the first. And creating a new template no longer blanks the whole Communication screen -- that was closing the window by mistake; you can now make a template, save, and insert it right away. PHOTO EDITOR: the grey Edit icon (top-left of a photo, rotate/flip/resize) is confirmed wired on item pages, Bulk Add, Import Scans and Supervisor Review -- if you could not see it before, it is because it arrived in a version newer than the one you had installed."],
+  ["3.3.84","THE MONEY SCREENS NOW TELL THE TRUTH. Vendor ROI was built on the backwards legacy sold flag -- the same one that broke the review queues in 3.3.66 -- so it was reporting on the wrong items entirely. It now uses real sales, includes eBay fees (real ones where pulled, your account own effective rate as the estimate where not), uses the real label cost, counts refunds, and -- new -- counts WRITE-OFFS: money you spent on a vendor stock that got junked now shows against that vendor instead of vanishing, so a vendor whose books keep getting damaged stops looking better than one whose books all sell. True Net Profit now uses the real label bill from the fee pull instead of ignoring it, and subtracts refunds. SEND OFFERS TO WATCHERS grew the safety it was missing: a BREAK-EVEN FLOOR -- WIM works out what each discounted offer would actually net you after eBay cut, postage and what you paid, and refuses to send any offer that loses money, naming the items and the loss. And offers now show a review screen first -- every item, current price, offer price, and what you would make -- before anything is sent to a buyer."],
   ["3.3.83","Fixed why the eBay Actual column stayed empty. Two real reasons. One, the fee pull was looking for the order through a matching inventory item -- but the sales on that screen are pulled straight from eBay and were never in WIM, so there was no item and nothing to look up. It now pulls the label cost straight from each sale own eBay order id, whether or not the sale is in inventory. Two, when those sold listings were pulled in, the eBay cost box was being seeded with what the BUYER paid for postage -- which on your free shipping is zero every time -- so it looked filled with nothing. That is gone. Your existing records are repaired automatically on load: the order id was always there, tucked inside another field, so they can pull fees without re-pulling anything. Click Pull eBay Fees and it now fills in what eBay actually billed you for each label. If a sale comes back with no label charge, WIM tells you plainly -- usually it means the label was bought off eBay (through PayPal, say), which eBay API genuinely does not report, so those you type in by hand."],
   ["3.3.82","Shipping Comparison now has everything you need right on the screen. PULL EBAY FEES button is now on this screen -- you no longer have to go find it on the Shipping tab. Click it and it fills the eBay Actual column with what eBay really charged you for each label. RESET SCOREBOARD button clears all the fetched Shippo and EasyPost quotes and pulled eBay costs so the whole thing starts fresh -- the sales stay, only the numbers are wiped. And FETCH is now selectable: a dropdown next to Fetch Missing Rates lets you pull just Shippo, just EasyPost, just eBay fees, or all of them, so you can prefetch exactly the one you want instead of everything at once. The old broken no weight, cannot fetch message is gone -- fetching always works now, quoting at the estimated weight."],
   ["3.3.81","SHIPPING COMPARISON -- the four things from your notes. ONE, weights no longer all show 1 lb. Sold listings that were never in WIM had no weight to match against, so everything defaulted to 1 lb; WIM now reads the listing title and estimates by book type (comic 0.3, manga and trade paperback 0.7, hardcover 1.8, and so on), still marked with a star as an estimate. Note honestly: eBay does NOT expose the real weight that was actually shipped -- it is not in the shipping-label charge, and the one API that has it is approval-only and closed to us -- so for free-shipping sales an estimate is genuinely the best that exists. TWO, the eBay Actual box now fills in what eBay billed you for the label when the fee pull has found it, and says plainly run Pull eBay Fees or type it when it has not, instead of sitting there as a blank that looks broken. THREE, the tabs no longer say would total -- each now shows Total Amount Saved, the real money that service saved you versus the next-cheapest option on the sales it won (and for eBay, what eBay saved you versus the closest competitor). FOUR, the hard-to-read brown Not Inventoried box is now clear gold text."],
@@ -6395,7 +6397,7 @@ function itemPhotoPanel(it, onChange){
       // Edit button, top-LEFT so it never sits under the Featured tag. Photos arrive sideways or
       // upside down surprisingly often — phones record orientation as metadata instead of rotating
       // the pixels, and that metadata is lost as soon as the image is processed.
-      + `<button class="pe-edit" title="Rotate, flip or resize this photo" style="position:absolute;top:5px;left:5px;border:none;background:rgba(27,42,65,.82);color:#fff;font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;cursor:pointer;">✎ Edit</button>`; }
+      + `<button class="pe-edit" title="Edit photo — rotate, flip or resize" style="position:absolute;top:5px;left:5px;width:22px;height:22px;padding:0;border:1px solid #c2c8d0;background:rgba(240,242,245,.92);color:#5b6470;font-size:12px;line-height:20px;border-radius:6px;cursor:pointer;">✎</button>`; }
   else big.textContent="No photos";
   wrap.appendChild(big);
   const peBtn=big.querySelector(".pe-edit");
@@ -6592,6 +6594,17 @@ function openItemDetail(item,mode,nav,defaultTab){
       }); };
     }
     box.appendChild(tag);
+    // Photo editor entry point — small grey icon, top-LEFT (so it never overlaps the Featured tag on
+    // the right). Opens the rotate/flip/resize editor in a pop-out. This was missing from the landing
+    // page entirely; only Import Scans and Supervisor Review had it.
+    if(!ro){
+      const edit=document.createElement("button");
+      edit.title="Edit photo — rotate, flip or resize";
+      edit.innerHTML="✎";
+      edit.style.cssText="position:absolute;top:3px;left:3px;width:22px;height:22px;padding:0;border:1px solid #c2c8d0;background:rgba(240,242,245,.92);color:#5b6470;font-size:12px;line-height:20px;border-radius:6px;cursor:pointer;";
+      edit.onclick=(e)=>{ e.stopPropagation(); openPhotoEditor(it, photoPreviewIdx, ()=>{ paintMainPhoto(); paintThumbStrip(); markDirty&&markDirty(); }); };
+      box.appendChild(edit);
+    }
   }
   function paintThumbStrip(){
     const host=body.querySelector("#d-thumbstrip"); if(!host) return; host.innerHTML="";
@@ -7811,6 +7824,15 @@ function openBulkAdd(){
     big.style.cssText=`width:130px;height:130px;border:0.5px solid #9aa3b0;border-radius:8px;background:#f4f6f9 center/contain no-repeat;position:relative;${shown?'':'display:flex;align-items:center;justify-content:center;color:#9aa3ad;'}`;
     if(shown){ big.style.backgroundImage=`url(${shown})`; big.innerHTML=`<span style="position:absolute;top:5px;right:5px;background:${isFeatured?'#e6f1fb':'#eef0f3'};color:${isFeatured?'#0c447c':'#5f6b7a'};font-size:10px;padding:2px 7px;border-radius:6px;font-weight:600;">${isFeatured?'Featured':'Secondary'}</span>`; }
     else big.textContent="No photos";
+    if(shown){
+      // Grey edit icon, top-left — same editor as everywhere else. Bulk Add builds its own photo
+      // panel, so it needed the button added here too.
+      const edit=document.createElement("button");
+      edit.title="Edit photo — rotate, flip or resize"; edit.innerHTML="✎";
+      edit.style.cssText="position:absolute;top:5px;left:5px;width:22px;height:22px;padding:0;border:1px solid #c2c8d0;background:rgba(240,242,245,.92);color:#5b6470;font-size:12px;line-height:20px;border-radius:6px;cursor:pointer;";
+      edit.onclick=(e)=>{ e.stopPropagation(); openPhotoEditor(r, r._viewIdx<0?0:r._viewIdx, ()=>render()); };
+      big.appendChild(edit);
+    }
     wrap.appendChild(big);
     const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:6px;margin-top:6px;";
     const addB=document.createElement("button"); addB.className="btn sm"; addB.style.flex="1"; addB.textContent="+ Add photos";
@@ -10500,10 +10522,15 @@ async function openTrueNetProfit(){
         const soldPrice=match?(parseFloat(match.fulfillment.soldPrice)||0):(parseFloat(t.amount&&t.amount.value)||0);
         const shipPaid=match?(parseFloat(match.fulfillment.shipCostPaid)||0):0;
         const itemCost=match?(parseFloat(match.unitCost)||0):0;
-        const shipCostReal=!!(match && match.fulfillment.actualShipCost);
-        const shipCost=match?(parseFloat(match.fulfillment.actualShipCost)||assumedShipCost(match.section)):0;
+        // Ship cost precedence: the REAL label bill from the fee pull, then a hand-entered cost,
+        // then the category assumption. This screen previously ignored shipLabelCost entirely, so
+        // the real numbers WIM had already pulled were sitting unused while it showed estimates.
+        const sc=match?bestShipCost(match):{v:0,real:false};
+        // Refunds: a refunded sale is not profit. Read what the fee pull recorded.
+        const refund=match?(parseFloat(match.fulfillment.refundedAmount)||0):0;
         rows.push({ desc:match?match.desc:("Order "+orderId), soldAt:match?match.fulfillment.soldAt:t.transactionDate,
-          soldPrice, shipPaid, fees, itemCost, shipCost, shipCostReal, net: soldPrice+shipPaid-fees-itemCost-shipCost });
+          soldPrice, shipPaid, fees, itemCost, shipCost:sc.v, shipCostReal:sc.real, refund,
+          net: soldPrice+shipPaid-refund-fees-itemCost-sc.v });
       }
       msg.style.color="#1f7244"; msg.textContent="Pulled "+rows.length+" real transaction(s).";
     }catch(e){ msg.style.color="#c0392b"; msg.textContent="Something went wrong: "+(e&&e.message?e.message:e); }
@@ -10520,39 +10547,61 @@ async function openTrueNetProfit(){
 function openVendorROI(){
   const id="vendor-roi"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Vendor ROI Report",width:1020,height:600,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real revenue and real cost per vendor — gross profit, before eBay fees</span>`});
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">What each vendor's stock actually made — after eBay fees, shipping, refunds, and stock that had to be written off</span>`});
   function render(){
     const byVendor={};
-    DB.items.filter(it=>it.sold && it.vendor && it.fulfillment).forEach(it=>{
-      const v=it.vendor;
-      if(!byVendor[v]) byVendor[v]={ vendor:v, units:0, revenue:0, itemCost:0, shipCost:0, daysSum:0, daysCount:0 };
-      const row=byVendor[v];
+    const mk=(v)=>{ if(!byVendor[v]) byVendor[v]={ vendor:v, units:0, revenue:0, itemCost:0, shipCost:0, fees:0, feesEst:false, refunds:0, writeOffs:0, writeOffCost:0, daysSum:0, daysCount:0 }; return byVendor[v]; };
+    const rate=effectiveFeeRate();
+    // THE FILTER BUG THIS FIXES: this screen used `it.sold` — the legacy flag that is TRUE only for
+    // DELETED items and FALSE for genuinely sold ones (the same backwards flag that broke the review
+    // queues in v3.3.66). So the vendor report was built from the wrong set of items entirely.
+    DB.items.filter(it=>isSaleRecord(it) && it.vendor && it.fulfillment).forEach(it=>{
+      const row=mk(it.vendor);
+      const f=it.fulfillment;
       row.units++;
-      row.revenue += (parseFloat(it.fulfillment.soldPrice)||0) + (parseFloat(it.fulfillment.shipCostPaid)||0);
+      row.revenue += (parseFloat(f.soldPrice)||0) + (parseFloat(f.shipCostPaid)||0);
       row.itemCost += parseFloat(it.unitCost)||0;
-      row.shipCost += parseFloat(it.fulfillment.actualShipCost)||assumedShipCost(it.section);
-      if(it.createdAt && it.fulfillment.soldAt){
-        const days=(new Date(it.fulfillment.soldAt)-new Date(it.createdAt))/86400000;
+      row.shipCost += bestShipCost(it).v;
+      row.refunds += parseFloat(f.refundedAmount)||0;
+      // Real fees when the fee pull has them; your account's own effective rate as the estimate
+      // when it hasn't. ROI "before eBay fees" misranks vendors — the fee is ~13% of the answer.
+      if(f.feesPulledAt){ row.fees += parseFloat(f.ebayFees)||0; }
+      else { row.fees += ((parseFloat(f.soldPrice)||0)+(parseFloat(f.shipCostPaid)||0))*rate; row.feesEst=true; }
+      if(it.createdAt && f.soldAt){
+        const days=(new Date(f.soldAt)-new Date(it.createdAt))/86400000;
         if(days>=0){ row.daysSum+=days; row.daysCount++; }
       }
     });
-    const rows=Object.values(byVendor).map(r=>{
-      const grossProfit=r.revenue-r.itemCost-r.shipCost;
-      const roiPct=r.itemCost>0 ? (grossProfit/r.itemCost*100) : null;
+    // Money sunk into a vendor's stock that never sold: deletions and write-offs. Without this, a
+    // vendor whose books keep getting junked looks BETTER than one whose books all sell — their
+    // failures simply vanished from the report.
+    DB.items.filter(it=>it.vendor && it.outType && it.outType!=="Sell").forEach(it=>{
+      const row=mk(it.vendor);
+      row.writeOffs++;
+      row.writeOffCost += parseFloat(it.unitCost)||0;
+    });
+    const rows=Object.values(byVendor).filter(r=>r.units||r.writeOffs).map(r=>{
+      const netProfit=r.revenue-r.refunds-r.fees-r.itemCost-r.shipCost-r.writeOffCost;
+      const invested=r.itemCost+r.writeOffCost;
+      const roiPct=invested>0 ? (netProfit/invested*100) : null;
       const avgDays=r.daysCount ? (r.daysSum/r.daysCount) : null;
-      return Object.assign(r,{grossProfit,roiPct,avgDays});
-    }).sort((a,b)=>b.grossProfit-a.grossProfit);
+      return Object.assign(r,{netProfit,roiPct,avgDays});
+    }).sort((a,b)=>b.netProfit-a.netProfit);
     body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       ${!rows.length?`<div class="note">No sold items with a vendor recorded yet — this fills in automatically as sales come in for items with a vendor set.</div>`:``}
       <div class="resultwrap" style="flex:1;overflow:auto;"><table class="res"><thead><tr>
-        <th>Vendor</th><th style="width:70px;">Units Sold</th><th style="width:90px;">Revenue</th><th style="width:90px;">Item Cost</th>
-        <th style="width:90px;">Ship Cost</th><th style="width:100px;">Gross Profit</th><th style="width:80px;">ROI %</th><th style="width:100px;">Avg. Days to Sell</th>
+        <th>Vendor</th><th style="width:64px;">Units Sold</th><th style="width:84px;">Revenue</th><th style="width:84px;">eBay Fees</th><th style="width:84px;">Item Cost</th>
+        <th style="width:80px;">Ship Cost</th><th style="width:96px;" title="Cost of this vendor's items that were deleted or written off — money spent on stock that never sold">Written Off</th><th style="width:96px;">Net Profit</th><th style="width:70px;">ROI %</th><th style="width:92px;">Avg. Days to Sell</th>
       </tr></thead><tbody id="vr-tb"></tbody></table></div>
     </div>`;
     const tb=body.querySelector("#vr-tb");
     rows.forEach(r=>{ const tr=document.createElement("tr");
-      tr.innerHTML=`<td>${esc(r.vendor)}</td><td>${r.units}</td><td>$${r.revenue.toFixed(2)}</td><td>$${r.itemCost.toFixed(2)}</td>
-        <td>$${r.shipCost.toFixed(2)}</td><td style="font-weight:600;color:${r.grossProfit>=0?'#1f7244':'#c0392b'};">$${r.grossProfit.toFixed(2)}</td>
+      tr.innerHTML=`<td>${esc(r.vendor)}</td><td>${r.units}</td><td>$${r.revenue.toFixed(2)}</td>
+        <td style="color:#c0392b;">-$${r.fees.toFixed(2)}${r.feesEst?' <span class="smallhint" title="Some of these sales have not had real fees pulled yet — estimated at your account effective rate">(est.)</span>':''}</td>
+        <td style="color:#c0392b;">-$${r.itemCost.toFixed(2)}</td>
+        <td style="color:#c0392b;">-$${r.shipCost.toFixed(2)}</td>
+        <td style="color:${r.writeOffCost?'#c0392b':'#7b828e'};">${r.writeOffCost?("-$"+r.writeOffCost.toFixed(2)+" ("+r.writeOffs+")"):"—"}</td>
+        <td style="font-weight:600;color:${r.netProfit>=0?'#1f7244':'#c0392b'};">$${r.netProfit.toFixed(2)}</td>
         <td>${r.roiPct!=null?r.roiPct.toFixed(0)+"%":"—"}</td><td>${r.avgDays!=null?r.avgDays.toFixed(0)+" days":"—"}</td>`;
       tb.appendChild(tr);
     });
@@ -11627,6 +11676,27 @@ async function pullEbayFees(items, onProgress){
   return { checked, updated, stillPending, errors };
 }
 function round2(n){ return Math.round((parseFloat(n)||0)*100)/100; }
+// The account's real effective eBay fee rate, learned from sales whose fees have actually been
+// pulled. Used to ESTIMATE fees on sales that haven't been pulled yet — an estimate built from your
+// own history beats a hardcoded guess. Falls back to 13.25% (books FVF) when there's no history.
+function effectiveFeeRate(){
+  let fees=0, rev=0;
+  (DB.items||[]).forEach(it=>{
+    const f=it.fulfillment;
+    if(!f || !f.feesPulledAt) return;
+    fees += parseFloat(f.ebayFees)||0;
+    rev  += (parseFloat(f.soldPrice)||0)+(parseFloat(f.shipCostPaid)||0);
+  });
+  return (rev>20 && fees>0) ? (fees/rev) : 0.1325;
+}
+// Best known shipping cost for an item: the REAL label bill (v3.3.78 fee pull) first, a manually
+// recorded cost second, the category assumption last.
+function bestShipCost(it){
+  const f=it.fulfillment||{};
+  const real=parseFloat(f.shipLabelCost); if(!isNaN(real)&&real>0) return {v:real, real:true};
+  const man=parseFloat(f.actualShipCost); if(!isNaN(man)&&man>0) return {v:man, real:true};
+  return {v:assumedShipCost(it.section), real:false};
+}
 
 // The whole picture for one item. This is the number that actually matters.
 function itemProfit(it){
@@ -13949,6 +14019,41 @@ async function openSendOffers(){
       body.querySelector("#so-send").onclick=async ()=>{
         const pct=parseFloat(body.querySelector("#so-pct").value);
         if(!(pct>0 && pct<=90)){ msg.style.color="#c0392b"; msg.textContent="Enter a discount between 1 and 90 percent."; return; }
+        // THE FLOOR. Nothing used to stop an offer below break-even — a 40% discount on a thin-margin
+        // book quietly sells it at a loss to someone who was already interested. Work out, for every
+        // selected item, what the discounted price nets after eBay's cut, the label, and what you
+        // paid — and refuse to send any offer that loses money. Shown for review before anything goes.
+        const rate=effectiveFeeRate();
+        const review=[]; const losers=[];
+        eligible.filter(e=>picked.has(e.listingId)).forEach(e=>{
+          const cur=parseFloat(e.price)||0;
+          const offer=round2(cur*(1-pct/100));
+          const cost=e.match?(parseFloat(e.match.unitCost)||0):0;
+          const label=e.match?bestShipCost(e.match).v:0;
+          const net=round2(offer - offer*rate - label - cost);
+          const known=!!e.match;
+          review.push({title:e.title, cur, offer, net, known});
+          if(known && net<0) losers.push({title:e.title, offer, net});
+        });
+        if(losers.length){
+          msg.style.color="#c0392b";
+          uiModal("These offers would LOSE money", `<div style="font-size:13px;min-width:430px;">
+            <div>At ${pct}% off, these would sell below break-even (after eBay's cut, postage and what you paid):</div>
+            <ul style="margin:8px 0;padding-left:20px;color:#922B21;">${losers.slice(0,8).map(l=>`<li>${esc(l.title.slice(0,50))} — offer $${l.offer.toFixed(2)}, net <b>-$${Math.abs(l.net).toFixed(2)}</b></li>`).join("")}</ul>
+            <div>Lower the discount, or unselect these items. Nothing was sent.</div></div>`,[{label:"OK",primary:true}]);
+          msg.textContent="Blocked — "+losers.length+" offer(s) would sell at a loss. Nothing sent."; return;
+        }
+        // Review before send — same principle as the thank-you sender: see it, then send it.
+        const proceed=await new Promise(res=>{
+          uiModal("Review before sending", `<div style="font-size:13px;min-width:480px;">
+            <div><b>${review.length}</b> offer(s) at <b>${pct}% off</b>:</div>
+            <table class="res" style="margin-top:8px;"><thead><tr><th>Item</th><th style="width:70px;">Now</th><th style="width:70px;">Offer</th><th style="width:90px;">Est. you make</th></tr></thead><tbody>
+            ${review.map(r=>`<tr><td style="font-size:12px;">${esc(r.title.slice(0,48))}</td><td>$${r.cur.toFixed(2)}</td><td><b>$${r.offer.toFixed(2)}</b></td><td style="color:${r.known?(r.net>=0?'#1f7244':'#c0392b'):'#7b828e'};">${r.known?("$"+r.net.toFixed(2)):"unknown — not in WIM"}</td></tr>`).join("")}
+            </tbody></table>
+            <div class="smallhint" style="margin-top:6px;">"Est. you make" = offer price minus eBay's cut (${(rate*100).toFixed(1)}% from your own history), postage and item cost.</div>
+          </div>`,[{label:"Cancel",onClick:()=>{res(false);return true;}},{label:"Send "+review.length+" offer(s)",primary:true,onClick:()=>{res(true);return true;}}]);
+        });
+        if(!proceed){ msg.style.color="#555"; msg.textContent="Nothing sent."; return; }
         const targets=eligible.filter(e=>picked.has(e.listingId));
         msg.style.color="#555"; msg.textContent="Sending offer(s) to interested buyers…";
         let sent=0, failed=0;
@@ -14144,9 +14249,10 @@ let convosCache=[], counterpartyCache=()=>"", openThreadCache=()=>{};
 function openCommunication(focusUsername){
   if(openWindows["comm"]){ focusWin(openWindows["comm"].el); if(focusUsername) setTimeout(()=>{ try{ const m=convosCache.find(c=>counterpartyCache(c)===focusUsername); if(m) openThreadCache(m); }catch(e){} },50); return; }
   const {body}=buildWindow({id:"comm",title:"Messages",width:1020,height:640,popoutKey:"comm",
-    toolbar:`<button class="btn sm primary" id="cm-compose">Compose</button><button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-thanks" title="Thank the buyers whose items have been confirmed delivered">💌 Send Thank You${thankYouQueue().length?" ("+thankYouQueue().length+")":""}</button><button class="btn sm" id="cm-templates">Templates</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
+    toolbar:`<button class="btn sm primary" id="cm-compose">Compose</button><button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-thanks" title="Thank the buyers whose items have been confirmed delivered">💌 Send Thank You${thankYouQueue().length?" ("+thankYouQueue().length+")":""}</button><button class="btn sm" id="cm-templates">Templates</button>${role()==="admin"?'<button class="btn sm" id="cm-diag">Diagnose</button>':''}<span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
   let convos=[], current=null, lastRaw="";
-  let folder="buyers", searchQ=""; // default to real buyers — eBay's own notifications flood the All view
+  let folder="buyers", searchQ="";
+  let showLimit=100;   // cap the visible list; "load more" adds 20 at a time
   if(!Array.isArray(DB.sentMessages)) DB.sentMessages=[];
   if(!DB.messageDrafts || typeof DB.messageDrafts!=="object") DB.messageDrafts={};
   body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
@@ -14179,7 +14285,7 @@ function openCommunication(focusUsername){
     if(ebC){ const n=convos.filter(c=>isNote(c)&&effectiveUnread(c)).length; ebC.textContent=n?n:""; }
   }
   paintFolderTabs();
-  body.querySelectorAll(".cm-folder-item").forEach(b=>b.onclick=()=>{ folder=b.dataset.folder; current=null; paintFolderTabs(); paintList(); threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a message to read it.</div>`; });
+  body.querySelectorAll(".cm-folder-item").forEach(b=>b.onclick=()=>{ folder=b.dataset.folder; current=null; showLimit=100; paintFolderTabs(); paintList(); threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a message to read it.</div>`; });
   body.querySelector("#cm-search").oninput=(e)=>{ searchQ=e.target.value.toLowerCase(); paintList(); };
   listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">Click <b>Load Inbox</b> to pull your eBay buyer messages.</div>`;
   threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a conversation to read it.</div>`;
@@ -14187,13 +14293,22 @@ function openCommunication(focusUsername){
   function fld(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
   function counterparty(c){
     if(fld(c,["conversationType"],"")==="FROM_EBAY") return "eBay (notification)";
-    // "eBay member" is what you get when none of these fields exist — a useless label that told you
-    // nothing about who was actually writing to you. eBay's Trading API calls it Sender; the REST
-    // side uses other names again. Try all of them before giving up.
-    const name=fld(c,["username","buyerUsername","otherParty","participant","sender","Sender",
-                      "fromUsername","memberUsername","senderId","buyer","SenderID"],"");
+    // Try every flat field name across eBay's Trading and Commerce Messaging APIs.
+    let name=fld(c,["username","buyerUsername","otherParty","sender","Sender",
+                    "fromUsername","memberUsername","senderId","buyer","SenderID","otherUser","counterpartyUsername"],"");
+    // The Commerce Messaging API nests the other party in an object — dig into it.
+    if(!name){
+      const p = c.participant || c.otherParticipant || c.buyer || null;
+      if(p && typeof p==="object") name = p.username || p.userId || p.name || "";
+      const arr = c.participants || c.members;
+      if(!name && Array.isArray(arr)){
+        // The participant who ISN'T us. We may not know our own username, so take the first with a
+        // buyer-ish role, else just the first.
+        const other = arr.find(x=>/BUYER|MEMBER/i.test(String(x.role||x.participantRole||"")))||arr[0];
+        if(other) name = other.username || other.userId || other.name || "";
+      }
+    }
     if(name) return name;
-    // Still nothing? At least name the item, so the row isn't anonymous.
     const it=linkedItemOf(c);
     if(it) return "Buyer of "+((it.desc||"").slice(0,28));
     return "eBay member";
@@ -14295,6 +14410,9 @@ function openCommunication(focusUsername){
       if(searchQ) list=list.filter(c=>(counterparty(c)+" "+subjectOf(c)+" "+snippetOf(c)).toLowerCase().includes(searchQ));
       if(!convos.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">No conversations came back.</div>`; renderRawButton(); return; }
       if(!list.length){ listEl.innerHTML=`<div style="padding:16px;color:#888;font-size:13px;">${searchQ?"No matches.":(folder==="buyers"?"No buyer messages.":(folder==="ebay"?"No eBay notifications.":"Nothing here."))}</div>`; return; }
+      const totalInFolder=list.length;
+      const capped = list.length>showLimit;
+      if(capped) list=list.slice(0,showLimit);
       const buckets=["Today","Yesterday","Last 7 days","Last 30 days","Earlier"];
       const grouped={}; list.forEach(c=>{ const b=dateBucket(c); (grouped[b]=grouped[b]||[]).push(c); });
       buckets.forEach(b=>{ if(!grouped[b]||!grouped[b].length) return;
@@ -14312,6 +14430,14 @@ function openCommunication(focusUsername){
           const clBox=row.querySelector(".cm-claim"); if(clBox) clBox.onclick=(e)=>{ e.stopPropagation(); toggleClaim(cid); paintList(); };
           listEl.appendChild(row); });
       });
+      if(capped){
+        const more=document.createElement("div");
+        more.style.cssText="padding:11px 14px;text-align:center;border-top:1px solid #eef0f4;";
+        more.innerHTML=`<button class="btn sm" id="cm-loadmore">Load 20 more (${Math.min(showLimit,totalInFolder)} of ${totalInFolder})</button>`;
+        listEl.appendChild(more);
+        const mb=more.querySelector("#cm-loadmore");
+        if(mb) mb.onclick=()=>{ showLimit+=20; paintList(); };
+      }
       renderRawButton();
     } else if(folder==="outbox"){
       let list=DB.sentMessages.slice().reverse(); if(searchQ) list=list.filter(m=>(m.to+" "+m.text).toLowerCase().includes(searchQ));
@@ -14415,11 +14541,15 @@ function openCommunication(focusUsername){
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px;"><button class="btn primary sm" id="cm-reply-send">Send reply</button><button class="btn sm" id="cm-attach-btn">Attach photo</button><input type="file" id="cm-attach-file" accept="image/*" multiple style="display:none;"><span class="smallhint" id="cm-reply-msg"></span></div>`;
     const sendBtn=replyWrap.querySelector("#cm-reply-send"), replyMsg=replyWrap.querySelector("#cm-reply-msg"), replyTxt=replyWrap.querySelector("#cm-reply-text");
     const tplPick=replyWrap.querySelector("#cm-tpl-pick");
-    if(tplPick) tplPick.onchange=()=>{ const t=DB.messageTemplates.find(x=>x.id===tplPick.value); tplPick.value="";
-      if(!t) return;
+    if(tplPick) tplPick.onchange=()=>{
+      const t=DB.messageTemplates.find(x=>x.id===tplPick.value);
+      if(!t) return;   // keep the dropdown showing the chosen template — don't reset to "Insert template…"
       const itemName=(linked&&((linked.listing&&linked.listing.title)||linked.desc))||subjectOf(c)||"your item";
+      // {buyer} becomes the buyer's real username (counterparty now resolves it), {item} the listing.
       const filled=t.body.replace(/\{buyer\}/g, counterparty(c)).replace(/\{item\}/g, itemName);
-      replyTxt.value = replyTxt.value.trim() ? (replyTxt.value.replace(/\s*$/,"")+"\n\n"+filled) : filled;
+      // OVERWRITE, don't append. Picking a template replaces whatever's there — picking a second one
+      // used to stack below the first, which nobody wanted.
+      replyTxt.value = filled;
       DB.messageDrafts[cid]=replyTxt.value; save(); replyTxt.focus();
     };
     const attachBtn=replyWrap.querySelector("#cm-attach-btn"), attachFile=replyWrap.querySelector("#cm-attach-file"), attachList=replyWrap.querySelector("#cm-attach-list");
@@ -14485,7 +14615,7 @@ function openCommunication(focusUsername){
             sendBtn.disabled=false; return;
           }
         }
-        DB.sentMessages.push({ to:counterparty(c), text, at:new Date().toISOString(), attachmentNote:attachNote||null });
+        DB.sentMessages.push({ to:counterparty(c), text, at:new Date().toISOString(), attachmentNote:attachNote||null, wimSentBy:(SESSION.user&&SESSION.user.name)||"WIM" });
         delete DB.messageDrafts[cid]; save();
         replyTxt.value=""; attachments=[]; paintAttachments(); openThread(c);
       }catch(e){ replyMsg.style.color="#c0392b"; replyMsg.textContent="Could not reach eBay: "+(e&&e.message?e.message:e); }
@@ -14498,12 +14628,31 @@ function openCommunication(focusUsername){
       const msgs = data.messages || data.messageDetails || (data.conversation&&data.conversation.messages) || [];
       if(!msgs.length){ msgsEl.innerHTML=`<div style="color:#888;font-size:12.5px;">No messages in this conversation (or fields differ — check raw response).</div>`; return; }
       msgsEl.innerHTML="";
-      msgs.forEach(m=>{ const fromMe = !!fld(m,["fromSeller","isSeller","sentByMe"],false);
+      const buyerName=counterparty(c);
+      msgs.forEach(m=>{
+        // Is this message from US or from the buyer? eBay doesn't give one clean flag, so check
+        // several signals: an explicit seller flag, the sender's ROLE, or — most reliable — whether
+        // the sender username matches the buyer's. Anything that isn't clearly the buyer is treated
+        // as ours. Getting this right is the whole point: left vs right, gray vs blue.
+        const senderName = fld(m,["sender","Sender","fromUsername","author","senderId"],"");
+        const role = String(fld(m,["senderRole","role","messageType","MessageType"],"")).toUpperCase();
+        let fromMe = fld(m,["fromSeller","isSeller","sentByMe"],null);
+        if(fromMe==null){
+          if(/SELLER|CS_SELLER|MEMBER_MESSAGE_RESPONSE/.test(role)) fromMe=true;
+          else if(senderName && buyerName && senderName.toLowerCase()===buyerName.toLowerCase()) fromMe=false;
+          else if(senderName) fromMe=false;         // a named sender who isn't us = the buyer
+          else fromMe=false;
+        }
         const text = fld(m,["body","text","message","content","messageBody"],"(no text)");
-        const wrap=document.createElement("div"); wrap.style.cssText="display:flex;margin:8px 0;"+(fromMe?"justify-content:flex-end;":"");
-        wrap.innerHTML=`<div style="max-width:74%;background:${fromMe?'#e2ebf9':'#f1f3f6'};border:1px solid ${fromMe?'#cfe0f7':'#e6e9ee'};border-radius:12px;padding:8px 12px;">
+        // Footer under OUR bubbles: who sent it, by channel. A message with a WIM stamp went out
+        // through WIM; anything else came from eBay directly (the eBay web site or app).
+        const wimUser = fld(m,["wimSentBy","wim_user"],"");
+        const mineLabel = wimUser ? ("WIM: "+wimUser) : "eBay user";
+        const theirLabel = senderName || buyerName;
+        const wrap=document.createElement("div"); wrap.style.cssText="display:flex;margin:8px 0;"+(fromMe?"justify-content:flex-end;":"justify-content:flex-start;");
+        wrap.innerHTML=`<div style="max-width:74%;background:${fromMe?'#DCEBFB':'#F1F3F6'};border:1px solid ${fromMe?'#B9D6F5':'#E6E9EE'};border-radius:12px;padding:8px 12px;">
             <div style="font-size:13px;color:#26303d;white-space:pre-wrap;">${esc(text)}</div>
-            <div style="font-size:10px;color:#9aa3ad;margin-top:4px;">${esc(fld(m,["sender","fromUsername","author"],fromMe?"You":counterparty(c)))} · ${esc(dateOf(m))}</div></div>`;
+            <div style="font-size:10px;color:#9aa3ad;margin-top:4px;">${esc(fromMe?mineLabel:theirLabel)} · ${esc(dateOf(m))}</div></div>`;
         msgsEl.appendChild(wrap); });
     }catch(e){ msgsEl.innerHTML=`<div style="color:#c0392b;font-size:12.5px;">Could not reach eBay: ${esc(e&&e.message?e.message:String(e))}</div>`; }
   }
@@ -14523,8 +14672,6 @@ function openCommunication(focusUsername){
   }
   const diagBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-diag"):body.querySelector("#cm-diag"));
   if(diagBtn) diagBtn.onclick=runDiagnostics;
-  const supBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-support"):body.querySelector("#cm-support"));
-  if(supBtn) supBtn.onclick=runSupportInfo;
   const tplBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-templates"):body.querySelector("#cm-templates"));
   if(tplBtn) tplBtn.onclick=openTemplateManager;
   const composeBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-compose"):body.querySelector("#cm-compose"));
@@ -14570,16 +14717,19 @@ function openCommunication(focusUsername){
         <textarea data-tbody="${esc(t.id)}" style="width:100%;height:70px;font-family:inherit;font-size:12.5px;padding:6px;border:1px solid #b9b9b9;border-radius:6px;box-sizing:border-box;resize:vertical;">${esc(t.body)}</textarea>
         <div style="text-align:right;margin-top:4px;"><button class="btn sm" data-tdel="${esc(t.id)}">Delete</button></div>
       </div>`).join("");
-    uiModal("Message Templates", `<div style="font-size:12px;color:#5b6470;margin-bottom:8px;">Use <b>{buyer}</b> and <b>{item}</b> as placeholders — they fill in automatically when you insert a template into a reply.</div>
+    // Save whatever is currently typed in the modal's fields back onto the templates.
+    const captureEdits=()=>{ DB.messageTemplates.forEach(t=>{ const n=document.querySelector(`[data-tname="${t.id}"]`), b=document.querySelector(`[data-tbody="${t.id}"]`); if(n) t.name=n.value; if(b) t.body=b.value; }); };
+    const m=uiModal("Message Templates", `<div style="font-size:12px;color:#5b6470;margin-bottom:8px;">Use <b>{buyer}</b> and <b>{item}</b> as placeholders — they fill in automatically when you insert a template into a reply.</div>
       <div style="max-height:360px;overflow:auto;">${rows||'<div class="smallhint">No templates yet.</div>'}</div>
       <div style="margin-top:8px;"><button class="btn sm" id="tpl-add">+ New Template</button></div>`,
-      [{label:"Save", primary:true, onClick:()=>{
-        DB.messageTemplates.forEach(t=>{ const n=document.querySelector(`[data-tname="${t.id}"]`), b=document.querySelector(`[data-tbody="${t.id}"]`); if(n) t.name=n.value; if(b) t.body=b.value; });
-        save();
-      }},{label:"Close"}]);
+      [{label:"Save", primary:true, onClick:()=>{ captureEdits(); save(); }},{label:"Close"}]);
     setTimeout(()=>{
-      const addBtn=document.getElementById("tpl-add"); if(addBtn) addBtn.onclick=()=>{ DB.messageTemplates.push({ id:"tpl_"+Date.now().toString(36), name:"New template", body:"" }); save(); closeAllModals(); openTemplateManager(); };
-      document.querySelectorAll("[data-tdel]").forEach(b=>b.onclick=()=>{ const id=b.dataset.tdel; DB.messageTemplates=DB.messageTemplates.filter(t=>t.id!==id); save(); closeAllModals(); openTemplateManager(); });
+      // BUG THIS FIXES: New Template / Delete used to call closeAllModals(), which deletes EVERY
+      // entry in openWindows — including the Communication window itself. So adding a template blanked
+      // the whole screen. Now we keep any edits, close ONLY this modal (m.close), and reopen it —
+      // the Communication window is never touched.
+      const addBtn=document.getElementById("tpl-add"); if(addBtn) addBtn.onclick=()=>{ captureEdits(); DB.messageTemplates.push({ id:"tpl_"+Date.now().toString(36), name:"New template", body:"" }); save(); m.close(); openTemplateManager(); };
+      document.querySelectorAll("[data-tdel]").forEach(b=>b.onclick=()=>{ const id=b.dataset.tdel; captureEdits(); DB.messageTemplates=DB.messageTemplates.filter(t=>t.id!==id); save(); m.close(); openTemplateManager(); });
     },30);
   }
   async function runSupportInfo(){
