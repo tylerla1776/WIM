@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.87", BUILD_DATE="2026-12-18", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.88", BUILD_DATE="2026-12-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.88","CONDITION, DONE PROPERLY THIS TIME. The Condition field is now a true dropdown -- you can only pick, never type -- and the options come from eBay itself: whatever conditions the item mapped eBay category actually allows. Change the category and the list changes with it. It is now impossible to choose a condition the listing will bounce on. If an old item carries a condition the category no longer allows, it shows marked as not allowed so you can change it consciously -- WIM never silently rewrites your data. UNDERNEATH, the real bug: WIM table translating eBay condition numbers to names was off by one slot -- Good was labeled Acceptable, Acceptable was missing entirely -- which is why the previous error could contradict itself, refusing Used - Good while listing Used - Good as accepted. The table is fixed, the mistranslated cache is wiped and refetched, and Used - Excellent (which 3.3.86 wrongly removed as not real -- it is real) is restored. The error message is also more honest now: it only blames the condition when it can prove the condition is the problem; otherwise it shows eBay own message text and the likely causes, instead of guessing."],
   ["3.3.87","FIVE FIXES FROM YOUR NOTES. One: when eBay refuses an item condition, WIM now says so in plain words -- this category does not allow New, here are the conditions it accepts -- instead of dumping the raw error and the whole payload on you. Two: the Condition field is a proper WIM dropdown again (click, see the list, pick one) instead of the type-and-guess suggestion box -- which is how a magazine quietly ended up marked New in the first place. New items also no longer default to New; the condition starts blank so someone consciously picks it. Three: Find on eBay inside a popped-out window no longer closes the whole screen when you click Use this. It now opens as its own layer on top; Use this closes just that layer and the fields underneath refresh with the imported category and details. Four: new items default their category to Books and Magazines. Five: the photo editor grew up -- zoom now actually works and goes from 10 percent to 500 percent with a live preview, and there is a Crop tool: click the scissors, drag a box over the part you want to keep, save. Crop is measured at true size so the box you draw is exactly what you get."],
   ["3.3.86","FIXED THE LISTING ERROR (eBay 2004 Invalid request). Two causes, both about item condition. One: eBay condition values are not the same for every category -- a book category rejects NEW outright, it wants Like New or one of the Used grades. WIM was sending whatever condition you picked without checking, so a book marked New got a cryptic error with no explanation. WIM now asks eBay which conditions the category actually allows and, if yours is not on the list, quietly switches to the closest one that is -- your Fantastic Four book listed as New becomes Like New and goes through. It tells you in the status line when it adjusts. Two: one of WIM own condition codes -- Used Excellent -- was not a real eBay value at all, so anything set to it failed instantly. That is corrected to Used Very Good. The allowed conditions per category are remembered so it is one quick check, not a delay on every item."],
   ["3.3.85","MESSAGING AND TEMPLATES, from your notes. Conversations now read like a real chat: your messages sit on the RIGHT with a light blue bubble, the buyer stays on the LEFT in gray, so you can tell at a glance who said what. Under your own messages it now says who sent it -- WIM and the user name if it went through WIM, or eBay user if it was sent from eBay directly -- instead of repeating the item name. Where the list said eBay member or Buyer of..., it now shows the buyer actual username. The Support info button is gone and Diagnose is now admin-only. The message list is capped at the newest 100 with a Load 20 more button at the bottom. TEMPLATES: inserting one now fills in the buyer real name, the dropdown stays on the template you picked, and inserting OVERWRITES the box instead of stacking a second message under the first. And creating a new template no longer blanks the whole Communication screen -- that was closing the window by mistake; you can now make a template, save, and insert it right away. PHOTO EDITOR: the grey Edit icon (top-left of a photo, rotate/flip/resize) is confirmed wired on item pages, Bulk Add, Import Scans and Supervisor Review -- if you could not see it before, it is because it arrived in a version newer than the one you had installed."],
@@ -1488,6 +1489,9 @@ function migrate(d){
   if(!d.shippingData || typeof d.shippingData!=="object") d.shippingData={ byCategory:{}, packagingCost:"0.00" };
   if(!d.shipFrom || typeof d.shipFrom!=="object") d.shipFrom={ city:"", state:"", zip:"", country:"US" };
   if(!Array.isArray(d.shippingComparisons)) d.shippingComparisons=[];
+  // The per-category allowed-conditions cache was built with a mistranslated ID map (fixed in
+  // 3.3.88). Anything cached under the old map is wrong — wipe it once so it refetches correctly.
+  if(d._condPolicyCacheV!==2){ d._condPolicyCache={}; d._condPolicyCacheV=2; }
   // Backfill orderId on comparison records made before it was stored. The order id was always there,
   // buried in orderLineKey as "orderId::lineItemId" — so existing records can pull fees without a
   // re-pull. Also clear any ebayActualCost that was seeded from the old buyer-paid deliveryCost bug
@@ -5081,17 +5085,20 @@ const EBAY_COND_ID_TO_ENUM={
   "1000":"NEW","1500":"NEW_OTHER","1750":"NEW_WITH_DEFECTS","2750":"LIKE_NEW",
   "2000":"CERTIFIED_REFURBISHED","2010":"EXCELLENT_REFURBISHED","2020":"VERY_GOOD_REFURBISHED",
   "2030":"GOOD_REFURBISHED","2500":"SELLER_REFURBISHED",
-  "3000":"USED_VERY_GOOD","4000":"USED_GOOD","5000":"USED_ACCEPTABLE","7000":"FOR_PARTS_OR_NOT_WORKING",
-  // Books use their own ids; all map onto the standard used grades.
-  "2750b":"LIKE_NEW"
+  // The used grades, CORRECTLY aligned. These were off by one slot (3000 mapped to Very Good, etc.),
+  // which mistranslated every category's allowed list and produced self-contradicting errors like
+  // "Used - Good isn't allowed... this category accepts Used - Good".
+  "3000":"USED_EXCELLENT","4000":"USED_VERY_GOOD","5000":"USED_GOOD","6000":"USED_ACCEPTABLE",
+  "7000":"FOR_PARTS_OR_NOT_WORKING"
 };
 // Preference order when our first choice isn't allowed — walk DOWN in quality to the nearest allowed.
 const EBAY_COND_FALLBACK={
-  "NEW":["NEW","LIKE_NEW","USED_VERY_GOOD","USED_GOOD","USED_ACCEPTABLE"],
-  "LIKE_NEW":["LIKE_NEW","USED_VERY_GOOD","USED_GOOD","NEW","USED_ACCEPTABLE"],
-  "NEW_OTHER":["NEW_OTHER","LIKE_NEW","USED_VERY_GOOD","NEW","USED_GOOD"],
-  "USED_VERY_GOOD":["USED_VERY_GOOD","USED_GOOD","LIKE_NEW","USED_ACCEPTABLE"],
-  "USED_GOOD":["USED_GOOD","USED_VERY_GOOD","USED_ACCEPTABLE","LIKE_NEW"],
+  "NEW":["NEW","LIKE_NEW","USED_EXCELLENT","USED_VERY_GOOD","USED_GOOD","USED_ACCEPTABLE"],
+  "LIKE_NEW":["LIKE_NEW","USED_EXCELLENT","USED_VERY_GOOD","USED_GOOD","NEW","USED_ACCEPTABLE"],
+  "NEW_OTHER":["NEW_OTHER","LIKE_NEW","USED_EXCELLENT","USED_VERY_GOOD","NEW","USED_GOOD"],
+  "USED_EXCELLENT":["USED_EXCELLENT","USED_VERY_GOOD","LIKE_NEW","USED_GOOD","USED_ACCEPTABLE"],
+  "USED_VERY_GOOD":["USED_VERY_GOOD","USED_EXCELLENT","USED_GOOD","LIKE_NEW","USED_ACCEPTABLE"],
+  "USED_GOOD":["USED_GOOD","USED_VERY_GOOD","USED_ACCEPTABLE","USED_EXCELLENT","LIKE_NEW"],
   "USED_ACCEPTABLE":["USED_ACCEPTABLE","USED_GOOD","USED_VERY_GOOD"]
 };
 async function allowedConditionsFor(ebayCategoryId){
@@ -5350,13 +5357,20 @@ async function publishToEbay(it,onStep){
     // Say that in plain words, with the conditions this category actually accepts, instead of
     // dumping the raw error and the whole payload on the user.
     if(String(r.body||"").indexOf('"errorId":2004')>=0){
-      let allowedTxt="";
+      // Only blame the condition if we can PROVE it's the problem — i.e. the category's allowed
+      // list is fetchable and our condition genuinely isn't on it. Otherwise, show eBay's own
+      // message plainly. (An earlier version blamed condition on every 2004, even when the real
+      // cause was something else — and once even contradicted itself.)
       try{
         const sc2=subcatObj(it.section,it.subCategory);
         const allowed2=sc2&&sc2.ebayId?await allowedConditionsFor(sc2.ebayId):null;
-        if(allowed2&&allowed2.length) allowedTxt="\n\nThis category accepts: "+allowed2.map(ebayCondLabel).join(", ")+".";
+        if(allowed2 && allowed2.length && !allowed2.includes(invPayload.condition)){
+          return { ok:false, error:"eBay refused this item's condition — \u201c"+(ebayCondLabel(invPayload.condition)||it.condition||"(none)")+"\u201d isn't allowed in this eBay category.\n\nThis category accepts: "+allowed2.map(ebayCondLabel).join(", ")+".\n\nOpen the item and pick one of those from the Condition dropdown, then list again." };
+        }
       }catch(e){}
-      return { ok:false, error:"eBay refused this item's condition — \u201c"+(ebayCondLabel(invPayload.condition)||it.condition||"(none)")+"\u201d isn't allowed in this eBay category."+allowedTxt+"\n\nOpen the item, pick a condition from the dropdown, and try again. (Books and magazines can't be listed as New unless they truly are brand new sealed stock.)" };
+      let ebayMsg="";
+      try{ const j=JSON.parse(r.body||"{}"); ebayMsg=((j.errors||[])[0]||{}).longMessage||((j.errors||[])[0]||{}).message||""; }catch(e){}
+      return { ok:false, error:"eBay rejected this item (its generic \u201cInvalid request\u201d — it names no field).\n\n"+(ebayMsg?("eBay's message: "+ebayMsg+"\n\n"):"")+"The usual causes, in order: a listing field the category doesn't accept (check the aspects match the category — e.g. a magazine filed with book fields), or a condition/category mismatch.\n\n— What WIM sent —\n"+JSON.stringify(invPayload,null,2) };
     }
     return { ok:false, error:"eBay rejected the inventory item (HTTP "+r.status+"):\n"+(r.body||"")+"\n\n— What WIM sent —\n"+JSON.stringify(invPayload,null,2) };
   }
@@ -6614,7 +6628,7 @@ function openItemDetail(item,mode,nav,defaultTab){
   let dupeAcknowledged=false;
   const secOpts=DB.sections.map(s=>`<option ${s===it.section?'selected':''}>${esc(s)}</option>`).join("");
   const dl=`<datalist id="sl-${it.id}">`+[...DB.slots].sort((a,b)=>a.id.localeCompare(b.id,undefined,{numeric:true})).map(s=>`<option value="${s.id}">`).join("")+`</datalist>`
-    +`<datalist id="con-${it.id}">`+condsFor(it.section).map(c=>`<option value="${esc(c)}">`).join("")+`</datalist>`;
+    ;
   const dis=ro?'disabled':'';
   // How did this thing actually sell? If it's a sold record, that's the first thing anyone opening
   // it wants to know — so it goes at the top, large, not buried in the history log.
@@ -6676,7 +6690,7 @@ function openItemDetail(item,mode,nav,defaultTab){
         <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}><option value="" ${!it.vendor?'selected':''}>None</option>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
         <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${ro?'disabled':''}>${secOpts}</select></div>
         <div class="ff"><label style="text-align:left;">Sub Category</label><select class="cmb" id="d-subcat" ${dis}></select></div>
-        <div class="ff"><label style="text-align:left;">Condition</label><input class="txt" id="d-condition" list="con-${it.id}" value="${esc(it.condition||"")}" ${dis}></div>
+        <div class="ff"><label style="text-align:left;">Condition</label><select class="cmb" id="d-condition" ${dis}></select></div>
       </div>
       <div style="display:grid;gap:10px;">
         <input type="hidden" id="d-retail" value="${esc(it.retail)}">
@@ -7109,12 +7123,31 @@ function openItemDetail(item,mode,nav,defaultTab){
 
   const manual=body.querySelector("#d-manual"), slotI=body.querySelector("#d-slot"), placeI=body.querySelector("#d-place"), skuI=body.querySelector("#d-sku");
   const catSel=body.querySelector("#d-section");
-  // Condition is a pick-from-list field, not a type-ahead. attachAutofill gave it Google-suggest
-  // behaviour (type and it guesses), which made it easy to end up with a condition that isn't in
-  // the list at all — like "NEW" on a used book, which eBay then rejects. wimCombo is the native
-  // WIM dropdown used everywhere else: click, see the real options, pick one.
-  { const condInp=body.querySelector("#d-condition");
-    if(condInp) wimCombo(condInp, ()=>condsFor(catSel.value), ()=>{}); }
+  // Condition is a real dropdown — you can only PICK, never type. And the options come from eBay
+  // itself: whatever conditions the item's mapped eBay category actually allows, so it is
+  // impossible to choose a condition the listing will bounce on. Falls back to WIM's own condition
+  // list when the category isn't mapped to eBay or the lookup can't run (offline etc.).
+  async function repaintConditionOptions(){
+    const sel=body.querySelector("#d-condition"); if(!sel) return;
+    const current=it.condition||"";
+    let labels=null;
+    try{
+      const sc=subcatObj(catSel.value, body.querySelector("#d-subcat")?body.querySelector("#d-subcat").value:it.subCategory);
+      if(sc && sc.ebayId && EBAY.ready()){
+        const allowed=await allowedConditionsFor(sc.ebayId);
+        if(allowed && allowed.length) labels=allowed.map(ebayCondLabel);
+      }
+    }catch(e){}
+    if(!labels || !labels.length) labels=condsFor(catSel.value);
+    // Keep whatever the item already has, even if it's not in today's list — so opening an old item
+    // never silently rewrites its condition. It shows marked, and the person can change it.
+    const opts=labels.slice();
+    if(current && !opts.includes(current)) opts.unshift(current);
+    sel.innerHTML=`<option value="">— pick a condition —</option>`+opts.map(c=>`<option value="${esc(c)}" ${c===current?"selected":""}>${esc(c)}${(current===c&&!labels.includes(c))?" (not allowed in this category)":""}</option>`).join("");
+  }
+  repaintConditionOptions();
+  catSel.addEventListener("change", repaintConditionOptions);
+  { const sub=body.querySelector("#d-subcat"); if(sub) sub.addEventListener("change", repaintConditionOptions); }
   const conDL=body.querySelector("#con-"+it.id);
   catSel.addEventListener("change",()=>{ if(conDL) conDL.innerHTML=condsFor(catSel.value).map(c=>`<option value="${esc(c)}">`).join(""); });
   function setManualUI(){ const on=manual.classList.contains("on"); slotI.disabled=!on; placeI.disabled=!on;
@@ -13501,7 +13534,7 @@ function ebayCondEnum(text){
   if(/refurb/.test(t)) return "SELLER_REFURBISHED";
   if(/like new/.test(t)) return "LIKE_NEW";
   if(/brand new|^new$/.test(t)) return "NEW";
-  if(/used.*excellent|^excellent$/.test(t)) return "USED_VERY_GOOD";   // USED_EXCELLENT is NOT a real eBay enum
+  if(/used.*excellent|^excellent$/.test(t)) return "USED_EXCELLENT";   // real enum, condition id 3000 (3.3.86 wrongly said otherwise)
   if(/very good/.test(t)) return "USED_VERY_GOOD";
   if(/acceptable/.test(t)) return "USED_ACCEPTABLE";
   if(/good/.test(t)) return "USED_GOOD";
