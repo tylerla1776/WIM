@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.82", BUILD_DATE="2026-12-13", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.83", BUILD_DATE="2026-12-14", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.83","Fixed why the eBay Actual column stayed empty. Two real reasons. One, the fee pull was looking for the order through a matching inventory item -- but the sales on that screen are pulled straight from eBay and were never in WIM, so there was no item and nothing to look up. It now pulls the label cost straight from each sale own eBay order id, whether or not the sale is in inventory. Two, when those sold listings were pulled in, the eBay cost box was being seeded with what the BUYER paid for postage -- which on your free shipping is zero every time -- so it looked filled with nothing. That is gone. Your existing records are repaired automatically on load: the order id was always there, tucked inside another field, so they can pull fees without re-pulling anything. Click Pull eBay Fees and it now fills in what eBay actually billed you for each label. If a sale comes back with no label charge, WIM tells you plainly -- usually it means the label was bought off eBay (through PayPal, say), which eBay API genuinely does not report, so those you type in by hand."],
   ["3.3.82","Shipping Comparison now has everything you need right on the screen. PULL EBAY FEES button is now on this screen -- you no longer have to go find it on the Shipping tab. Click it and it fills the eBay Actual column with what eBay really charged you for each label. RESET SCOREBOARD button clears all the fetched Shippo and EasyPost quotes and pulled eBay costs so the whole thing starts fresh -- the sales stay, only the numbers are wiped. And FETCH is now selectable: a dropdown next to Fetch Missing Rates lets you pull just Shippo, just EasyPost, just eBay fees, or all of them, so you can prefetch exactly the one you want instead of everything at once. The old broken no weight, cannot fetch message is gone -- fetching always works now, quoting at the estimated weight."],
   ["3.3.81","SHIPPING COMPARISON -- the four things from your notes. ONE, weights no longer all show 1 lb. Sold listings that were never in WIM had no weight to match against, so everything defaulted to 1 lb; WIM now reads the listing title and estimates by book type (comic 0.3, manga and trade paperback 0.7, hardcover 1.8, and so on), still marked with a star as an estimate. Note honestly: eBay does NOT expose the real weight that was actually shipped -- it is not in the shipping-label charge, and the one API that has it is approval-only and closed to us -- so for free-shipping sales an estimate is genuinely the best that exists. TWO, the eBay Actual box now fills in what eBay billed you for the label when the fee pull has found it, and says plainly run Pull eBay Fees or type it when it has not, instead of sitting there as a blank that looks broken. THREE, the tabs no longer say would total -- each now shows Total Amount Saved, the real money that service saved you versus the next-cheapest option on the sales it won (and for eBay, what eBay saved you versus the closest competitor). FOUR, the hard-to-read brown Not Inventoried box is now clear gold text."],
   ["3.3.80","Fixed a crash on the Shipping Comparison screen -- comparisonWeight is not defined -- that hit when the screen was opened in its own pop-out window. The helper functions the screen needs had ended up defined inside another function where a pop-out could not see them, and part of the previous rebuild had not saved cleanly. All of that is now sorted: the weight logic, the true cost with per-label fees, the real eBay label cost, and the three-way scoreboard are all in place and work in both the docked and popped-out window. If you were on 3.3.79 and the comparison screen would not open, this is the fix."],
@@ -1483,6 +1484,17 @@ function migrate(d){
   if(!d.shippingData || typeof d.shippingData!=="object") d.shippingData={ byCategory:{}, packagingCost:"0.00" };
   if(!d.shipFrom || typeof d.shipFrom!=="object") d.shipFrom={ city:"", state:"", zip:"", country:"US" };
   if(!Array.isArray(d.shippingComparisons)) d.shippingComparisons=[];
+  // Backfill orderId on comparison records made before it was stored. The order id was always there,
+  // buried in orderLineKey as "orderId::lineItemId" — so existing records can pull fees without a
+  // re-pull. Also clear any ebayActualCost that was seeded from the old buyer-paid deliveryCost bug
+  // (which was $0 on free shipping), so the fee pull can fill in the real number.
+  d.shippingComparisons.forEach(r=>{
+    if(!r.orderId && r.orderLineKey && r.orderLineKey.indexOf("::")>=0){
+      r.orderId = r.orderLineKey.split("::")[0] || "";
+    }
+    // If the cost is 0 or empty and we have an order to look it up, leave it blank so Pull Fees fills it.
+    if(r.ebayActualCost!=null && parseFloat(r.ebayActualCost)===0) r.ebayActualCost="";
+  });
   if(d.pinnedVendor===undefined) d.pinnedVendor="";
   if(!d.agendaReadByUser || typeof d.agendaReadByUser!=="object") d.agendaReadByUser={};
   if(typeof d.agendaCollapsed!=="boolean") d.agendaCollapsed=true;
@@ -10661,7 +10673,10 @@ async function pullSoldListingsForComparison(){
         weight:invItem?(invItem.shipWeight||""):"", length:invItem?(invItem.shipLength||""):"", width:invItem?(invItem.shipWidth||""):"", height:invItem?(invItem.shipHeight||""):"",
         shipToCity:addr.city||"", shipToState:addr.stateOrProvince||"", shipToZip:addr.postalCode||"", shipToCountry:addr.countryCode||"US",
         shippoRate:null, shippoService:"", easypostRate:null, easypostService:"",
-        ebayActualCost:(li.deliveryCost&&li.deliveryCost.value)||"", fetchedAt:null
+        orderId: order.orderId||"",   // the order this sale belongs to — lets us pull the REAL label cost
+        // NOT li.deliveryCost — that's what the buyer paid for postage, which is $0 on free shipping.
+        // eBay's real cost to YOU comes from the Finances label charge, pulled on demand.
+        ebayActualCost:"", fetchedAt:null
       });
       added++;
     }
@@ -10883,14 +10898,19 @@ function openShippingComparison(){
     body.querySelector("#sc-fees").onclick=async ()=>{
       const msg=body.querySelector("#sc-msg");
       if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Connect to eBay first (mode badge at top)."; return; }
-      // Match each comparison record to its WIM item so pullEbayFees has an order to ask about.
-      const items=rows.map(r=>(DB.items||[]).find(x=>x.id===r.itemId)).filter(Boolean);
-      if(!items.length){ msg.style.color="#8a6d3b"; msg.textContent="These sales aren't linked to inventory items, so there's no order to pull fees for. Type the eBay cost in by hand instead."; return; }
+      const withOrder=rows.filter(r=>r.orderId);
+      if(!withOrder.length){
+        msg.style.color="#8a6d3b";
+        msg.textContent="None of these sales have an eBay order id on file, so there's nothing to look up. Re-pull sold listings, or type the eBay cost in by hand.";
+        return;
+      }
       const btn=body.querySelector("#sc-fees"); btn.disabled=true;
-      const r=await pullEbayFees(items,(d,t)=>{ msg.style.color="#555"; msg.textContent="Reading eBay fees "+d+"/"+t+"…"; });
+      // Pull straight from each record's order id — works whether or not the sale is in inventory.
+      const r=await pullFeesForComparisonRecords(rows,(d,t)=>{ msg.style.color="#555"; msg.textContent="Reading eBay label cost "+d+"/"+t+"…"; });
       btn.disabled=false;
-      msg.style.color="#1f7244";
-      msg.textContent="eBay fees updated on "+r.updated+" order(s)."+(r.stillPending?" "+r.stillPending+" still settling — try later.":"");
+      if(r.updated){ msg.style.color="#1f7244"; msg.textContent="Filled in eBay's real label cost on "+r.updated+" sale(s)."+(r.stillPending?" "+r.stillPending+" not settled or bought outside eBay.":""); }
+      else if(r.stillPending){ msg.style.color="#8a6d3b"; msg.textContent="Found the orders, but eBay shows no label charge on "+r.stillPending+" of them — either not settled yet, or the labels were bought outside eBay (so eBay never billed you). Try later, or type the cost in."; }
+      else { msg.style.color="#8a6d3b"; msg.textContent="No label costs came back. If you buy labels through PayPal or off-eBay, eBay's API won't have them — type them in by hand."; }
       render();
     };
     // Reset the scoreboard: clear every fetched quote and pulled eBay cost so it all recomputes from
@@ -11503,6 +11523,39 @@ function openCloudSyncTest(){
 // eBay's Finances API reports every one of those, per order. So WIM can now show what you ACTUALLY
 // made. Note the API lives on a different hostname (apiz.ebay.com) — handled in the Rust layer.
 const EBAY_SCOPE_FINANCES="https://api.ebay.com/oauth/api_scope/sell.finances";
+
+// Given eBay's transactions for one order, pull out what the LABEL cost you. Shared so both the
+// inventory-item fee pull and the comparison-screen pull read the number the same way.
+function labelCostFromTxns(txns){
+  const num=(a)=> a && a.value!=null ? (parseFloat(a.value)||0) : 0;
+  let label=0;
+  (txns||[]).forEach(t=>{ if(String(t.transactionType||"").toUpperCase()==="SHIPPING_LABEL") label+=num(t.amount); });
+  return Math.round(label*100)/100;
+}
+// Pull eBay's real shipping-label cost for comparison RECORDS, by their order id — no inventory item
+// needed. This is what makes the eBay Actual column fill in for "not inventoried" sales, which have
+// an order behind them but no WIM item. Writes the cost straight onto the record.
+async function pullFeesForComparisonRecords(records, onProgress){
+  const targets=(records||[]).filter(r=>r.orderId && !(parseFloat(r.ebayActualCost)>0));
+  let checked=0, updated=0, stillPending=0, noOrder=0;
+  const errors=[];
+  (records||[]).forEach(r=>{ if(!r.orderId) noOrder++; });
+  for(const r of targets){
+    checked++; onProgress&&onProgress(checked, targets.length);
+    try{
+      const resp=await EBAY.user("/sell/finances/v1/transaction?filter=orderId:{"+encodeURIComponent(r.orderId)+"}", EBAY_SCOPE_FINANCES);
+      if(!resp.ok){ errors.push({ id:r.id, why:"HTTP "+resp.status+" "+String(resp.body||"").slice(0,140) }); continue; }
+      const d=JSON.parse(resp.body||"{}");
+      const txns=d.transactions||[];
+      if(!txns.length){ stillPending++; continue; }
+      const label=labelCostFromTxns(txns);
+      if(label>0){ r.ebayActualCost=label.toFixed(2); updated++; }
+      else stillPending++;   // order found but no label charge yet (or bought outside eBay)
+    }catch(e){ errors.push({ id:r.id, why:(e&&e.message)?e.message:String(e) }); }
+  }
+  if(updated) save();
+  return { checked, updated, stillPending, noOrder, errors };
+}
 
 // Fees don't appear the instant an item sells — eBay settles them over the following hours or days.
 // So this is a pull you re-run, not a one-shot at sale time.
