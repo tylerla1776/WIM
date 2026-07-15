@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.85", BUILD_DATE="2026-12-16", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.86", BUILD_DATE="2026-12-17", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.86","FIXED THE LISTING ERROR (eBay 2004 Invalid request). Two causes, both about item condition. One: eBay condition values are not the same for every category -- a book category rejects NEW outright, it wants Like New or one of the Used grades. WIM was sending whatever condition you picked without checking, so a book marked New got a cryptic error with no explanation. WIM now asks eBay which conditions the category actually allows and, if yours is not on the list, quietly switches to the closest one that is -- your Fantastic Four book listed as New becomes Like New and goes through. It tells you in the status line when it adjusts. Two: one of WIM own condition codes -- Used Excellent -- was not a real eBay value at all, so anything set to it failed instantly. That is corrected to Used Very Good. The allowed conditions per category are remembered so it is one quick check, not a delay on every item."],
   ["3.3.85","MESSAGING AND TEMPLATES, from your notes. Conversations now read like a real chat: your messages sit on the RIGHT with a light blue bubble, the buyer stays on the LEFT in gray, so you can tell at a glance who said what. Under your own messages it now says who sent it -- WIM and the user name if it went through WIM, or eBay user if it was sent from eBay directly -- instead of repeating the item name. Where the list said eBay member or Buyer of..., it now shows the buyer actual username. The Support info button is gone and Diagnose is now admin-only. The message list is capped at the newest 100 with a Load 20 more button at the bottom. TEMPLATES: inserting one now fills in the buyer real name, the dropdown stays on the template you picked, and inserting OVERWRITES the box instead of stacking a second message under the first. And creating a new template no longer blanks the whole Communication screen -- that was closing the window by mistake; you can now make a template, save, and insert it right away. PHOTO EDITOR: the grey Edit icon (top-left of a photo, rotate/flip/resize) is confirmed wired on item pages, Bulk Add, Import Scans and Supervisor Review -- if you could not see it before, it is because it arrived in a version newer than the one you had installed."],
   ["3.3.84","THE MONEY SCREENS NOW TELL THE TRUTH. Vendor ROI was built on the backwards legacy sold flag -- the same one that broke the review queues in 3.3.66 -- so it was reporting on the wrong items entirely. It now uses real sales, includes eBay fees (real ones where pulled, your account own effective rate as the estimate where not), uses the real label cost, counts refunds, and -- new -- counts WRITE-OFFS: money you spent on a vendor stock that got junked now shows against that vendor instead of vanishing, so a vendor whose books keep getting damaged stops looking better than one whose books all sell. True Net Profit now uses the real label bill from the fee pull instead of ignoring it, and subtracts refunds. SEND OFFERS TO WATCHERS grew the safety it was missing: a BREAK-EVEN FLOOR -- WIM works out what each discounted offer would actually net you after eBay cut, postage and what you paid, and refuses to send any offer that loses money, naming the items and the loss. And offers now show a review screen first -- every item, current price, offer price, and what you would make -- before anything is sent to a buyer."],
   ["3.3.83","Fixed why the eBay Actual column stayed empty. Two real reasons. One, the fee pull was looking for the order through a matching inventory item -- but the sales on that screen are pulled straight from eBay and were never in WIM, so there was no item and nothing to look up. It now pulls the label cost straight from each sale own eBay order id, whether or not the sale is in inventory. Two, when those sold listings were pulled in, the eBay cost box was being seeded with what the BUYER paid for postage -- which on your free shipping is zero every time -- so it looked filled with nothing. That is gone. Your existing records are repaired automatically on load: the order id was always there, tucked inside another field, so they can pull fees without re-pulling anything. Click Pull eBay Fees and it now fills in what eBay actually billed you for each label. If a sale comes back with no label charge, WIM tells you plainly -- usually it means the label was bought off eBay (through PayPal, say), which eBay API genuinely does not report, so those you type in by hand."],
@@ -5069,8 +5070,56 @@ function aspectValueArray(name, value, it){
   }catch(e){}
   return parts;
 }
+// eBay condition enums are NOT universal — each category allows only a specific set. Books, for
+// example, reject NEW (id 1000); they want LIKE_NEW or the USED_* grades. Sending a condition the
+// category doesn't allow gives a cryptic 2004/ACCESS "Invalid request" with no field named. This
+// asks eBay which conditions the category actually permits and, if our chosen one isn't on the list,
+// remaps to the closest one that IS. Cached per category so it's one call, not one per item.
+// Maps eBay condition IDs to the enum the Inventory API expects.
+const EBAY_COND_ID_TO_ENUM={
+  "1000":"NEW","1500":"NEW_OTHER","1750":"NEW_WITH_DEFECTS","2750":"LIKE_NEW",
+  "2000":"CERTIFIED_REFURBISHED","2010":"EXCELLENT_REFURBISHED","2020":"VERY_GOOD_REFURBISHED",
+  "2030":"GOOD_REFURBISHED","2500":"SELLER_REFURBISHED",
+  "3000":"USED_VERY_GOOD","4000":"USED_GOOD","5000":"USED_ACCEPTABLE","7000":"FOR_PARTS_OR_NOT_WORKING",
+  // Books use their own ids; all map onto the standard used grades.
+  "2750b":"LIKE_NEW"
+};
+// Preference order when our first choice isn't allowed — walk DOWN in quality to the nearest allowed.
+const EBAY_COND_FALLBACK={
+  "NEW":["NEW","LIKE_NEW","USED_VERY_GOOD","USED_GOOD","USED_ACCEPTABLE"],
+  "LIKE_NEW":["LIKE_NEW","USED_VERY_GOOD","USED_GOOD","NEW","USED_ACCEPTABLE"],
+  "NEW_OTHER":["NEW_OTHER","LIKE_NEW","USED_VERY_GOOD","NEW","USED_GOOD"],
+  "USED_VERY_GOOD":["USED_VERY_GOOD","USED_GOOD","LIKE_NEW","USED_ACCEPTABLE"],
+  "USED_GOOD":["USED_GOOD","USED_VERY_GOOD","USED_ACCEPTABLE","LIKE_NEW"],
+  "USED_ACCEPTABLE":["USED_ACCEPTABLE","USED_GOOD","USED_VERY_GOOD"]
+};
+async function allowedConditionsFor(ebayCategoryId){
+  if(!ebayCategoryId) return null;
+  DB._condPolicyCache=DB._condPolicyCache||{};
+  const cached=DB._condPolicyCache[ebayCategoryId];
+  if(cached && (Date.now()-cached.at < 30*86400000)) return cached.enums;
+  try{
+    const tree=EBAY.mkt()==="EBAY_US"?"0":"0";
+    const r=await EBAY.app("/sell/metadata/v1/marketplace/"+EBAY.mkt()+"/get_item_condition_policies?filter=categoryIds:{"+ebayCategoryId+"}", EBAY_SCOPE_APP);
+    if(!r.ok) return null;
+    const d=JSON.parse(r.body||"{}");
+    const pol=(d.itemConditionPolicies||[])[0];
+    if(!pol || !pol.itemConditions) return null;
+    const enums=pol.itemConditions.map(c=>EBAY_COND_ID_TO_ENUM[String(c.conditionId)]).filter(Boolean);
+    DB._condPolicyCache[ebayCategoryId]={ at:Date.now(), enums, required: pol.conditionRequired!==false }; save();
+    return enums;
+  }catch(e){ return null; }
+}
+// Given our desired enum and the category's allowed list, return a VALID enum.
+function pickAllowedCondition(desired, allowed){
+  if(!allowed || !allowed.length) return desired;           // couldn't check — send as-is
+  if(allowed.includes(desired)) return desired;             // already fine
+  const chain=EBAY_COND_FALLBACK[desired]||[desired];
+  for(const c of chain){ if(allowed.includes(c)) return c; }
+  return allowed[0];                                        // last resort: whatever the category allows
+}
 function ebayPayload(it){ // builds the Sell Inventory API createOrReplaceInventoryItem body (sku goes in the URL, not the body)
-  const payload={ condition: ebayCondEnum(it.condition),
+  const payload={ condition: (it._resolvedCondition || ebayCondEnum(it.condition)),
     product:{ title:(it.listing&&it.listing.title?it.listing.title:it.desc||"").slice(0,80),
       description:(it.listing&&it.listing.descBody)||it.desc||"",
       aspects: buildAspectsPayload(it),
@@ -5277,6 +5326,17 @@ async function publishToEbay(it,onStep){
   const missing=ebayListingPrereqs(it);
   if(missing.length) return { ok:false, error:"Missing before publishing:\n• "+missing.join("\n• ") };
   await refreshAspectDefsIfStale(it, onStep);
+  // Make sure the condition we're about to send is actually allowed in this category. Books reject
+  // NEW; other categories reject grades they don't offer. This turns a cryptic 400 into a listing
+  // that just works — remapping (say) NEW to LIKE_NEW when the category demands it.
+  try{
+    const sc=subcatObj(it.section,it.subCategory);
+    const allowed=sc && sc.ebayId ? await allowedConditionsFor(sc.ebayId) : null;
+    const desired=ebayCondEnum(it.condition);
+    const resolved=pickAllowedCondition(desired, allowed);
+    it._resolvedCondition=resolved;
+    if(resolved!==desired) onStep&&onStep("Adjusting condition to “"+ebayCondLabel(resolved)+"” — the one this eBay category accepts…");
+  }catch(e){ it._resolvedCondition=null; }
   const sku=String(it.upc);
   onStep&&onStep("Creating/updating the eBay inventory item…");
   const invPayload=ebayPayload(it);
@@ -13344,7 +13404,7 @@ function ebayCondEnum(text){
   if(/refurb/.test(t)) return "SELLER_REFURBISHED";
   if(/like new/.test(t)) return "LIKE_NEW";
   if(/brand new|^new$/.test(t)) return "NEW";
-  if(/used.*excellent|^excellent$/.test(t)) return "USED_EXCELLENT";
+  if(/used.*excellent|^excellent$/.test(t)) return "USED_VERY_GOOD";   // USED_EXCELLENT is NOT a real eBay enum
   if(/very good/.test(t)) return "USED_VERY_GOOD";
   if(/acceptable/.test(t)) return "USED_ACCEPTABLE";
   if(/good/.test(t)) return "USED_GOOD";
