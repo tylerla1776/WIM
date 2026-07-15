@@ -47,6 +47,17 @@ fn base_url(env: &str) -> &'static str {
     }
 }
 
+// The Finances API does NOT live on api.ebay.com — it lives on apiz.ebay.com. Sending a finances
+// call to the normal host just 404s. This is exactly the kind of detail that would have looked like
+// "the fee feature is broken" for an hour.
+fn host_for(env: &str, path: &str) -> String {
+    if path.starts_with("/sell/finances") {
+        return if env == "production" { "https://apiz.ebay.com".to_string() }
+               else { "https://apiz.sandbox.ebay.com".to_string() };
+    }
+    base_url(env).to_string()
+}
+
 // Exchange the long-lived refresh token for a short-lived USER access token.
 // Every outbound HTTP request goes through this. It exists because the app previously built twenty
 // separate `reqwest::Client::new()` instances, none of which had a timeout — so a slow or wedged
@@ -951,7 +962,7 @@ async fn get_app_token(
 }
 
 async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload: &str) -> ApiResult {
-    let url = format!("{}{}", base_url(env), path);
+    let url = format!("{}{}", host_for(env, path), path);
     let client = http_client();
     let mut req = client
         .post(&url)
@@ -983,6 +994,158 @@ async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload:
     }
 }
 
+// ============================ CARRIER TRACKING (USPS / UPS / FedEx) ============================
+//
+// Direct-to-carrier tracking. eBay knows a parcel shipped but will NOT tell you it arrived — only
+// the carrier can. Rather than pay a middleman per parcel, WIM talks to each carrier's own free
+// API. All three use OAuth2 client-credentials: swap a key + secret for a short-lived bearer token,
+// then ask about a tracking number.
+//
+// Tokens are CACHED. A carrier token lasts hours, and re-authenticating once per parcel would turn
+// a 50-parcel check into 100 requests and get us rate-limited for no reason.
+static CARRIER_TOKENS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String,(String,u64)>>> = std::sync::OnceLock::new();
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+fn cached_token(key: &str) -> Option<String> {
+    let m = CARRIER_TOKENS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let g = m.lock().ok()?;
+    let (tok, exp) = g.get(key)?;
+    if *exp > now_secs() + 60 { Some(tok.clone()) } else { None }   // 60s safety margin
+}
+fn store_token(key: &str, tok: &str, ttl: u64) {
+    let m = CARRIER_TOKENS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Ok(mut g) = m.lock() {
+        g.insert(key.to_string(), (tok.to_string(), now_secs() + ttl.max(60)));
+    }
+}
+fn token_from(body: &str) -> Option<(String, u64)> {
+    let j: serde_json::Value = serde_json::from_str(body).ok()?;
+    let tok = j.get("access_token")?.as_str()?.to_string();
+    let ttl = j.get("expires_in").and_then(|v| v.as_u64())
+        .or_else(|| j.get("expires_in").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()))
+        .unwrap_or(3600);
+    Some((tok, ttl))
+}
+
+// ---- USPS ----
+// Token:  POST https://apis.usps.com/oauth2/v3/token   (JSON: grant_type, client_id, client_secret)
+// Track:  GET  https://apis.usps.com/tracking/v3/tracking/{number}?expand=DETAIL
+#[tauri::command]
+async fn usps_track(client_id: String, client_secret: String, tracking_number: String) -> ApiResult {
+    let ck = format!("usps:{}", client_id);
+    let token = match cached_token(&ck) {
+        Some(t) => t,
+        None => {
+            let body = serde_json::json!({
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret
+            });
+            let r = http_client().post("https://apis.usps.com/oauth2/v3/token")
+                .header("Content-Type", "application/json").json(&body).send().await;
+            match r {
+                Ok(resp) => {
+                    let st = resp.status().as_u16();
+                    let b = resp.text().await.unwrap_or_default();
+                    match token_from(&b) {
+                        Some((t, ttl)) => { store_token(&ck, &t, ttl); t }
+                        None => return ApiResult { ok: false, status: st, body: format!("USPS sign-in failed (HTTP {}): {}", st, b) },
+                    }
+                }
+                Err(e) => return ApiResult { ok: false, status: 0, body: format!("Couldn't reach USPS: {}", e) },
+            }
+        }
+    };
+    let url = format!("https://apis.usps.com/tracking/v3/tracking/{}?expand=DETAIL", tracking_number);
+    match http_client().get(&url).header("Authorization", format!("Bearer {}", token)).send().await {
+        Ok(r) => { let status = r.status().as_u16(); let body = r.text().await.unwrap_or_default();
+                   ApiResult { ok: (200..300).contains(&status), status, body } }
+        Err(e) => ApiResult { ok: false, status: 0, body: format!("Couldn't reach USPS: {}", e) },
+    }
+}
+
+// ---- UPS ----
+// Token:  POST https://onlinetools.ups.com/security/v1/oauth/token  (Basic auth, form grant_type)
+// Track:  GET  https://onlinetools.ups.com/api/track/v1/details/{number}
+#[tauri::command]
+async fn ups_track(client_id: String, client_secret: String, tracking_number: String) -> ApiResult {
+    let ck = format!("ups:{}", client_id);
+    let token = match cached_token(&ck) {
+        Some(t) => t,
+        None => {
+            let r = http_client().post("https://onlinetools.ups.com/security/v1/oauth/token")
+                .basic_auth(&client_id, Some(&client_secret))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body("grant_type=client_credentials")
+                .send().await;
+            match r {
+                Ok(resp) => {
+                    let st = resp.status().as_u16();
+                    let b = resp.text().await.unwrap_or_default();
+                    match token_from(&b) {
+                        Some((t, ttl)) => { store_token(&ck, &t, ttl); t }
+                        None => return ApiResult { ok: false, status: st, body: format!("UPS sign-in failed (HTTP {}): {}", st, b) },
+                    }
+                }
+                Err(e) => return ApiResult { ok: false, status: 0, body: format!("Couldn't reach UPS: {}", e) },
+            }
+        }
+    };
+    let url = format!("https://onlinetools.ups.com/api/track/v1/details/{}", tracking_number);
+    match http_client().get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("transId", format!("wim{}", now_secs()))
+        .header("transactionSrc", "WIM")
+        .send().await {
+        Ok(r) => { let status = r.status().as_u16(); let body = r.text().await.unwrap_or_default();
+                   ApiResult { ok: (200..300).contains(&status), status, body } }
+        Err(e) => ApiResult { ok: false, status: 0, body: format!("Couldn't reach UPS: {}", e) },
+    }
+}
+
+// ---- FedEx ----
+// Token:  POST https://apis.fedex.com/oauth/token          (form: grant_type/client_id/client_secret)
+// Track:  POST https://apis.fedex.com/track/v1/trackingnumbers
+#[tauri::command]
+async fn fedex_track(client_id: String, client_secret: String, tracking_number: String) -> ApiResult {
+    let ck = format!("fedex:{}", client_id);
+    let token = match cached_token(&ck) {
+        Some(t) => t,
+        None => {
+            let form = format!("grant_type=client_credentials&client_id={}&client_secret={}", client_id, client_secret);
+            let r = http_client().post("https://apis.fedex.com/oauth/token")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(form).send().await;
+            match r {
+                Ok(resp) => {
+                    let st = resp.status().as_u16();
+                    let b = resp.text().await.unwrap_or_default();
+                    match token_from(&b) {
+                        Some((t, ttl)) => { store_token(&ck, &t, ttl); t }
+                        None => return ApiResult { ok: false, status: st, body: format!("FedEx sign-in failed (HTTP {}): {}", st, b) },
+                    }
+                }
+                Err(e) => return ApiResult { ok: false, status: 0, body: format!("Couldn't reach FedEx: {}", e) },
+            }
+        }
+    };
+    let payload = serde_json::json!({
+        "includeDetailedScans": true,
+        "trackingInfo": [ { "trackingNumberInfo": { "trackingNumber": tracking_number } } ]
+    });
+    match http_client().post("https://apis.fedex.com/track/v1/trackingnumbers")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .header("X-locale", "en_US")
+        .json(&payload).send().await {
+        Ok(r) => { let status = r.status().as_u16(); let body = r.text().await.unwrap_or_default();
+                   ApiResult { ok: (200..300).contains(&status), status, body } }
+        Err(e) => ApiResult { ok: false, status: 0, body: format!("Couldn't reach FedEx: {}", e) },
+    }
+}
+
 // PUT using a USER token.
 //
 // eBay's Inventory API treats an offer as something a SKU HAS, not something you keep creating:
@@ -990,7 +1153,7 @@ async fn do_post(env: &str, token: &str, marketplace: &str, path: &str, payload:
 // could create an offer but never correct one — which is how it managed to fail in both directions:
 // republishing a dead offer (25713), then trying to create a second one for the same SKU (25002).
 async fn do_put(env: &str, token: &str, marketplace: &str, path: &str, payload: &str) -> ApiResult {
-    let url = format!("{}{}", base_url(env), path);
+    let url = format!("{}{}", host_for(env, path), path);
     let client = http_client();
     let mut req = client
         .put(&url)
@@ -1077,7 +1240,7 @@ async fn ebay_post_user(
 }
 
 async fn do_get(env: &str, token: &str, marketplace: &str, path: &str) -> ApiResult {
-    let url = format!("{}{}", base_url(env), path);
+    let url = format!("{}{}", host_for(env, path), path);
     let client = http_client();
     let mut req = client
         .get(&url)
@@ -1318,6 +1481,9 @@ fn main() {
             easypost_get_rates,
             easypost_track,
             ebay_put_user,
+            usps_track,
+            ups_track,
+            fedex_track,
             easypost_create_shipment,
             easypost_buy_label
         ])

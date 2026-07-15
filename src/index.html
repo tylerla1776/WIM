@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.74", BUILD_DATE="2026-12-05", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.79", BUILD_DATE="2026-12-10", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,11 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.79","SHIPPING COMPARISON REBUILT SO IT ACTUALLY WORKS. Three things were broken. One, it refused to quote anything, saying items had no weight -- because it froze the weight at the moment of sale, and items sold before weights existed were frozen blank forever. It now uses the item current weight, or the sub-category default (a comic at 0.3 lb and so on), or 1 lb, and never refuses. Two, the eBay actual cost column was always empty because it was reading what the BUYER paid for postage -- which on your free shipping is zero every time. It now reads what eBay actually billed YOU for the label, from the fee pull. Three, and most important, it now folds each service per-label fee into the comparison before declaring a winner. Shippo charges about 5 cents a label, EasyPost adds 3 percent on USPS postage -- so a quote that looks 3 cents cheaper can actually be the most expensive once the fee is counted. Judging on the headline rate alone would have sent you to the dearest option thinking it was the cheapest. New scoreboard at the top: three cards for eBay, Shippo and EasyPost showing how many times each was cheapest and what each would have cost in total, plus a plain line telling you how much buying through eBay has cost you over the cheapest option. Loads 20 at a time with Older and Newer buttons to page back through your history. Estimated weights are marked with a star -- worth weighing a few of each book type and correcting the defaults, because both Shippo and EasyPost bill you weeks later if the real parcel is heavier than the label said."],
+  ["3.3.78","TRUE PROFIT -- WHAT YOU ACTUALLY MADE, NOT WHAT IT SOLD FOR. WIM knew the sale price and what you paid for an item, and quietly called the difference profit. It is not. eBay takes a final value fee, a fixed fee per order, an ad fee if the listing was promoted, and regulatory charges -- and if you buy the label through eBay, the postage comes out too. On a 49 dollar book that cost you 3 dollars, WIM was overstating what you made by about 11 dollars. New button on Shipping, Completed tab: Pull eBay Fees. It asks eBay what it actually charged on each order and what the postage really cost, and a sold item landing page now shows the honest breakdown -- sold for, minus eBay fees, minus postage, minus what you paid, and the real number at the end with the margin. Refunds are counted too, so a returned sale shows as the loss it actually is. Note that fees do not appear the moment something sells -- eBay settles them over the following hours or days -- so run the pull again later for anything still pending. WIM says plainly when it does not yet know the fees, rather than showing you a flattering number and letting you believe it."],
+  ["3.3.77","THANK YOU MESSAGES AFTER DELIVERY. Messaging has a new button -- Send Thank You -- with a counter showing how many buyers are waiting on one. A buyer joins that queue only when their item is CONFIRMED DELIVERED, not merely shipped: a thank you that lands before the parcel does is just noise. Clicking it shows you every message before anything is sent -- the buyer, the item with its photo, and the full text already filled in with their name and what they bought. Edit any of them, remove any you would rather not send, then send. Each goes out individually through eBay, never as a group. A buyer is thanked ONCE and can never be thanked twice, even if a send fails halfway through -- each message is marked the instant it succeeds, so a retry only picks up the ones that did not go. Simulated sales are never messaged, so you can practise the whole thing without any real person hearing from you. The wording is a normal template, so you can rewrite it to sound like you in Messaging, Templates."],
+  ["3.3.76","FREE DELIVERY TRACKING, STRAIGHT FROM THE CARRIERS. WIM now talks directly to USPS, UPS and FedEx to find out whether a parcel has actually arrived -- and moves it to Completed by itself when it has. All three carriers give tracking away for nothing, so this replaces the paid option entirely. New screen: Configuration, Carrier Tracking. Add whichever carriers you actually ship with -- you do not need all three, and for books on media mail USPS alone probably covers most of your parcels. WIM works out which carrier a parcel belongs to from the shape of its tracking number, and only asks that one. The Test button uses a REAL parcel from your own inventory rather than a made-up number, so a green result means it genuinely works. If you already have an EasyPost key it is now only used as a fallback -- for a carrier WIM cannot identify, or one you have not set up -- so what you were paying should drop to almost nothing. Nothing is ever stranded: a parcel WIM cannot check still shows a clickable tracking number, can be completed by hand, and auto-completes after 14 days regardless. A setup guide is included with the exact steps for each carrier."],
+  ["3.3.75","ADD PHOTO WAS CLOSING THE WHOLE ADD INVENTORY WINDOW and taking your work with it. A brand new item does not exist in the database until you click Add Item -- but adding a photo saved anyway, writing out a database that did not contain the item you were working on, then telling every window the data had changed. The windows reloaded, could not find your item, and shut. New items no longer save until you create them. PHOTO EDITOR. Every photo now has an Edit button in its top left corner -- rotate, flip and resize. Phones record which way up a photo is as a note attached to the file rather than actually turning the pixels, and that note is lost as soon as the photo is processed, which is why images arrive sideways or upside down. Now you can just fix them. LOCAL PICKUPS COMPLETE THEMSELVES. There is nothing to ship on a pickup order, so when you confirm the pickup on eBay, eBay marks the order fulfilled -- and for a pickup that means collected, not shipped. WIM now reads that and moves the item to Completed. Free, no tracking needed. MESSAGES. The list said eBay member and no subject, which told you nothing. It now shows who actually wrote to you and what listing they are asking about. Opening a message shows their name, the item photo, the warehouse SKU so you can go find it, and the listing name as a link that opens the item. The conversation itself is now on white so it stands apart. When a photo fails to attach, WIM now tells you why instead of just failing -- and the usual reason is the missing eBay permission from 3.3.72, so sign in to eBay again if you have not."],
   ["3.3.74","PULL NEW LISTINGS HANGING ON PAGE 1. Two causes, both real. First, NONE of WIM calls to eBay had a time limit -- twenty different connections, not one of them with a timeout. So a slow or wedged request would hang forever and the app would just sit there spinning with nothing to show you. A request that never comes back is worse than one that fails, because a failure at least tells you something. Every call now gives up after 90 seconds and reports what happened. Second, WIM was asking eBay for the COMPLETE record of every one of the 50 listings on a page, when it only reads about eight fields from each. On an account your partner size that is an enormous response and slow enough to look frozen. It now asks only for what it actually uses, which is dramatically faster -- and if that trimmed request ever comes back empty, WIM automatically retries the old full request rather than wrongly telling you there is nothing new."],
   ["3.3.73","Corrected the reconnect instructions -- I pointed you at the wrong button. The Connect badge at the top only switches WIM online using the permission it ALREADY has; it never asks eBay for anything new, which is why you saw no approval screen. Signing in to eBay again is done in Configuration, then eBay Connection, then Connect with eBay -- that is the one that opens your browser to eBay approval page and issues a fresh connection carrying the missing permission. WIM error message now says this properly."],
   ["3.3.72","PULL NEW LISTINGS AND BUYER MESSAGES COULD NEVER HAVE WORKED. When you connect WIM to eBay, eBay asks you to approve a list of permissions -- and that list was missing the basic one. Both Pull New Listings and replying to a buyer go through eBay older Trading system, which uses exactly that permission and no other, so eBay was refusing them outright with an invalid scope error. Not a fault in either feature: they were never allowed to run. The permission is now requested. IMPORTANT -- YOU MUST RECONNECT TO EBAY. Permissions are locked in at the moment you approve them, so your current connection is stuck with the old list forever. Click the mode badge at the top, click Connect, and approve eBay consent screen again. Nothing is lost and nothing else is affected. WIM now also explains this in plain words when it happens, instead of showing you a raw error you cannot act on. Also: GitHub builds were taking 20-30 minutes because every release recompiled all 400 code libraries from scratch. They are now cached, so after the next one builds should take a few minutes."],
@@ -967,6 +972,7 @@ const POPOUT_APPS={
   supervisorymaint:{ title:"Supervisory Maintenance", open:()=>openSupervisoryMaintenance() },
   findbyphoto:{ title:"Find by Photo", open:()=>openFindByPhoto() },
   backup:{ title:"Backup & Updates", open:()=>openBackup() },
+  carriertracking:{ title:"Carrier Tracking", open:()=>openCarrierTracking() },
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
   categories:{ title:"Category Maintenance", open:()=>openListMaintenance("section") },
   groups:{ title:"Group Maintenance", open:()=>openListMaintenance("group") },
@@ -1421,8 +1427,16 @@ function migrate(d){
       { id:"tpl_delay", name:"Slight shipping delay", body:"Hi {buyer}, just a quick heads up that your order will ship within the next day or two. Thanks for your patience — I want to make sure it's packed well." },
       { id:"tpl_returns", name:"Return policy", body:"Hi {buyer}, thanks for reaching out. Returns are accepted within 30 days of delivery — just let me know and I'll walk you through it. I want you to be happy with your purchase." },
       { id:"tpl_condition", name:"Condition question", body:"Hi {buyer}, thanks for your interest in {item}. Happy to answer any questions about its condition — just let me know what you'd like to know and I'll take a closer look for you." },
-      { id:"tpl_combine", name:"Combined shipping", body:"Hi {buyer}, I'm glad to combine shipping on multiple items to save you on postage. Add what you'd like to your cart and request a total, and I'll send an updated invoice." }
+      { id:"tpl_combine", name:"Combined shipping", body:"Hi {buyer}, I'm glad to combine shipping on multiple items to save you on postage. Add what you'd like to your cart and request a total, and I'll send an updated invoice." },
+      // The one the "Send Thank You" button uses. Sent AFTER delivery is confirmed, which is the
+      // moment it actually means something — a thank-you that arrives before the parcel does is just
+      // noise, and asking for feedback on something they haven't seen yet is worse than saying nothing.
+      { id:"tpl_delivered", name:"Thank you (after delivery)", body:"Hi {buyer}, just wanted to say thank you for your purchase of {item} — it shows as delivered, so I hope it arrived in great shape and that you enjoy it.\n\nIf anything isn't quite right, please message me first and I'll make it right. Thanks again for supporting a small shop!" }
     ];
+  }
+  // Add the delivered thank-you to installs that already have templates saved.
+  if(Array.isArray(d.messageTemplates) && !d.messageTemplates.some(t=>t.id==="tpl_delivered")){
+    d.messageTemplates.push({ id:"tpl_delivered", name:"Thank you (after delivery)", body:"Hi {buyer}, just wanted to say thank you for your purchase of {item} — it shows as delivered, so I hope it arrived in great shape and that you enjoy it.\n\nIf anything isn't quite right, please message me first and I'll make it right. Thanks again for supporting a small shop!" });
   }
   if(!Array.isArray(d.reviewLog)) d.reviewLog=[]; // Supervisor Review audit trail (accuracy report reads this)
   if(!d.vendorCosting || typeof d.vendorCosting!=="object") d.vendorCosting={};
@@ -2998,6 +3012,7 @@ function isLive(){ return SESSION.mode==="live"; }
 const TREE_LABEL_FEATURE={
   "Dashboard Widgets":"dashboard_widgets","Photo Default":"dashboard_widgets","Shipping Data":"shipping_data","Description Manager":"item_maintenance_full","Category Maintenance":"category_maintenance",
   "eBay Connection":"ebay_connection_admin","InventoryIQ":"ebay_connection_admin","Listing Configuration":"item_maintenance_full","Supervisory Maintenance":"supervisory_maintenance",
+  "Carrier Tracking":"cloud_backup_settings",
   "Backup & Updates":"cloud_backup_settings","Cloud Sync Setup":"cloud_backup_settings","Local Profiles":"cloud_backup_settings","Manage Devices":"device_management","eBay Compliance Log":"ebay_compliance_log","eBay API Limits":"ebay_compliance_log","System Health":"ebay_compliance_log","Simulation Mode":"simulation_mode","Cloud Data Migration":"cloud_backup_settings","Cloud Sync (Test)":"cloud_backup_settings",
   "Warehouse Maintenance":"warehouse_maintenance_limited","Vendor Management":"vendor_maintenance","Condition Maintenance":"warehouse_maintenance_limited","Adjustment Configuration":"adjust_inventory",
   "Modify Users":"modify_users","Print Queue":"print_queue","Print Configuration":"print_configuration","Catalog Maintenance":"catalog_maintenance",
@@ -3031,10 +3046,10 @@ function configSubgroupOf(action){ for(const g of CONFIG_SUBGROUPS){ if(g.member
 function nodeActionsRaw(node){
   if(node.key==="config"){ 
     if(isLive()){ const base=["Dashboard Widgets","Shipping Data","Description Manager","Category Maintenance"]; if(role()==="admin"){ base.push("Supervisory Maintenance"); base.push("Backup & Updates"); base.push("Local Profiles"); base.push("Simulation Mode"); } base.push("About / Version");
-      const grouped=[]; if(role()==="admin"){ grouped.push("System Health","eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
+      const grouped=[]; if(role()==="admin"){ grouped.push("System Health","eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","Carrier Tracking","InventoryIQ");
       return base.concat(grouped); }
     const base=["Dashboard Widgets","Shipping Data","Warehouse Maintenance","Vendor Management","Condition Maintenance","Adjustment Configuration","Description Manager"]; if(role()==="admin"){ base.push("Supervisory Maintenance"); base.push("Backup & Updates"); base.push("Local Profiles"); base.push("Simulation Mode"); } base.push("About / Version");
-    const grouped=[]; if(role()==="admin"){ grouped.push("System Health","eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","InventoryIQ");
+    const grouped=[]; if(role()==="admin"){ grouped.push("System Health","eBay Compliance Log","eBay API Limits","Manage Devices","Cloud Sync Setup","Cloud Data Migration","Cloud Sync (Test)"); } grouped.push("Photo Default","eBay Connection","Listing Configuration","Carrier Tracking","InventoryIQ");
     return base.concat(grouped); }
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
@@ -4018,6 +4033,7 @@ function handleAction(k,a){
   if(k==="config"&&a==="eBay Connection") return launchApp("ebaycfg");
   if(k==="config"&&a==="InventoryIQ") return launchApp("iqcfg");
   if(k==="config"&&a==="Listing Configuration") return launchApp("listingcfg");
+  if(k==="config"&&a==="Carrier Tracking") return launchApp("carriertracking");
   if(k==="config"&&a==="Backup & Updates") return launchApp("backup");
   if(k==="config"&&a==="Cloud Sync Setup") return launchApp("cloudsetup");
   if(k==="config"&&a==="Local Profiles") return launchApp("localprofiles");
@@ -6271,6 +6287,86 @@ function makeCardFooter(card, opts){
  * of clickable thumbnails (click one to view it, click its S tag to promote it to featured), and
  * the Find on eBay button. onChange() should re-render the card.
  */
+// A brand-new item (Add Inventory) does NOT exist in the database until you click Add Item. Calling
+// save() before then writes out a database that doesn't contain it, and then tells every window
+// "data changed" — so they reload from storage, fail to find the item you're editing, and close the
+// window out from under you, taking the work with it. That's what made Add Photo close the whole
+// Add Inventory screen.
+//
+// So: only persist if the item is actually in the database. For a new item the photo simply lives
+// on the object in memory, exactly like the description and price already do, and gets written when
+// the item is created. Nothing is lost.
+function itemIsSaved(it){ return !!(it && it.id && (DB.items||[]).some(x=>x.id===it.id)); }
+
+// PHOTO EDITOR — rotate, flip, crop-free resize.
+// Phones write orientation into EXIF metadata rather than rotating the actual pixels, and that
+// metadata gets lost the moment the image is redrawn onto a canvas. So a photo that looked upright
+// on the phone arrives in WIM lying on its side or upside down, and there was no way to fix it
+// without going back to the phone. Now there is.
+function openPhotoEditor(it, idx, onDone){
+  const src=(it.images||[])[idx];
+  if(!src){ uiAlert("No photo to edit."); return; }
+  let rot=0, flipH=false, flipV=false, scale=1;
+  const m=uiModal("Edit photo", `<div style="min-width:520px;">
+      <div style="background:#2b3440;border-radius:8px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:320px;">
+        <img id="pe-img" src="${esc(src)}" style="max-width:460px;max-height:300px;transition:transform .15s;">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center;">
+        <button class="btn sm" id="pe-rl">↺ Rotate left</button>
+        <button class="btn sm" id="pe-rr">↻ Rotate right</button>
+        <button class="btn sm" id="pe-fh">⇄ Flip across</button>
+        <button class="btn sm" id="pe-fv">⇅ Flip down</button>
+        <span style="flex:1;"></span>
+        <label style="font-size:12px;color:#5b6470;">Size</label>
+        <input type="range" id="pe-scale" min="40" max="100" value="100" style="width:120px;">
+        <span id="pe-pct" style="font-size:12px;width:38px;color:#5b6470;">100%</span>
+      </div>
+      <div class="smallhint" style="margin-top:8px;">Rotating or flipping changes the photo that goes to eBay. Size only reduces the file — smaller means faster uploads and less storage; it never enlarges beyond the original.</div>
+    </div>`,
+    [{label:"Cancel"},{label:"Save photo",primary:true,onClick:()=>{ commit(); return true; }}]);
+
+  const img=m.box.querySelector("#pe-img");
+  const paint=()=>{
+    const t=[];
+    if(rot) t.push("rotate("+rot+"deg)");
+    if(flipH) t.push("scaleX(-1)");
+    if(flipV) t.push("scaleY(-1)");
+    img.style.transform=t.join(" ");
+  };
+  m.box.querySelector("#pe-rl").onclick=()=>{ rot=(rot+270)%360; paint(); };
+  m.box.querySelector("#pe-rr").onclick=()=>{ rot=(rot+90)%360; paint(); };
+  m.box.querySelector("#pe-fh").onclick=()=>{ flipH=!flipH; paint(); };
+  m.box.querySelector("#pe-fv").onclick=()=>{ flipV=!flipV; paint(); };
+  const sl=m.box.querySelector("#pe-scale"), pct=m.box.querySelector("#pe-pct");
+  sl.oninput=()=>{ scale=parseInt(sl.value,10)/100; pct.textContent=sl.value+"%"; };
+
+  // Bake the changes into the actual pixels. The preview above is only a CSS transform — eBay would
+  // still receive the original, sideways image if we didn't redraw it for real.
+  function commit(){
+    const im=new Image();
+    im.onload=()=>{
+      const swap = (rot===90 || rot===270);
+      const w=Math.round((swap?im.height:im.width)*scale);
+      const h=Math.round((swap?im.width:im.height)*scale);
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      const g=c.getContext("2d");
+      g.translate(w/2,h/2);
+      g.rotate(rot*Math.PI/180);
+      g.scale(flipH?-1:1, flipV?-1:1);
+      const dw=Math.round(im.width*scale), dh=Math.round(im.height*scale);
+      g.drawImage(im, -dw/2, -dh/2, dw, dh);
+      const out=c.toDataURL("image/jpeg", 0.85);
+      it.images[idx]=out;
+      if(idx===0) it.image=out;
+      saveIfSaved(it);
+      addHistory(it,"Photo edited (rotate/flip/resize)");
+      onDone&&onDone();
+    };
+    im.onerror=()=>uiAlert("Couldn't read that photo to edit it.");
+    im.src=src;
+  }
+}
+function saveIfSaved(it){ if(itemIsSaved(it)) save(); }
 function itemPhotoPanel(it, onChange){
   if(!Array.isArray(it.images)) it.images=it.image?[it.image]:[];
   if(typeof it._viewIdx!=="number" || it._viewIdx>=it.images.length) it._viewIdx = it.images.length?0:-1;
@@ -6280,9 +6376,15 @@ function itemPhotoPanel(it, onChange){
   const big=document.createElement("div");
   big.style.cssText=`width:130px;height:130px;border:0.5px solid #9aa3b0;border-radius:8px;background:#f4f6f9 center/contain no-repeat;position:relative;${shown?'':'display:flex;align-items:center;justify-content:center;color:#9aa3ad;'}`;
   if(shown){ big.style.backgroundImage=`url(${shown})`;
-    big.innerHTML=`<span style="position:absolute;top:5px;right:5px;background:${isFeatured?'#e6f1fb':'#eef0f3'};color:${isFeatured?'#0c447c':'#5f6b7a'};font-size:10px;padding:2px 7px;border-radius:6px;font-weight:600;">${isFeatured?'Featured':'Secondary'}</span>`; }
+    big.innerHTML=`<span style="position:absolute;top:5px;right:5px;background:${isFeatured?'#e6f1fb':'#eef0f3'};color:${isFeatured?'#0c447c':'#5f6b7a'};font-size:10px;padding:2px 7px;border-radius:6px;font-weight:600;">${isFeatured?'Featured':'Secondary'}</span>`
+      // Edit button, top-LEFT so it never sits under the Featured tag. Photos arrive sideways or
+      // upside down surprisingly often — phones record orientation as metadata instead of rotating
+      // the pixels, and that metadata is lost as soon as the image is processed.
+      + `<button class="pe-edit" title="Rotate, flip or resize this photo" style="position:absolute;top:5px;left:5px;border:none;background:rgba(27,42,65,.82);color:#fff;font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;cursor:pointer;">✎ Edit</button>`; }
   else big.textContent="No photos";
   wrap.appendChild(big);
+  const peBtn=big.querySelector(".pe-edit");
+  if(peBtn) peBtn.onclick=(e)=>{ e.stopPropagation(); openPhotoEditor(it, it._viewIdx, ()=>onChange&&onChange()); };
 
   const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:6px;margin-top:6px;";
   const addB=document.createElement("button"); addB.className="btn sm"; addB.style.flex="1"; addB.textContent="+ Add photos";
@@ -6290,12 +6392,12 @@ function itemPhotoPanel(it, onChange){
   file.onchange=async ()=>{ const files=Array.from(file.files||[]);
     for(const f of files){ try{ const d=await compressImage(f); if(!it.images.includes(d)) it.images.push(d); }catch(e){} }
     file.value=""; if(it._viewIdx<0 && it.images.length) it._viewIdx=0;
-    it.image=it.images[0]||""; save(); onChange&&onChange(); };
+    it.image=it.images[0]||""; saveIfSaved(it); onChange&&onChange(); };
   addB.onclick=()=>file.click();
   const delB=document.createElement("button"); delB.className="btn sm"; delB.style.cssText="width:30px;border-color:#c0392b;color:#c0392b;"; delB.textContent="🗑"; delB.title="Delete the photo shown above";
   delB.onclick=()=>{ if(it._viewIdx>=0){ it.images.splice(it._viewIdx,1);
     it._viewIdx=it.images.length?Math.min(it._viewIdx,it.images.length-1):-1;
-    it.image=it.images[0]||""; save(); onChange&&onChange(); } };
+    it.image=it.images[0]||""; saveIfSaved(it); onChange&&onChange(); } };
   btnRow.appendChild(addB); btnRow.appendChild(delB); btnRow.appendChild(file); wrap.appendChild(btnRow);
 
   const findB=document.createElement("button"); findB.className="btn sm";
@@ -6386,7 +6488,30 @@ function openItemDetail(item,mode,nav,defaultTab){
         <div style="font-size:22px;font-weight:800;color:#1B2A41;">${took?esc(took):"—"}</div></div>
       <div><div style="font-size:10.5px;color:#5b6470;letter-spacing:.6px;">PROMOTIONAL OFFER / DISCOUNT</div>
         <div style="font-size:16px;font-weight:700;color:${cut?'#B03A2E':'#1F7244'};">${cut?("Yes — sold "+cut.pct+"% under the $"+cut.asked.toFixed(2)+" ask"):"No — sold at full price"}</div></div>
-    </div>`;
+    </div>
+    ${(()=>{
+      // What you ACTUALLY made. The sale price is not the profit — eBay's cut and the postage come
+      // out of it first. Showing the sold price alone was, in effect, flattering you.
+      const p=itemProfit(it);
+      if(!p.known) return `<div style="margin:0 14px 10px;padding:9px 13px;background:#FBF4E4;border:1px solid #E8D5A8;border-radius:8px;font-size:12.5px;color:#8A5E10;">
+        eBay's fees for this sale haven't been read yet — so the profit here isn't the real one.
+        Click <b>Pull eBay Fees</b> on the Shipping screen (Completed tab).</div>`;
+      const M=(v)=>"$"+v.toFixed(2);
+      return `<div style="margin:0 14px 10px;padding:11px 14px;background:#F4F8F5;border:1px solid #CBE3D3;border-left:6px solid ${p.net>=0?'#1F9D55':'#C0392B'};border-radius:8px;">
+        <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;">
+          <div><div style="font-size:10px;color:#5b6470;letter-spacing:.5px;">YOU ACTUALLY MADE</div>
+            <div style="font-size:22px;font-weight:800;color:${p.net>=0?'#1F7244':'#C0392B'};">${M(p.net)}</div>
+            ${p.margin!=null?`<div class="smallhint">${p.margin}% margin</div>`:``}</div>
+          <div style="font-size:12px;color:#3A4A63;line-height:1.75;">
+            <div>Item sold for <b>${M(p.sold)}</b>${p.shipIn?` + ${M(p.shipIn)} postage paid by buyer`:``}</div>
+            <div style="color:#B03A2E;">− eBay fees <b>${M(p.fees)}</b>${p.label?` &nbsp;·&nbsp; − postage cost <b>${M(p.label)}</b>`:``}</div>
+            <div style="color:#B03A2E;">− you paid <b>${M(p.cost)}</b> for it${p.cost?``:` <span class="smallhint">(no cost recorded)</span>`}</div>
+            ${p.refund?`<div style="color:#B03A2E;">− refunded <b>${M(p.refund)}</b></div>`:``}
+          </div>
+        </div>
+        ${!p.settled?`<div class="smallhint" style="margin-top:6px;">eBay hasn't paid this out yet, so the fees could still change slightly.</div>`:``}
+      </div>`;
+    })()}`;
   })();
   body.innerHTML=`
     <div class="d-scrollwrap">
@@ -9766,8 +9891,12 @@ async function checkForDirectShipments(onProgress){
 // parcel arrived. So this populates "Item Status" (Shipped / Waiting) and the tracking number, and
 // nothing more. Delivery is a separate, optional, paid check.
 async function checkEbayShipStatus(items, onProgress){
-  const candidates=(items||[]).filter(it=>it.fulfillment && it.fulfillment.orderId && !it.fulfillment.isPickup && !it.simulated);
-  let checked=0, shipped=0, waiting=0, tracking=0;
+  // Local pickups ARE included now. For a pickup order there's nothing to ship, so when you confirm
+  // the pickup on eBay (the buyer's pickup code), eBay marks the order FULFILLED. For a pickup,
+  // FULFILLED doesn't mean "shipped" — it means "the buyer collected it". That's a free, reliable
+  // completion signal that WIM was throwing away by skipping pickups entirely.
+  const candidates=(items||[]).filter(it=>it.fulfillment && it.fulfillment.orderId && !it.simulated);
+  let checked=0, shipped=0, waiting=0, tracking=0, pickedUp=0;
   for(const it of candidates){
     checked++; onProgress&&onProgress(checked, candidates.length);
     try{
@@ -9779,6 +9908,17 @@ async function checkEbayShipStatus(items, onProgress){
       const status=String(order.orderFulfillmentStatus||"").toUpperCase();
       f.ebayShipStatus = status || "NOT_STARTED";
       f.ebayShipCheckedAt = new Date().toISOString();
+      if(f.isPickup){
+        // Nothing ships, so FULFILLED can only mean the buyer came and got it.
+        if(status==="FULFILLED" && f.stage!=="completed"){
+          f.stage="completed";
+          f.completedAt=new Date().toISOString();
+          f.pickedUpAt=f.completedAt;
+          addHistory(it,"eBay confirms the buyer collected this local pickup — moved to Completed");
+          pickedUp++;
+        } else if(status!=="FULFILLED") waiting++;
+        continue;   // no tracking number is ever coming for a pickup
+      }
       if(status==="FULFILLED") shipped++; else waiting++;
       if(li){
         const instr=(li.lineItemFulfillmentInstructions||[])[0] || li;
@@ -9793,77 +9933,144 @@ async function checkEbayShipStatus(items, onProgress){
     }catch(e){ /* one bad order shouldn't abort the sweep */ }
   }
   if(checked){ save(); wimRefreshAll(); }
-  return { checked, shipped, waiting, tracking };
+  return { checked, shipped, waiting, tracking, pickedUp };
+}
+// ===================== DIRECT CARRIER TRACKING (USPS / UPS / FedEx) =====================
+// eBay tells us a parcel shipped and gives us the tracking number. It will never tell us the parcel
+// ARRIVED. The carrier is the only one who knows that, so WIM asks the carrier directly, using each
+// carrier's own free API. No middleman, no per-parcel fee.
+
+// Which carrier is this? eBay usually tells us; if it doesn't, the tracking number's own shape does.
+function carrierOf(f){
+  const code=String((f&&f.carrierCode)||"").toUpperCase();
+  if(code.indexOf("USPS")>=0) return "usps";
+  if(code.indexOf("UPS")>=0)  return "ups";
+  if(code.indexOf("FEDEX")>=0||code.indexOf("FDX")>=0) return "fedex";
+  const t=String((f&&f.trackingNumber)||"").replace(/\s+/g,"").toUpperCase();
+  if(!t) return "";
+  if(/^1Z[0-9A-Z]{16}$/.test(t)) return "ups";               // UPS: 1Z + 16
+  if(/^(94|93|92|95|82|70|03|23)\d{18,20}$/.test(t)) return "usps"; // USPS 20/22-digit
+  if(/^(EA|EC|CP|LC|LK|RA|RB)\d{9}US$/i.test(t)) return "usps";     // USPS international
+  if(/^\d{12}$/.test(t) || /^\d{15}$/.test(t) || /^\d{20}$/.test(t)) return "fedex"; // FedEx 12/15/20
+  if(/^\d{22}$/.test(t)) return "usps";
+  return "";
+}
+function carrierCredsFor(c){
+  const k=(DB.carrierKeys||{})[c]||{};
+  return (k.clientId && k.clientSecret) ? k : null;
+}
+// Ask the carrier. Returns a normalised { ok, status, delivered, location, estDelivery } so the rest
+// of WIM doesn't have to care which of three very different APIs answered.
+async function trackWithCarrier(carrier, trackingNumber){
+  const creds=carrierCredsFor(carrier);
+  if(!creds) return { ok:false, noKeys:true };
+  if(!WIM_IS_DESKTOP) return { ok:false };
+  const cmd = carrier==="usps" ? "usps_track" : carrier==="ups" ? "ups_track" : "fedex_track";
+  let r;
+  try{ r=await wimDesktop.invoke(cmd,{ clientId:creds.clientId, clientSecret:creds.clientSecret, trackingNumber }); }
+  catch(e){ return { ok:false, error:String(e&&e.message||e) }; }
+  if(!r || !r.ok) return { ok:false, error:(r&&r.body)||"no response", status:(r&&r.status)||0 };
+  let d={}; try{ d=JSON.parse(r.body||"{}"); }catch(e){ return { ok:false, error:"couldn't read the carrier's reply" }; }
+  try{
+    if(carrier==="usps"){
+      // USPS: statusCategory is the plain-language bucket ("Delivered", "In Transit"…)
+      const status=String(d.statusCategory||d.status||"");
+      const ev=(d.trackingEvents||[])[0]||{};
+      return { ok:true,
+        delivered: /delivered/i.test(status) || /delivered/i.test(String(ev.eventType||"")),
+        status: status || (ev.eventType||""),
+        location: [ev.eventCity, ev.eventState].filter(Boolean).join(", "),
+        estDelivery: d.expectedDeliveryDate || "" };
+    }
+    if(carrier==="ups"){
+      const pkg=(((d.trackResponse||{}).shipment||[])[0]||{}).package||[];
+      const p=pkg[0]||{};
+      const cur=p.currentStatus||{};
+      const act=(p.activity||[])[0]||{};
+      const addr=(act.location||{}).address||{};
+      const code=String(cur.code||"");
+      return { ok:true,
+        delivered: code==="011" || /delivered/i.test(String(cur.description||"")),
+        status: cur.description || "",
+        location: [addr.city, addr.stateProvince].filter(Boolean).join(", "),
+        estDelivery: (p.deliveryDate&&p.deliveryDate[0]&&p.deliveryDate[0].date) || "" };
+    }
+    // FedEx
+    const tr=((((d.output||{}).completeTrackResults||[])[0]||{}).trackResults||[])[0]||{};
+    const latest=tr.latestStatusDetail||{};
+    const loc=latest.scanLocation||{};
+    return { ok:true,
+      delivered: String(latest.code||"")==="DL" || /delivered/i.test(String(latest.description||"")),
+      status: latest.description || latest.statusByLocale || "",
+      location: [loc.city, loc.stateOrProvinceCode].filter(Boolean).join(", "),
+      estDelivery: (((tr.dateAndTimes||[]).find(x=>/ESTIMATED_DELIVERY|ACTUAL_DELIVERY/.test(x.type||""))||{}).dateTime)||"" };
+  }catch(e){ return { ok:false, error:"couldn't understand the carrier's reply" }; }
 }
 async function checkShippedDelivery(items, onProgress){
   const epKey = await carrierGetSecret2("easypost","key").catch(()=>"");
-  const candidates=(items||[]).filter(it=>it.fulfillment&&it.fulfillment.orderId&&!it.fulfillment.isPickup);
-  let checked=0, delivered=0, updated=0, tracked=0, noKey=0;
+  const candidates=(items||[]).filter(it=>it.fulfillment && it.fulfillment.trackingNumber
+                                       && !it.fulfillment.isPickup && !it.simulated
+                                       && it.fulfillment.stage==="shipped");
+  let checked=0, delivered=0, tracked=0, noKey=0, unknownCarrier=0, viaEasyPost=0;
+  const missingKeys=new Set();
   for(const it of candidates){
     checked++; onProgress&&onProgress(checked, candidates.length);
     const f=it.fulfillment;
-    // ---- 1) Ask eBay what IT knows. -------------------------------------------------------
-    // IMPORTANT: eBay's fulfillment status has exactly three values — NOT_STARTED, IN_PROGRESS
-    // and FULFILLED — and NONE of them mean "delivered". eBay's own docs say FULFILLED means the
-    // order has SHIPPED; anything after that is "the post-order phase". An earlier version of this
-    // code treated FULFILLED as delivered, which would have bounced every item from Shipped to
-    // Completed the instant it was shipped. So FULFILLED is used for what it actually means: it
-    // confirms the parcel is on its way, and hands us the tracking number.
-    try{
-      const r=await EBAY.user("/sell/fulfillment/v1/order/"+encodeURIComponent(f.orderId));
-      if(r.ok){
-        const order=JSON.parse(r.body);
-        const li=(order.lineItems||[]).find(x=>x.lineItemId===f.lineItemId);
-        if(li){
-          const instr=(li.lineItemFulfillmentInstructions||[])[0] || li;
-          const trackingNumber=instr.shipmentTrackingNumber, carrierCode=instr.shippingCarrierCode;
-          if(trackingNumber && !f.trackingNumber){
-            f.trackingNumber=trackingNumber;
-            f.carrierCode=carrierCode||f.carrierCode||"";
-            f.trackingUrl=buildTrackingUrl(carrierCode,trackingNumber);
-            addHistory(it,"Tracking picked up from eBay — "+trackingNumber+(carrierCode?" via "+carrierCode:""));
-            updated++;
-          }
-        }
-      }
-    }catch(e){ /* one bad order shouldn't abort the sweep */ }
+    const carrier=carrierOf(f);
+    let res=null;
 
-    // ---- 2) Ask the CARRIER where the parcel actually is. ----------------------------------
-    // This is the only real source of delivery status. eBay can't tell us. EasyPost bills per
-    // unique tracker, not per check — so re-checking a parcel we've already tracked is free, and
-    // an item that's already delivered is skipped entirely.
-    if(!f.trackingNumber) continue;
-    if(f.stage!=="shipped") continue;
-    if(!epKey){ noKey++; continue; }
-    if(!WIM_IS_DESKTOP) continue;
-    try{
-      const carrier=(f.carrierCode||"USPS").toUpperCase().replace(/[^A-Z]/g,"") || "USPS";
-      const tr=await wimDesktop.invoke("easypost_track",{ apiKey:epKey, trackingCode:f.trackingNumber, carrier });
-      if(!tr || !tr.ok) continue;
-      const t=JSON.parse(tr.body||"{}");
-      const status=String(t.status||"").toLowerCase();  // pre_transit | in_transit | out_for_delivery | delivered | ...
-      tracked++;
-      f.carrierStatus=status;
-      f.carrierStatusAt=new Date().toISOString();
-      if(t.est_delivery_date) f.estDelivery=t.est_delivery_date;
-      const last=(t.tracking_details||[]).slice(-1)[0];
-      if(last && last.tracking_location){
-        const L=last.tracking_location;
-        f.carrierLocation=[L.city,L.state].filter(Boolean).join(", ");
+    // 1) The carrier's OWN API — free. This is the whole point: eBay gives us the tracking number,
+    //    the carrier tells us where the parcel actually is, and nobody charges us for asking.
+    if(carrier){
+      if(carrierCredsFor(carrier)){
+        res=await trackWithCarrier(carrier, f.trackingNumber);
+        if(res && res.ok) tracked++;
+      } else {
+        missingKeys.add(carrier);
       }
-      if(t.public_url) f.trackingUrl=t.public_url;
-      if(status==="delivered"){
-        f.stage="completed";
-        f.completedAt=new Date().toISOString();
-        f.deliveredAt=f.completedAt;
-        addHistory(it,"Carrier confirms DELIVERED — moved to Completed");
-        delivered++;
-      }
-    }catch(e){ /* keep going */ }
+    } else {
+      unknownCarrier++;
+    }
+
+    // 2) EasyPost, only as a fallback — an odd carrier, or one we have no keys for. It costs about
+    //    3c a parcel, so it is never used when a free route exists.
+    if((!res || !res.ok) && epKey && WIM_IS_DESKTOP){
+      try{
+        const c=(f.carrierCode||"USPS").toUpperCase().replace(/[^A-Z]/g,"") || "USPS";
+        const tr=await wimDesktop.invoke("easypost_track",{ apiKey:epKey, trackingCode:f.trackingNumber, carrier:c });
+        if(tr && tr.ok){
+          const t=JSON.parse(tr.body||"{}");
+          const st=String(t.status||"").toLowerCase();
+          const last=(t.tracking_details||[]).slice(-1)[0];
+          const L=(last&&last.tracking_location)||{};
+          res={ ok:true, delivered:(st==="delivered"), status:carrierStatusLabel(st)||st,
+                location:[L.city,L.state].filter(Boolean).join(", "), estDelivery:t.est_delivery_date||"" };
+          if(t.public_url) f.trackingUrl=t.public_url;
+          tracked++; viaEasyPost++;
+        }
+      }catch(e){}
+    }
+
+    if(!res || !res.ok){ if(!carrier || !carrierCredsFor(carrier)) noKey++; continue; }
+
+    f.carrierStatus = res.delivered ? "delivered" : (res.status||"");
+    f.carrierStatusRaw = res.status||"";
+    f.carrierStatusAt = new Date().toISOString();
+    if(res.location) f.carrierLocation=res.location;
+    if(res.estDelivery) f.estDelivery=res.estDelivery;
+    if(res.delivered && f.stage!=="completed"){
+      f.stage="completed";
+      f.completedAt=new Date().toISOString();
+      f.deliveredAt=f.completedAt;
+      addHistory(it, (carrier?carrier.toUpperCase():"The carrier")+" confirms DELIVERED — moved to Completed");
+      delivered++;
+    }
   }
-  if(delivered||updated||tracked){ save(); wimRefreshAll(); }
-  return { checked, delivered, updated, tracked, noKey };
+  if(checked){ save(); wimRefreshAll(); }
+  return { checked, delivered, tracked, noKey, unknownCarrier, viaEasyPost,
+           missingKeys:Array.from(missingKeys) };
 }
+
 // Plain-English label for a carrier status, so the Shipping screen reads like a human wrote it.
 function carrierStatusLabel(s){
   const m={ pre_transit:"Label created", in_transit:"In transit", out_for_delivery:"Out for delivery",
@@ -9924,6 +10131,7 @@ function openShipping(){
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${tab==="completed" && items.length?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <label class="chkrow"><span class="chk ${picked.size===items.length&&items.length?'on':''}" id="sh-selall"></span> Select All</label>
+        <button class="btn sm" id="sh-fees" title="Ask eBay what it actually charged on these orders — final value fees, ad fees, and the shipping label if you bought it through eBay">💰 Pull eBay Fees</button>
         <button class="btn primary" id="sh-catalog" ${!picked.size?"disabled":""}>Catalog${picked.size?" ("+picked.size+")":""}</button>
         <span class="smallhint" id="sh-msg"></span></div>`:``}
       ${!allItems.length?`<div class="note">${tab==="readyToShip"?'Nothing waiting to ship. Sold items land here automatically — click <b>Pull Sold Orders</b> to fetch recent eBay sales.':tab==="shipped"?'Nothing in transit. Select items in Ready to Ship and click <b>Ship</b>.':'Nothing completed yet. Items land here when a carrier confirms delivery, or automatically '+DB.fulfillmentSettings.autoCompleteDays+' day(s) after shipping as a safety net.'}</div>`:``}
@@ -10071,6 +10279,7 @@ function openShipping(){
         const r=await checkEbayShipStatus(items,(d,t)=>{ checkDirectBtn.textContent="Checking "+d+"/"+t+"…"; });
         checkDirectBtn.disabled=false; checkDirectBtn.textContent=orig;
         const bits=[];
+        if(r.pickedUp) bits.push("<b style='color:#1f9d55;'>"+r.pickedUp+" local pickup(s) collected</b> → moved to Completed");
         if(r.shipped) bits.push("<b style='color:#1f7244;'>"+r.shipped+"</b> marked shipped by eBay");
         if(r.waiting) bits.push("<b style='color:#b06000;'>"+r.waiting+"</b> still waiting — eBay hasn't marked these shipped");
         if(r.tracking) bits.push(r.tracking+" tracking number(s) pulled in");
@@ -10089,11 +10298,16 @@ function openShipping(){
         delivBtn.disabled=false; delivBtn.textContent=orig;
         const bits=[];
         if(r.delivered) bits.push("<b style='color:#1f7244;'>"+r.delivered+" delivered</b> → moved to Completed");
-        if(r.tracked) bits.push(r.tracked+" checked with the carrier");
+        if(r.tracked) bits.push(r.tracked+" checked with the carrier"+(r.viaEasyPost?(" ("+r.viaEasyPost+" via EasyPost — the rest were free)"):" — free"));
+        const CN={usps:"USPS",ups:"UPS",fedex:"FedEx"};
         let extra="";
-        if(r.noKey) extra=`<div style="margin-top:8px;padding:8px 10px;background:#FBF4E4;border:1px solid #E8D5A8;border-radius:6px;color:#8A5E10;">
-          <b>No EasyPost key set</b> — ${r.noKey} parcel(s) couldn't be checked. This is the only way to know a parcel actually <i>arrived</i>; eBay can't tell you that. Add a key under <b>Shipping Historical Comparison → Add API keys</b> (~3¢ per parcel, charged once — re-checks are free).
-          <div style="margin-top:5px;">You don't have to: anything still sitting here auto-completes after ${DB.fulfillmentSettings.autoCompleteDays} days anyway.</div></div>`;
+        if(r.missingKeys && r.missingKeys.length){
+          extra+=`<div style="margin-top:8px;padding:8px 10px;background:#FBF4E4;border:1px solid #E8D5A8;border-radius:6px;color:#8A5E10;">
+            <b>No ${r.missingKeys.map(k=>CN[k]||k).join(" / ")} keys yet.</b> Those parcels couldn't be checked.
+            Carrier tracking is <b>free</b> — add the keys under <b>Configuration → Carrier Tracking</b>.
+            <div style="margin-top:5px;">You don't have to: anything left here auto-completes after ${DB.fulfillmentSettings.autoCompleteDays} days anyway.</div></div>`;
+        }
+        if(r.unknownCarrier) extra+=`<div style="margin-top:8px;font-size:12px;color:#5b6470;">${r.unknownCarrier} parcel(s) had a tracking number WIM couldn't match to a carrier — click the number to look it up by hand.</div>`;
         uiModal("Delivery check", `<div style="font-size:13px;min-width:400px;">
           <div>Checked <b>${r.checked}</b> item(s).</div>
           ${bits.length?`<div style="margin-top:6px;line-height:1.7;">${bits.join("<br>")}</div>`:(r.noKey?``:`<div style="margin-top:6px;color:#5b6470;">Nothing delivered yet.</div>`)}
@@ -10108,6 +10322,30 @@ function openShipping(){
         e.preventDefault();
         openExternal("https://www.google.com/search?q="+encodeURIComponent(a.dataset.gtrack));
       });
+      const feeBtn=body.querySelector("#sh-fees");
+      if(feeBtn) feeBtn.onclick=async ()=>{
+        if(!EBAY.ready()){ uiAlert("Not connected to eBay — connect first."); return; }
+        feeBtn.disabled=true; const orig=feeBtn.textContent;
+        const r=await pullEbayFees(items,(d,t)=>{ feeBtn.textContent="Reading "+d+"/"+t+"…"; });
+        feeBtn.disabled=false; feeBtn.textContent=orig;
+        // Show what it actually means, in money, not in counts.
+        let net=0, fees=0, labels=0, n=0;
+        items.forEach(it=>{ const p=itemProfit(it); if(p.known){ net+=p.net; fees+=p.fees; labels+=p.label; n++; } });
+        const money=(v)=>"$"+(Math.round(v*100)/100).toFixed(2);
+        uiModal("eBay fees", `<div style="font-size:13px;min-width:430px;">
+          <div>Checked <b>${r.checked}</b> order(s); <b>${r.updated}</b> updated.</div>
+          ${r.stillPending?`<div style="margin-top:6px;color:#8A5E10;">${r.stillPending} order(s) have no fee record yet — eBay settles fees over the following hours or days. Run this again later.</div>`:``}
+          ${n?`<div style="margin-top:10px;padding:10px 12px;background:#F4F8F5;border:1px solid #CBE3D3;border-radius:8px;">
+              <div style="font-size:11px;color:#5b6470;letter-spacing:.5px;">ACROSS ${n} ORDER(S) WITH FEES KNOWN</div>
+              <div style="margin-top:6px;display:flex;gap:26px;flex-wrap:wrap;">
+                <div><div class="smallhint">eBay took</div><b style="color:#B03A2E;font-size:16px;">${money(fees)}</b></div>
+                ${labels?`<div><div class="smallhint">Postage cost you</div><b style="color:#B03A2E;font-size:16px;">${money(labels)}</b></div>`:``}
+                <div><div class="smallhint">You actually made</div><b style="color:${net>=0?'#1F7244':'#B03A2E'};font-size:18px;">${money(net)}</b></div>
+              </div></div>`:``}
+          ${r.errors.length?`<div style="margin-top:8px;font-size:12px;color:#B03A2E;">${r.errors.length} order(s) errored. ${esc(String(r.errors[0].why).slice(0,140))}</div>`:``}
+        </div>`, [{label:"OK",primary:true}]);
+        render();
+      };
       const fc=body.querySelector("#sh-forcecomplete");
       if(fc) fc.onclick=()=>{
         const targets=items.filter(i=>picked.has(i.id));
@@ -10363,6 +10601,7 @@ async function pullSoldListingsForComparison(){
 }
 function openShippingComparison(){
   const id="ship-compare"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
+  let scPage=0;   // 20 records per page, paging back through sale history
   const {body}=buildWindow({id,title:"Shipping Historical Comparison",width:1180,height:640,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Real per-sale shipping cost comparison — Shippo and EasyPost quotes vs. what eBay actually charged</span>`});
   // Without API keys, Shippo and EasyPost simply return nothing and their columns sit empty — which
@@ -10434,6 +10673,11 @@ function openShippingComparison(){
   }
   function render(){
     const rows=DB.shippingComparisons.slice().sort((a,b)=>new Date(b.soldAt||0)-new Date(a.soldAt||0));
+    const PER=20;
+    const pageCount=Math.max(1, Math.ceil(rows.length/PER));
+    if(scPage>=pageCount) scPage=pageCount-1;
+    if(scPage<0) scPage=0;
+    const pageRows=rows.slice(scPage*PER, scPage*PER+PER);
     // Tally winners across every record that has enough data to compare — this is the real
     // business-decision signal: who actually comes out cheapest most often, and by how much.
     const tally={eBay:0,Shippo:0,EasyPost:0}; let compared=0, ebaySavingsMissed=0;
@@ -10463,26 +10707,43 @@ function openShippingComparison(){
         <th>Description</th><th style="width:82px;">Sold</th><th style="width:100px;">Wt / Dims</th><th style="width:110px;">Ship To</th>
         <th style="width:100px;">Shippo</th><th style="width:100px;">EasyPost</th><th style="width:92px;">eBay Actual</th><th style="width:96px;">Winner</th><th style="width:60px;"></th>
       </tr></thead><tbody id="sc-tb"></tbody></table></div>
+      <div id="sc-pager" style="display:flex;gap:10px;align-items:center;justify-content:center;padding:8px 0 2px;"></div>
     </div>`;
     const keysBtn=body.querySelector("#sc-keys"); if(keysBtn) keysBtn.onclick=openKeyDialog;
     const tb=body.querySelector("#sc-tb");
-    rows.forEach(r=>{ const tr=document.createElement("tr");
+    pageRows.forEach(r=>{ const tr=document.createElement("tr");
       const dims=(r.length&&r.width&&r.height)?(r.length+"×"+r.width+"×"+r.height+"in"):"—";
-      const wt=r.weight?r.weight+"lb":"—";
+      // Show the weight the quote actually used, and mark it when it's an estimate rather than a
+      // measured value — because an estimate is exactly what triggers a surprise carrier surcharge.
+      const W=comparisonWeight(r);
+      const wt=W.w+"lb"+(W.estimated?" *":"");
       const shipTo=[r.shipToCity,r.shipToState].filter(Boolean).join(", ")||"—";
       const w=comparisonWinner(r);
       const winColor={eBay:"#c0392b",Shippo:"#0f6cbd",EasyPost:"#1f7244"};
       const winCell = w ? `<span style="font-weight:700;font-size:11.5px;color:${winColor[w.winner]};">${w.winner}</span><div class="smallhint">$${w.amount.toFixed(2)}${w.saves>0.005?" · saves $"+w.saves.toFixed(2):""}</div>` : `<span class="smallhint">needs 2+ rates</span>`;
+      // eBay's real label cost, if the fee pull has found it — shown as a hint under the editable box.
+      const ebayReal=ebayCostFor(r);
       tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}${r.notInInventory?' <span class="badge" style="font-size:9px;background:#8a6d3b;">not inventoried</span>':''}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
-        <td style="font-size:11px;">${esc(wt)}<div class="smallhint">${esc(dims)}</div></td>
+        <td style="font-size:11px;" title="${W.estimated?'Estimated from the sub-category — weigh it to be sure':'Measured weight'}">${esc(wt)}<div class="smallhint">${esc(dims)}</div></td>
         <td style="font-size:11px;">${esc(shipTo)}</td>
         <td style="font-size:12px;">${r.shippoRate?"$"+esc(r.shippoRate)+"<div class=\"smallhint\">"+esc(r.shippoService||"")+"</div>":(shippoTok?'<span class="smallhint">—</span>':'<span class="smallhint" style="color:#b06000;">not connected</span>')}</td>
         <td style="font-size:12px;">${r.easypostRate?"$"+esc(r.easypostRate)+"<div class=\"smallhint\">"+esc(r.easypostService||"")+"</div>":(epKey?'<span class="smallhint">—</span>':'<span class="smallhint" style="color:#b06000;">not connected</span>')}</td>
-        <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost||"")}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;"></td>
+        <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost||"")}" inputmode="decimal" placeholder="${ebayReal!=null?ebayReal.toFixed(2):'0.00'}" style="width:100%;box-sizing:border-box;">${(ebayReal!=null && !(parseFloat(r.ebayActualCost)>0))?`<div class="smallhint" style="color:#1f7244;">eBay billed $${ebayReal.toFixed(2)}</div>`:''}</td>
         <td class="cc">${winCell}</td>
         <td class="cc"><button class="btn sm" data-fetch="${esc(r.id)}">Fetch</button></td>`;
       tb.appendChild(tr);
     });
+    // Pager — 20 at a time, walking back through the history.
+    const pager=body.querySelector("#sc-pager");
+    if(pager){
+      pager.innerHTML = rows.length>PER ? `
+        <button class="btn sm" id="sc-prev" ${scPage<=0?'disabled':''}>‹ Newer</button>
+        <span class="smallhint">Showing ${scPage*PER+1}–${Math.min(scPage*PER+PER,rows.length)} of ${rows.length}</span>
+        <button class="btn sm" id="sc-next" ${scPage>=pageCount-1?'disabled':''}>Older ›</button>` : ``;
+      const pv=body.querySelector("#sc-prev"), nx=body.querySelector("#sc-next");
+      if(pv) pv.onclick=()=>{ scPage--; render(); };
+      if(nx) nx.onclick=()=>{ scPage++; render(); };
+    }
     body.querySelectorAll("[data-actual]").forEach(inp=>{ inp.oninput=()=>{ const rec=DB.shippingComparisons.find(x=>x.id===inp.dataset.actual); if(rec){ rec.ebayActualCost=inp.value; save(); } }; inp.onblur=()=>render(); });
     body.querySelectorAll("[data-fetch]").forEach(btn=>{ btn.onclick=async ()=>{ const rec=DB.shippingComparisons.find(x=>x.id===btn.dataset.fetch); if(rec) await fetchOneComparisonRate(rec, ()=>{ save(); render(); }); }; });
     body.querySelector("#sc-pull").onclick=async ()=>{
@@ -11085,6 +11346,288 @@ function openCloudSyncTest(){
     try{ await runFailsafeBackup(null); failsafeMsg.style.color="#1f7244"; failsafeMsg.textContent="Done — check your Downloads folder and confirm the alert appeared."; }
     catch(e){ failsafeMsg.style.color="#c0392b"; failsafeMsg.textContent="Failed: "+(e&&e.message?e.message:e); }
   };
+}
+// Free delivery tracking, straight from the carriers.
+// ================== TRUE PROFIT: eBay FEES + REAL SHIPPING COST ==================
+//
+// Until now WIM knew what an item SOLD for and what you PAID for it, and called the difference
+// profit. It isn't. eBay takes a final value fee, a fixed per-order fee, an ad fee if the listing
+// was promoted, and various regulatory charges — and if you buy the label through eBay, that comes
+// out too. A $20 book that cost you $3 does not make $17.
+//
+// eBay's Finances API reports every one of those, per order. So WIM can now show what you ACTUALLY
+// made. Note the API lives on a different hostname (apiz.ebay.com) — handled in the Rust layer.
+const EBAY_SCOPE_FINANCES="https://api.ebay.com/oauth/api_scope/sell.finances";
+
+// Fees don't appear the instant an item sells — eBay settles them over the following hours or days.
+// So this is a pull you re-run, not a one-shot at sale time.
+async function pullEbayFees(items, onProgress){
+  const targets=(items||[]).filter(it=>{
+    const f=it.fulfillment;
+    return f && f.orderId && !it.simulated && !f.simulated && !f.feesFinal;
+  });
+  let checked=0, updated=0, stillPending=0;
+  const errors=[];
+  for(const it of targets){
+    checked++; onProgress&&onProgress(checked, targets.length);
+    const f=it.fulfillment;
+    try{
+      // Everything eBay recorded against this order: the sale, its fees, any separately-billed
+      // charges, and the shipping label if it was bought through eBay.
+      const r=await EBAY.user("/sell/finances/v1/transaction?filter=orderId:{"+encodeURIComponent(f.orderId)+"}", EBAY_SCOPE_FINANCES);
+      if(!r.ok){ errors.push({ id:it.id, why:"HTTP "+r.status+" "+String(r.body||"").slice(0,160) }); continue; }
+      const d=JSON.parse(r.body||"{}");
+      const txns=d.transactions||[];
+      if(!txns.length){ stillPending++; continue; }
+
+      let feeTotal=0, labelCost=0, refunded=0;
+      const feeLines=[];
+      const num=(a)=> a && a.value!=null ? (parseFloat(a.value)||0) : 0;
+
+      txns.forEach(t=>{
+        const type=String(t.transactionType||"").toUpperCase();
+        if(type==="SALE"){
+          // Fees sit per line item. Note eBay's own docs warn that in some cases the fees are NOT
+          // here and turn up as separate NON_SALE_CHARGE transactions instead — which is why we ask
+          // for every transaction on the order rather than just the sale.
+          (t.orderLineItems||[]).forEach(li=>{
+            (li.marketplaceFees||[]).forEach(fee=>{
+              const amt=num(fee.amount);
+              if(amt){ feeTotal+=amt; feeLines.push({ type:String(fee.feeType||"FEE"), amount:amt }); }
+            });
+          });
+          if(!feeLines.length && t.totalFeeAmount){
+            const amt=num(t.totalFeeAmount);
+            if(amt){ feeTotal+=amt; feeLines.push({ type:"TOTAL_FEES", amount:amt }); }
+          }
+        }
+        else if(type==="NON_SALE_CHARGE"){
+          const amt=num(t.amount);
+          if(amt){ feeTotal+=amt; feeLines.push({ type:String(t.feeType||"NON_SALE_CHARGE"), amount:amt }); }
+        }
+        else if(type==="SHIPPING_LABEL"){
+          // What YOU paid to ship it — the real number, not what the buyer was charged.
+          labelCost += num(t.amount);
+        }
+        else if(type==="REFUND"){
+          refunded += num(t.amount);
+        }
+      });
+
+      f.ebayFees = round2(feeTotal);
+      f.ebayFeeLines = feeLines;
+      if(labelCost) f.shipLabelCost = round2(labelCost);
+      if(refunded) f.refundedAmount = round2(refunded);
+      f.feesPulledAt = new Date().toISOString();
+      // Once the money has actually been paid out, the numbers are settled and won't change again.
+      const settled = txns.some(t=>String(t.transactionStatus||"").toUpperCase()==="PAYOUT");
+      if(settled) f.feesFinal = true;
+      updated++;
+    }catch(e){ errors.push({ id:it.id, why:(e&&e.message)?e.message:String(e) }); }
+  }
+  if(updated) { save(); wimRefreshAll(); }
+  return { checked, updated, stillPending, errors };
+}
+function round2(n){ return Math.round((parseFloat(n)||0)*100)/100; }
+
+// The whole picture for one item. This is the number that actually matters.
+function itemProfit(it){
+  const f=it.fulfillment||{};
+  const sold   = parseFloat(f.soldPrice||0)||0;              // what the buyer paid for the item
+  const shipIn = parseFloat(f.shipCostPaid||0)||0;           // what the buyer paid you for postage
+  const fees   = parseFloat(f.ebayFees||0)||0;               // what eBay took
+  const label  = parseFloat(f.shipLabelCost||0)||0;          // what postage actually cost you
+  const cost   = parseFloat(it.unitCost||0)||0;              // what you paid for the item
+  const refund = parseFloat(f.refundedAmount||0)||0;
+  const revenue = sold + shipIn - refund;
+  const net = revenue - fees - label - cost;
+  return {
+    sold, shipIn, fees, label, cost, refund, revenue,
+    net: round2(net),
+    margin: revenue>0 ? Math.round((net/revenue)*100) : null,
+    known: !!f.feesPulledAt,          // have we actually asked eBay, or are we guessing?
+    settled: !!f.feesFinal
+  };
+}
+
+// ================== THANK-YOU MESSAGES AFTER DELIVERY ==================
+// Who is owed a thank-you? An item that has actually been DELIVERED (not merely shipped), that we
+// know the buyer for, and that we haven't already thanked. The "already thanked" check is the one
+// that matters: messaging the same buyer twice looks careless, and there is no undo on a sent
+// message.
+function thankYouQueue(){
+  return (DB.items||[]).filter(it=>{
+    const f=it.fulfillment;
+    if(!f) return false;
+    if(it.simulated || f.simulated) return false;     // never message a real person about a fake sale
+    if(f.stage!=="completed") return false;           // delivered/collected, not just shipped
+    if(f.thankYouSentAt) return false;                // already thanked — never twice
+    if(f.thankYouSkipped) return false;               // deliberately skipped
+    if(!f.buyer) return false;                        // nobody to send to
+    return true;
+  });
+}
+function fillTemplate(body, buyer, item){
+  return String(body||"")
+    .replace(/\{buyer\}/g, buyer||"there")
+    .replace(/\{item\}/g, item||"your item");
+}
+async function openThankYouSender(onDone){
+  const queue=thankYouQueue();
+  if(!queue.length){ uiAlert("Nobody's waiting on a thank-you. They appear here once an item is confirmed delivered."); return; }
+  const tpl=(DB.messageTemplates||[]).find(t=>t.id==="tpl_delivered") || (DB.messageTemplates||[])[0];
+  // Build one editable draft per buyer.
+  const drafts=queue.map(it=>({
+    id:it.id,
+    item:it,
+    buyer:it.fulfillment.buyer,
+    itemName:(it.desc||"your item"),
+    text:fillTemplate(tpl&&tpl.body, it.fulfillment.buyer, it.desc||"your item"),
+    skip:false
+  }));
+
+  const m=uiModal("Send thank-you messages", `<div style="min-width:620px;max-width:720px;">
+      <div style="font-size:13px;color:#3A4A63;margin-bottom:10px;">
+        These <b>${drafts.length}</b> buyer(s) have items confirmed <b>delivered</b> and haven't been thanked yet.
+        Read each one, change anything you like, and remove any you'd rather not send.
+        <div class="smallhint" style="margin-top:4px;">Each is sent individually through eBay — never as a group. A buyer is only ever thanked once.</div>
+      </div>
+      <div id="ty-list" style="max-height:400px;overflow:auto;"></div>
+    </div>`,
+    [{label:"Cancel"},{label:"Send",primary:true,onClick:()=>{ doSend(); return false; }}]);
+
+  const listEl=m.box.querySelector("#ty-list");
+  const sendBtn=m.box.querySelector(".ui-modal-btns .btn.primary");
+  function paint(){
+    const live=drafts.filter(d=>!d.skip);
+    sendBtn.textContent = live.length ? ("Send "+live.length+" message"+(live.length===1?"":"s")) : "Nothing to send";
+    sendBtn.disabled = !live.length;
+    listEl.innerHTML="";
+    drafts.forEach((d,i)=>{
+      const row=document.createElement("div");
+      row.style.cssText="background:"+(d.skip?"#f4f6f9":"#fff")+";border:1px solid #d5dae1;border-radius:9px;padding:11px 13px;margin-bottom:9px;opacity:"+(d.skip?".55":"1")+";";
+      const photo=(d.item.images&&d.item.images[0])||d.item.image||"";
+      row.innerHTML=`<div style="display:flex;gap:10px;align-items:flex-start;">
+          ${photo?`<img src="${esc(photo)}" style="width:42px;height:42px;object-fit:contain;border:1px solid #e3e7ec;border-radius:5px;background:#fafbfc;flex-shrink:0;">`:``}
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;"><b>${esc(d.buyer)}</b> <span style="color:#7b828e;">·</span> <span style="color:#5b6470;">${esc(d.itemName)}</span></div>
+            <textarea class="txt ty-body" data-i="${i}" ${d.skip?"disabled":""} style="width:100%;min-height:74px;margin-top:6px;padding:7px;font-size:12.5px;font-family:inherit;resize:vertical;">${esc(d.text)}</textarea>
+          </div>
+          <button class="btn sm ty-skip" data-i="${i}" style="flex-shrink:0;${d.skip?'':'color:#c0392b;border-color:#e8bcb6;'}">${d.skip?"Put back":"Remove"}</button>
+        </div>`;
+      listEl.appendChild(row);
+    });
+    listEl.querySelectorAll(".ty-body").forEach(t=>t.oninput=()=>{ drafts[parseInt(t.dataset.i,10)].text=t.value; });
+    listEl.querySelectorAll(".ty-skip").forEach(b=>b.onclick=()=>{ const d=drafts[parseInt(b.dataset.i,10)]; d.skip=!d.skip; paint(); });
+  }
+  paint();
+
+  async function doSend(){
+    const live=drafts.filter(d=>!d.skip && d.text.trim());
+    if(!live.length) return;
+    sendBtn.disabled=true;
+    let sent=0; const failures=[];
+    for(let i=0;i<live.length;i++){
+      const d=live[i];
+      sendBtn.textContent="Sending "+(i+1)+" of "+live.length+"…";
+      const f=d.item.fulfillment;
+      try{
+        await EBAY.sendBuyerMessage({
+          itemId: (d.item.listing && d.item.listing.ebayListingId) || "",
+          recipientId: d.buyer,
+          body: d.text.trim()
+        });
+        // Stamp it the moment it succeeds, and save immediately — if something fails halfway
+        // through, the ones already sent must never be sent a second time.
+        f.thankYouSentAt=new Date().toISOString();
+        addHistory(d.item,"Thank-you message sent to "+d.buyer);
+        sent++;
+        save();
+      }catch(e){
+        failures.push({ buyer:d.buyer, why:(e&&e.message)?e.message:String(e) });
+      }
+    }
+    save(); wimRefreshAll();
+    m.close();
+    const failHtml = failures.length
+      ? `<div style="margin-top:10px;padding:9px 11px;background:#FDECEA;border:1px solid #F0B0A8;border-radius:6px;color:#922B21;font-size:12.5px;">
+          <b>${failures.length} didn't send.</b> They stay in the queue, so you can try again.
+          <ul style="margin:6px 0 0;padding-left:18px;">${failures.slice(0,5).map(x=>`<li>${esc(x.buyer)} — ${esc(String(x.why).slice(0,120))}</li>`).join("")}</ul>
+        </div>` : ``;
+    uiModal("Thank-you messages", `<div style="font-size:13px;min-width:400px;">
+        <div><b style="color:#1f7244;">${sent}</b> message(s) sent.</div>${failHtml}</div>`, [{label:"OK",primary:true}]);
+    onDone&&onDone();
+  }
+}
+function openCarrierTracking(){
+  if(openWindows["carriertracking"]){ focusWin(openWindows["carriertracking"].el); return; }
+  if(!DB.carrierKeys) DB.carrierKeys={};
+  const CARRIERS=[
+    { k:"usps",  name:"USPS",  note:"Most book and comic media-mail parcels. Sign up at the USPS Developer Portal — Tracking is in the default API set, no special approval needed." },
+    { k:"ups",   name:"UPS",   note:"Sign up at developer.ups.com, create an app, and take the Client ID and Secret." },
+    { k:"fedex", name:"FedEx", note:"Sign up at developer.fedex.com, create a project, and take the API Key and Secret Key." },
+  ];
+  const {body}=buildWindow({id:"carriertracking",title:"Carrier Tracking",width:760,height:600});
+  function render(){
+    body.innerHTML=`<div style="padding:16px;overflow:auto;height:100%;">
+      <div class="note" style="margin-bottom:14px;">
+        eBay tells WIM that a parcel <b>shipped</b>. It will never tell WIM the parcel <b>arrived</b> — only the carrier knows that.
+        These keys let WIM ask the carriers directly. <b>They are free</b>, and they replace the paid per-parcel tracking.
+        Keys are stored on this computer only.
+      </div>
+      ${CARRIERS.map(c=>{
+        const cur=DB.carrierKeys[c.k]||{};
+        const on=!!(cur.clientId&&cur.clientSecret);
+        return `<div style="background:#fff;border:1px solid #d5dae1;border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <b style="font-size:14px;">${c.name}</b>
+            <span class="badge ${on?'ok':''}" style="font-size:10px;">${on?'CONNECTED':'not set up'}</span>
+          </div>
+          <div class="smallhint" style="margin-bottom:9px;">${esc(c.note)}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input class="txt" id="ct-${c.k}-id" placeholder="Client ID / API Key" value="${esc(cur.clientId||"")}" style="flex:1;min-width:200px;height:31px;">
+            <input class="txt" id="ct-${c.k}-secret" type="password" placeholder="Client Secret" value="${esc(cur.clientSecret||"")}" style="flex:1;min-width:200px;height:31px;">
+            <button class="btn sm" id="ct-${c.k}-save">Save</button>
+            <button class="btn sm" id="ct-${c.k}-test" ${on?'':'disabled'}>Test</button>
+            ${on?`<button class="btn sm" id="ct-${c.k}-clear" style="color:#c0392b;border-color:#e8bcb6;">Remove</button>`:''}
+          </div>
+          <div class="smallhint" id="ct-${c.k}-msg" style="margin-top:7px;min-height:15px;"></div>
+        </div>`;
+      }).join("")}
+      <div class="note" style="margin-top:6px;">
+        <b>You don't need all three.</b> Add whichever carriers you actually ship with — WIM works out which carrier each
+        parcel belongs to from the tracking number, and only asks that one. Anything it can't identify, or has no key for,
+        still auto-completes after ${DB.fulfillmentSettings.autoCompleteDays} days, and you can always click a tracking
+        number to look it up in your browser.
+      </div>
+    </div>`;
+    CARRIERS.forEach(c=>{
+      const msg=body.querySelector("#ct-"+c.k+"-msg");
+      body.querySelector("#ct-"+c.k+"-save").onclick=()=>{
+        const id=body.querySelector("#ct-"+c.k+"-id").value.trim();
+        const sec=body.querySelector("#ct-"+c.k+"-secret").value.trim();
+        if(!id||!sec){ msg.style.color="#c0392b"; msg.textContent="Both the ID and the secret are needed."; return; }
+        DB.carrierKeys[c.k]={ clientId:id, clientSecret:sec };
+        save(); render();
+      };
+      const clr=body.querySelector("#ct-"+c.k+"-clear");
+      if(clr) clr.onclick=()=>{ uiConfirm("Remove the "+c.name+" keys?", ()=>{ delete DB.carrierKeys[c.k]; save(); render(); }); };
+      const t=body.querySelector("#ct-"+c.k+"-test");
+      if(t) t.onclick=async ()=>{
+        // A real tracking number is needed to prove the connection works — a made-up one only proves
+        // we can sign in. Use the newest shipped parcel we actually have for this carrier.
+        const cand=(DB.items||[]).find(x=>x.fulfillment && x.fulfillment.trackingNumber && carrierOf(x.fulfillment)===c.k);
+        if(!cand){ msg.style.color="#8A5E10"; msg.textContent="Saved. No "+c.name+" parcel in WIM yet to test against — it'll be used on the next one."; return; }
+        t.disabled=true; msg.style.color="#5b6470"; msg.textContent="Asking "+c.name+"…";
+        const r=await trackWithCarrier(c.k, cand.fulfillment.trackingNumber);
+        t.disabled=false;
+        if(r.ok){ msg.style.color="#1f7244"; msg.textContent="Working — "+c.name+" says: "+(r.status||"(no status yet)")+(r.location?(" · "+r.location):""); }
+        else { msg.style.color="#c0392b"; msg.innerHTML="Didn't work. <button class=\"btn sm\" id=\"ct-raw-"+c.k+"\">Show details</button>";
+          const rb=body.querySelector("#ct-raw-"+c.k); if(rb) rb.onclick=()=>showCopyable(c.name+" tracking error", r.error||"(no detail)"); }
+      };
+    });
+  }
+  render();
 }
 function openBackup(){
   if(openWindows["admin-backup"]){ focusWin(openWindows["admin-backup"].el); return; }
@@ -13403,7 +13946,7 @@ let convosCache=[], counterpartyCache=()=>"", openThreadCache=()=>{};
 function openCommunication(focusUsername){
   if(openWindows["comm"]){ focusWin(openWindows["comm"].el); if(focusUsername) setTimeout(()=>{ try{ const m=convosCache.find(c=>counterpartyCache(c)===focusUsername); if(m) openThreadCache(m); }catch(e){} },50); return; }
   const {body}=buildWindow({id:"comm",title:"Messages",width:1020,height:640,popoutKey:"comm",
-    toolbar:`<button class="btn sm primary" id="cm-compose">Compose</button><button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-templates">Templates</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
+    toolbar:`<button class="btn sm primary" id="cm-compose">Compose</button><button class="btn sm" id="cm-load">Load Inbox</button><button class="btn sm" id="cm-thanks" title="Thank the buyers whose items have been confirmed delivered">💌 Send Thank You${thankYouQueue().length?" ("+thankYouQueue().length+")":""}</button><button class="btn sm" id="cm-templates">Templates</button><button class="btn sm" id="cm-diag">Diagnose</button><button class="btn sm" id="cm-support">Support info</button><span style="flex:1;"></span><span class="smallhint" id="cm-env" style="padding-right:6px;">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span>`});
   let convos=[], current=null, lastRaw="";
   let folder="buyers", searchQ=""; // default to real buyers — eBay's own notifications flood the All view
   if(!Array.isArray(DB.sentMessages)) DB.sentMessages=[];
@@ -13444,8 +13987,38 @@ function openCommunication(focusUsername){
   threadEl.innerHTML=`<div style="padding:24px;color:#9aa3ad;font-size:13px;">Select a conversation to read it.</div>`;
 
   function fld(o,keys,dflt){ for(const k of keys){ if(o&&o[k]!=null&&o[k]!=="") return o[k]; } return dflt!==undefined?dflt:""; }
-  function counterparty(c){ if(fld(c,["conversationType"],"")==="FROM_EBAY") return "eBay (notification)"; return fld(c,["username","buyerUsername","otherParty","participant","sender","fromUsername","memberUsername"],"eBay member"); }
-  function subjectOf(c){ return fld(c,["conversationTitle","subject","title","topic","lastMessageSubject"],"(no subject)"); }
+  function counterparty(c){
+    if(fld(c,["conversationType"],"")==="FROM_EBAY") return "eBay (notification)";
+    // "eBay member" is what you get when none of these fields exist — a useless label that told you
+    // nothing about who was actually writing to you. eBay's Trading API calls it Sender; the REST
+    // side uses other names again. Try all of them before giving up.
+    const name=fld(c,["username","buyerUsername","otherParty","participant","sender","Sender",
+                      "fromUsername","memberUsername","senderId","buyer","SenderID"],"");
+    if(name) return name;
+    // Still nothing? At least name the item, so the row isn't anonymous.
+    const it=linkedItemOf(c);
+    if(it) return "Buyer of "+((it.desc||"").slice(0,28));
+    return "eBay member";
+  }
+  function subjectOf(c){
+    const s=fld(c,["conversationTitle","subject","title","topic","lastMessageSubject"],"");
+    if(s && s!=="(no subject)") return s;
+    // eBay very often gives no subject at all. But a buyer message is always ABOUT something —
+    // so show the listing it concerns. That's the thing a person actually needs to see.
+    const it=linkedItemOf(c);
+    if(it) return it.desc || (it.listing&&it.listing.title) || "(no subject)";
+    return "(no subject)";
+  }
+  // The WIM item a conversation is about, matched on eBay's listing id.
+  function linkedItemOf(c){
+    const id=itemIdOf(c);
+    if(!id) return null;
+    return (DB.items||[]).find(it=> it.listing && (
+      String(it.listing.ebayListingId||"")===String(id) ||
+      String(it.listing.ebayOfferId||"")===String(id) ||
+      String(it.listing.ebaySku||"")===String(id) ||
+      String(it.upc||"")===String(id))) || null;
+  }
   function snippetOf(c){ return fld(c,["lastMessagePreview","preview","snippet","lastMessage","summary"],""); }
   function itemIdOf(c){ return fld(c,["referenceId","itemId","legacyItemId","listingId"],""); }
   function unreadOf(c){ const u=fld(c,["unreadCount","unread","hasUnread"],0); return (u===true)||(parseInt(u,10)>0); }
@@ -13569,9 +14142,32 @@ function openCommunication(focusUsername){
         <div style="font-size:12px;"><div style="font-weight:600;color:#28313f;">${esc((linked.listing&&linked.listing.title)||linked.desc)}</div>
         <div style="color:#5b6470;">SKU ${esc(linked.sku||"—")} · ${esc(linked.condition||"")} ${linked.listing&&linked.listing.price?("· $"+esc(linked.listing.price)):""}</div></div>
         <span style="flex:1;"></span><button class="btn sm" id="cm-openitem">Open item</button></div>` : "";
-    threadEl.innerHTML=`<div style="padding:14px 16px;border-bottom:1px solid var(--line);"><div style="font-weight:600;font-size:14px;color:#28313f;">${esc(subjectOf(c))}</div><div style="font-size:12px;color:#7b828e;">with ${esc(counterparty(c))}</div></div>${linkCard}<div id="cm-msgs" style="flex:1;overflow:auto;padding:8px 16px;">Loading…</div>
+    // The header should answer, at a glance: who is this, what are they asking about, and where is
+    // that item in my warehouse? Previously it said "eBay member" and "(no subject)" — which is a
+    // header that tells you nothing at all, and made someone go hunting.
+    const li=linkedItemOf(c);
+    const liPhoto=li && ((li.images&&li.images[0])||li.image);
+    threadEl.innerHTML=`<div style="padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;">
+        ${liPhoto?`<img src="${esc(liPhoto)}" style="width:52px;height:52px;object-fit:contain;border:1px solid #dfe3e8;border-radius:6px;background:#fafbfc;flex-shrink:0;">`:``}
+        <div style="min-width:0;flex:1;">
+          <div style="font-weight:700;font-size:14px;color:#28313f;">${esc(counterparty(c))}</div>
+          <div style="font-size:13px;margin-top:2px;">${
+            li ? `<a href="#" id="cm-openitem" style="color:#2F6FB3;text-decoration:underline;">${esc(subjectOf(c))}</a>`
+               : esc(subjectOf(c))
+          }</div>
+          ${li && li.sku ? `<div style="font-size:11.5px;color:#5b6470;margin-top:3px;">Warehouse SKU <b style="font-family:Consolas,monospace;color:#1B2A41;">${esc(li.sku)}</b>${li.upc?` · Item #${esc(li.upc)}`:``}</div>` : ``}
+        </div>
+      </div>${linkCard}<div id="cm-msgs" style="flex:1;overflow:auto;padding:10px 16px;background:#fff;">Loading…</div>
       <div id="cm-reply-wrap" style="border-top:1px solid var(--line);padding:10px 14px;background:#f6f7f9;"></div>`;
     if(linked){ const oi=threadEl.querySelector("#cm-openitem"); if(oi) oi.onclick=()=>openItemDetail(linked,"edit"); }
+    const openItemLink=threadEl.querySelector("#cm-openitem");
+    if(openItemLink) openItemLink.onclick=(e)=>{
+      e.preventDefault();
+      const t=linkedItemOf(c);
+      if(!t) return;
+      if(typeof popOutItem==="function" && popOutItem(t, itemStatus(t)==="sold"?"view":"edit")) return;
+      openItemDetail(t, itemStatus(t)==="sold"?"view":"edit");
+    };
     const msgsEl=threadEl.querySelector("#cm-msgs"); const replyWrap=threadEl.querySelector("#cm-reply-wrap");
     if(c.simulated){
       msgsEl.innerHTML=`<div style="background:#fff7e0;border:1px solid #e6c200;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:11.5px;color:#6b5400;">Simulated message — never sent to or from eBay, for testing only.</div>
@@ -13650,12 +14246,13 @@ function openCommunication(focusUsername){
           // then send using AddMemberMessageAAQToPartner with the real EPS URLs attached.
           // A different, less-proven path than the regular text reply above — first real
           // attempt, same as that one originally was.
-          const mediaUrls=[];
+          const mediaUrls=[]; let lastUploadBody="";
           for(const d of attachments){ replyMsg.textContent="Uploading photo "+(mediaUrls.length+1)+" of "+attachments.length+"…";
             const b64=d.split(",")[1]||"";
             const upXml=`<?xml version="1.0" encoding="utf-8"?><UploadSiteHostedPicturesRequest xmlns="urn:ebay:apis:eBLBaseComponents"><PictureData contentType="image/jpeg">${b64}</PictureData></UploadSiteHostedPicturesRequest>`;
             const ur=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"UploadSiteHostedPictures", siteId:"0", xmlBody:upXml });
             if(ur.ok){ const doc=new DOMParser().parseFromString(ur.body,"text/xml"); const urlEl=doc.getElementsByTagName("FullURL")[0]; if(urlEl) mediaUrls.push(urlEl.textContent); }
+            else { lastUploadBody = ur.body || ("HTTP "+ur.status); }
           }
           if(mediaUrls.length){
             const media=mediaUrls.map(u=>`<MessageMedia><MediaURL>${esc(u)}</MediaURL></MessageMedia>`).join("");
@@ -13664,7 +14261,16 @@ function openCommunication(focusUsername){
             const mr=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"AddMemberMessageAAQToPartner", siteId:"0", xmlBody:msgXml });
             if(mr.ok){ replyMsg.style.color="#1f7244"; replyMsg.textContent="Sent with "+mediaUrls.length+" photo(s)."; attachNote=mediaUrls.length+" photo(s) attached (via Trading API)."; }
             else { replyMsg.style.color="#c0392b"; replyMsg.innerHTML="Couldn't send with attachment (HTTP "+mr.status+"). <button class=\"btn sm\" id=\"cm-reply-raw\" style=\"margin-left:6px;\">Show details</button>"; const rb=replyMsg.querySelector("#cm-reply-raw"); if(rb) rb.onclick=()=>showCopyable("Send-with-attachment error (send this to support)", mr.body||"(empty)"); sendBtn.disabled=false; return; }
-          } else { replyMsg.style.color="#c0392b"; replyMsg.textContent="Photo upload failed — nothing sent."; sendBtn.disabled=false; return; }
+          } else {
+            // Don't just say "failed" — say WHY. Uploading a photo goes through eBay's Trading API,
+            // the same one Pull New Listings uses, so the most common cause by far is the connection
+            // not having the permission it needs (fixed in 3.3.72, but only after you sign in again).
+            replyMsg.style.color="#c0392b";
+            const why = ebayScopeError(lastUploadBody||"");
+            if(why){ replyMsg.textContent="Photo upload failed — nothing sent."; uiAlert(why); }
+            else { replyMsg.innerHTML="Photo upload failed — nothing sent. <button class=\"btn sm\" id=\"cm-up-raw\" style=\"margin-left:6px;\">Show details</button>";
+              const rb=replyMsg.querySelector("#cm-up-raw"); if(rb) rb.onclick=()=>showCopyable("Photo upload error", lastUploadBody||"(no response from eBay)"); }
+            sendBtn.disabled=false; return; }
         } else {
           // Text-only replies now go through the SAME documented Trading API call the
           // with-photo path uses. They previously used a REST endpoint built from guessed
@@ -13705,6 +14311,18 @@ function openCommunication(focusUsername){
   }
   const loadBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-load"):body.querySelector("#cm-load"));
   if(loadBtn) loadBtn.onclick=loadInbox;
+  // NOTE the query pattern: the toolbar is a SIBLING of body, not inside it, so these must be found
+  // on the window element. Querying from body returns null and the button silently does nothing —
+  // this has caught out more than one feature in WIM already.
+  const thxBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-thanks"):body.querySelector("#cm-thanks"));
+  if(thxBtn){
+    const refreshThx=()=>{ const n=thankYouQueue().length; thxBtn.textContent="💌 Send Thank You"+(n?" ("+n+")":""); thxBtn.disabled=!n; };
+    refreshThx();
+    thxBtn.onclick=()=>{
+      if(!EBAY.ready()){ uiAlert("Not connected to eBay — connect first, then send."); return; }
+      openThankYouSender(refreshThx);
+    };
+  }
   const diagBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-diag"):body.querySelector("#cm-diag"));
   if(diagBtn) diagBtn.onclick=runDiagnostics;
   const supBtn=(openWindows["comm"]&&openWindows["comm"].el?openWindows["comm"].el.querySelector("#cm-support"):body.querySelector("#cm-support"));
