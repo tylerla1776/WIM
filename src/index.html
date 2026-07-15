@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.79", BUILD_DATE="2026-12-10", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.80", BUILD_DATE="2026-12-11", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.80","Fixed a crash on the Shipping Comparison screen -- comparisonWeight is not defined -- that hit when the screen was opened in its own pop-out window. The helper functions the screen needs had ended up defined inside another function where a pop-out could not see them, and part of the previous rebuild had not saved cleanly. All of that is now sorted: the weight logic, the true cost with per-label fees, the real eBay label cost, and the three-way scoreboard are all in place and work in both the docked and popped-out window. If you were on 3.3.79 and the comparison screen would not open, this is the fix."],
   ["3.3.79","SHIPPING COMPARISON REBUILT SO IT ACTUALLY WORKS. Three things were broken. One, it refused to quote anything, saying items had no weight -- because it froze the weight at the moment of sale, and items sold before weights existed were frozen blank forever. It now uses the item current weight, or the sub-category default (a comic at 0.3 lb and so on), or 1 lb, and never refuses. Two, the eBay actual cost column was always empty because it was reading what the BUYER paid for postage -- which on your free shipping is zero every time. It now reads what eBay actually billed YOU for the label, from the fee pull. Three, and most important, it now folds each service per-label fee into the comparison before declaring a winner. Shippo charges about 5 cents a label, EasyPost adds 3 percent on USPS postage -- so a quote that looks 3 cents cheaper can actually be the most expensive once the fee is counted. Judging on the headline rate alone would have sent you to the dearest option thinking it was the cheapest. New scoreboard at the top: three cards for eBay, Shippo and EasyPost showing how many times each was cheapest and what each would have cost in total, plus a plain line telling you how much buying through eBay has cost you over the cheapest option. Loads 20 at a time with Older and Newer buttons to page back through your history. Estimated weights are marked with a star -- worth weighing a few of each book type and correcting the defaults, because both Shippo and EasyPost bill you weeks later if the real parcel is heavier than the label said."],
   ["3.3.78","TRUE PROFIT -- WHAT YOU ACTUALLY MADE, NOT WHAT IT SOLD FOR. WIM knew the sale price and what you paid for an item, and quietly called the difference profit. It is not. eBay takes a final value fee, a fixed fee per order, an ad fee if the listing was promoted, and regulatory charges -- and if you buy the label through eBay, the postage comes out too. On a 49 dollar book that cost you 3 dollars, WIM was overstating what you made by about 11 dollars. New button on Shipping, Completed tab: Pull eBay Fees. It asks eBay what it actually charged on each order and what the postage really cost, and a sold item landing page now shows the honest breakdown -- sold for, minus eBay fees, minus postage, minus what you paid, and the real number at the end with the margin. Refunds are counted too, so a returned sale shows as the loss it actually is. Note that fees do not appear the moment something sells -- eBay settles them over the following hours or days -- so run the pull again later for anything still pending. WIM says plainly when it does not yet know the fees, rather than showing you a flattering number and letting you believe it."],
   ["3.3.77","THANK YOU MESSAGES AFTER DELIVERY. Messaging has a new button -- Send Thank You -- with a counter showing how many buyers are waiting on one. A buyer joins that queue only when their item is CONFIRMED DELIVERED, not merely shipped: a thank you that lands before the parcel does is just noise. Clicking it shows you every message before anything is sent -- the buyer, the item with its photo, and the full text already filled in with their name and what they bought. Edit any of them, remove any you would rather not send, then send. Each goes out individually through eBay, never as a group. A buyer is thanked ONCE and can never be thanked twice, even if a send fails halfway through -- each message is marked the instant it succeeds, so a retry only picks up the ones that did not go. Simulated sales are never messaged, so you can practise the whole thing without any real person hearing from you. The wording is a normal template, so you can rewrite it to sound like you in Messaging, Templates."],
@@ -10547,11 +10548,61 @@ function openVendorROI(){
 // Declares the cheapest of the three real costs for one sale — eBay actual, Shippo, EasyPost.
 // Only declares a winner when at least two are present, so it's a real comparison, not a
 // default. Returns {winner, amount} or null when there isn't enough to compare yet.
+// ---- Shipping comparison helpers (top-level so pop-out windows can see them too) ----
+// These MUST live at top level. They were briefly defined inside another function, which meant a
+// popped-out comparison window couldn't see them and crashed with "comparisonWeight is not defined".
+function round2s(n){ return Math.round((parseFloat(n)||0)*100)/100; }
+function shipPlatformFees(){
+  const f=DB.shipPlatformFees||{};
+  return {
+    shippoPerLabel:   (f.shippoPerLabel!=null)   ? parseFloat(f.shippoPerLabel)   : 0.05,
+    easypostPerLabel: (f.easypostPerLabel!=null) ? parseFloat(f.easypostPerLabel) : 0.00,
+    easypostUspsPct:  (f.easypostUspsPct!=null)  ? parseFloat(f.easypostUspsPct)  : 3.0,
+    ebayPerLabel:     (f.ebayPerLabel!=null)     ? parseFloat(f.ebayPerLabel)     : 0.00
+  };
+}
+// The TRUE cost of a service: what it quotes, plus what it charges you to use it. A quote 3c cheaper
+// that carries an 8c label fee is not actually cheaper, and a comparison that hides that misleads.
+function trueCost(who, rate, service){
+  const r=parseFloat(rate); if(isNaN(r)||r<=0) return null;
+  const F=shipPlatformFees();
+  if(who==="shippo")   return round2s(r + (F.shippoPerLabel||0));
+  if(who==="easypost"){ const usps=/usps/i.test(String(service||""));
+    return round2s(r + (F.easypostPerLabel||0) + (usps ? r*((F.easypostUspsPct||0)/100) : 0)); }
+  return round2s(r + (F.ebayPerLabel||0));
+}
+// The weight to quote with. The record froze the weight at sale time; for items sold before weights
+// existed that snapshot is blank and stays blank forever. So look at the item as it is NOW, then the
+// sub-category default, then 1 lb. A rough number you can sanity-check beats a blank row.
+function comparisonWeight(rec){
+  const own=parseFloat(rec.weight);
+  if(!isNaN(own) && own>0) return { w:String(own), estimated:false };
+  const it=(DB.items||[]).find(x=>x.id===rec.itemId);
+  if(it){
+    const cur=parseFloat(it.shipWeight);
+    if(!isNaN(cur) && cur>0) return { w:String(cur), estimated:!it.shipWeightManual };
+    if(typeof defaultWeightFor==="function"){
+      const d=parseFloat(defaultWeightFor(it));
+      if(!isNaN(d) && d>0) return { w:String(d), estimated:true };
+    }
+  }
+  return { w:"1", estimated:true };
+}
+// What eBay ACTUALLY billed you for the label (from the fee pull). A hand-typed value wins, since a
+// human who checked the invoice knows better than an API that may not cover their label type.
+function ebayCostFor(rec){
+  const typed=parseFloat(rec.ebayActualCost);
+  if(!isNaN(typed) && typed>0) return typed;
+  const it=(DB.items||[]).find(x=>x.id===rec.itemId);
+  const c=it && it.fulfillment && parseFloat(it.fulfillment.shipLabelCost);
+  return (!isNaN(c) && c>0) ? c : null;
+}
 function comparisonWinner(r){
   const opts=[];
-  const ebay=parseFloat(r.ebayActualCost); if(!isNaN(ebay)&&ebay>0) opts.push({who:"eBay",amt:ebay});
-  const shippo=parseFloat(r.shippoRate); if(!isNaN(shippo)&&shippo>0) opts.push({who:"Shippo",amt:shippo});
-  const ep=parseFloat(r.easypostRate); if(!isNaN(ep)&&ep>0) opts.push({who:"EasyPost",amt:ep});
+  const ebayRaw=ebayCostFor(r); const ebay=(ebayRaw!=null)?trueCost("ebay",ebayRaw,""):null;
+  if(ebay!=null) opts.push({who:"eBay",amt:ebay});
+  const shippo=trueCost("shippo", r.shippoRate, r.shippoService); if(shippo!=null) opts.push({who:"Shippo",amt:shippo});
+  const ep=trueCost("easypost", r.easypostRate, r.easypostService); if(ep!=null) opts.push({who:"EasyPost",amt:ep});
   if(opts.length<2) return null; // need at least two real numbers to declare a winner
   opts.sort((a,b)=>a.amt-b.amt);
   const runnerUp=opts[1].amt;
@@ -10680,17 +10731,34 @@ function openShippingComparison(){
     const pageRows=rows.slice(scPage*PER, scPage*PER+PER);
     // Tally winners across every record that has enough data to compare — this is the real
     // business-decision signal: who actually comes out cheapest most often, and by how much.
-    const tally={eBay:0,Shippo:0,EasyPost:0}; let compared=0, ebaySavingsMissed=0;
-    rows.forEach(r=>{ const w=comparisonWinner(r); if(w){ tally[w.winner]++; compared++;
-      const ebay=parseFloat(r.ebayActualCost); if(!isNaN(ebay)&&ebay>0 && w.winner!=="eBay") ebaySavingsMissed+=(ebay-w.amount);
-    }});
+    // THE SCOREBOARD. Judged across EVERY record (not just the current page), on TRUE cost — the
+    // quote plus each service's own per-label fee. This is the point of the screen: who is actually
+    // cheapest, how often, and what buying through eBay has really cost you.
+    const tally={eBay:0,Shippo:0,EasyPost:0};
+    const spend={eBay:0,Shippo:0,EasyPost:0};
+    let compared=0, ebayOverpaid=0, estimates=0;
+    rows.forEach(r=>{
+      const w=comparisonWinner(r); if(!w) return;
+      tally[w.winner]++; compared++;
+      if(r.weightEstimated) estimates++;
+      const eb=ebayCostFor(r);
+      if(eb!=null){ const ebT=trueCost("eBay",eb,""); spend.eBay+=ebT; if(w.winner!=="eBay") ebayOverpaid+=(ebT-w.amount); }
+      const sh=trueCost("Shippo", r.shippoRate, r.shippoService); if(sh!=null) spend.Shippo+=sh;
+      const ep=trueCost("EasyPost", r.easypostRate, r.easypostService); if(ep!=null) spend.EasyPost+=ep;
+    });
     const leader=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
-    const summaryHtml = compared ? `<div style="display:flex;gap:16px;align-items:center;padding:8px 12px;background:#eef3fb;border:1px solid #d5e0f0;border-radius:6px;margin-bottom:10px;font-size:12.5px;">
-        <div><b>${compared}</b> compared</div>
-        <div>eBay won <b>${tally.eBay}</b></div><div>Shippo won <b>${tally.Shippo}</b></div><div>EasyPost won <b>${tally.EasyPost}</b></div>
-        <div style="flex:1;"></div>
-        <div>Cheapest most often: <b style="color:#0f6cbd;">${tally[leader]?leader:"—"}</b></div>
-        ${ebaySavingsMissed>0.005?`<div title="Total you'd have saved on the sales where eBay's own charge was not the cheapest">Potential savings vs eBay: <b style="color:#1f7244;">$${ebaySavingsMissed.toFixed(2)}</b></div>`:``}
+    const F=shipPlatformFees();
+    const scard=(name,color)=>`<div style="flex:1;min-width:130px;background:#fff;border:1px solid ${tally[name]&&name===leader?'#9AD3AE':'#dfe4ea'};border-top:4px solid ${color};border-radius:8px;padding:9px 12px;">
+        <div style="font-size:11px;color:#5b6470;letter-spacing:.5px;">${name.toUpperCase()}${name===leader&&tally[name]?' · CHEAPEST MOST OFTEN':''}</div>
+        <div style="font-size:22px;font-weight:800;color:#1B2A41;">${tally[name]}<span style="font-size:12px;font-weight:600;color:#7b828e;"> win${tally[name]===1?'':'s'}</span></div>
+        ${spend[name]?`<div class="smallhint">would total $${spend[name].toFixed(2)}</div>`:``}
+      </div>`;
+    const summaryHtml = compared ? `<div style="margin-bottom:10px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">${scard("eBay","#e53238")}${scard("Shippo","#0f6cbd")}${scard("EasyPost","#1F9D55")}</div>
+        ${ebayOverpaid>0.005?`<div style="margin-top:8px;padding:9px 12px;background:#FDECEA;border:1px solid #F0B0A8;border-left:5px solid #C0392B;border-radius:7px;font-size:13px;color:#922B21;">
+            Buying labels through eBay has cost you <b style="font-size:15px;">$${ebayOverpaid.toFixed(2)}</b> more than the cheapest option across these ${compared} sale(s).
+          </div>`:``}
+        <div class="smallhint" style="margin-top:6px;">Winner is the <b>true</b> cost — quote plus each service's per-label fee (Shippo $${(F.shippoPerLabel||0).toFixed(2)}, EasyPost $${(F.easypostPerLabel||0).toFixed(2)}${F.easypostUspsPct?` + ${F.easypostUspsPct}% on USPS`:''}).${estimates?` <b style="color:#8A5E10;">${estimates} used an estimated weight (marked *)</b> — carriers bill the difference later, so weigh a few and fix the defaults.`:''}</div>
       </div>` : ``;
     body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
@@ -10797,7 +10865,8 @@ function countApiCall(service){
   }catch(e){}
 }
 async function fetchOneComparisonRate(rec, onDone){
-  if(!rec.weight){ uiAlert("This item has no weight entered — open it and fill in Shipping weight & dimensions first."); return; }
+  const Wq=comparisonWeight(rec);
+  rec.weight=Wq.w; rec.weightEstimated=Wq.estimated;   // quote at the resolved weight; never refuse
   const from=DB.shipFrom;
   try{
     const shippoTok=await carrierGetSecret2("shippo","token");
@@ -10805,7 +10874,7 @@ async function fetchOneComparisonRate(rec, onDone){
       countApiCall("shippo"); const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok,
         fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
         toCity:rec.shipToCity, toState:rec.shipToState, toZip:rec.shipToZip, toCountry:rec.shipToCountry||"US",
-        weightLb:rec.weight, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
+        weightLb:Wq.w, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
       if(r.ok){ try{ const dj=JSON.parse(r.body); const rates=(dj.rates||[]).filter(x=>x.amount);
         if(rates.length){ rates.sort((a,b)=>parseFloat(a.amount)-parseFloat(b.amount)); rec.shippoRate=parseFloat(rates[0].amount).toFixed(2); rec.shippoService=(rates[0].provider||"")+" "+(rates[0].servicelevel&&rates[0].servicelevel.name||""); } }catch(e){} }
     }
@@ -10816,7 +10885,7 @@ async function fetchOneComparisonRate(rec, onDone){
       countApiCall("easypost"); const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:epKey,
         fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
         toCity:rec.shipToCity, toState:rec.shipToState, toZip:rec.shipToZip, toCountry:rec.shipToCountry||"US",
-        weightLb:rec.weight, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
+        weightLb:Wq.w, lengthIn:rec.length||"1", widthIn:rec.width||"1", heightIn:rec.height||"1" });
       if(r.ok){ try{ const dj=JSON.parse(r.body); const rates=(dj.rates||[]);
         if(rates.length){ rates.sort((a,b)=>parseFloat(a.rate)-parseFloat(b.rate)); rec.easypostRate=parseFloat(rates[0].rate).toFixed(2); rec.easypostService=(rates[0].carrier||"")+" "+(rates[0].service||""); } }catch(e){} }
     }
