@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.80", BUILD_DATE="2026-12-11", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.81", BUILD_DATE="2026-12-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.81","SHIPPING COMPARISON -- the four things from your notes. ONE, weights no longer all show 1 lb. Sold listings that were never in WIM had no weight to match against, so everything defaulted to 1 lb; WIM now reads the listing title and estimates by book type (comic 0.3, manga and trade paperback 0.7, hardcover 1.8, and so on), still marked with a star as an estimate. Note honestly: eBay does NOT expose the real weight that was actually shipped -- it is not in the shipping-label charge, and the one API that has it is approval-only and closed to us -- so for free-shipping sales an estimate is genuinely the best that exists. TWO, the eBay Actual box now fills in what eBay billed you for the label when the fee pull has found it, and says plainly run Pull eBay Fees or type it when it has not, instead of sitting there as a blank that looks broken. THREE, the tabs no longer say would total -- each now shows Total Amount Saved, the real money that service saved you versus the next-cheapest option on the sales it won (and for eBay, what eBay saved you versus the closest competitor). FOUR, the hard-to-read brown Not Inventoried box is now clear gold text."],
   ["3.3.80","Fixed a crash on the Shipping Comparison screen -- comparisonWeight is not defined -- that hit when the screen was opened in its own pop-out window. The helper functions the screen needs had ended up defined inside another function where a pop-out could not see them, and part of the previous rebuild had not saved cleanly. All of that is now sorted: the weight logic, the true cost with per-label fees, the real eBay label cost, and the three-way scoreboard are all in place and work in both the docked and popped-out window. If you were on 3.3.79 and the comparison screen would not open, this is the fix."],
   ["3.3.79","SHIPPING COMPARISON REBUILT SO IT ACTUALLY WORKS. Three things were broken. One, it refused to quote anything, saying items had no weight -- because it froze the weight at the moment of sale, and items sold before weights existed were frozen blank forever. It now uses the item current weight, or the sub-category default (a comic at 0.3 lb and so on), or 1 lb, and never refuses. Two, the eBay actual cost column was always empty because it was reading what the BUYER paid for postage -- which on your free shipping is zero every time. It now reads what eBay actually billed YOU for the label, from the fee pull. Three, and most important, it now folds each service per-label fee into the comparison before declaring a winner. Shippo charges about 5 cents a label, EasyPost adds 3 percent on USPS postage -- so a quote that looks 3 cents cheaper can actually be the most expensive once the fee is counted. Judging on the headline rate alone would have sent you to the dearest option thinking it was the cheapest. New scoreboard at the top: three cards for eBay, Shippo and EasyPost showing how many times each was cheapest and what each would have cost in total, plus a plain line telling you how much buying through eBay has cost you over the cheapest option. Loads 20 at a time with Older and Newer buttons to page back through your history. Estimated weights are marked with a star -- worth weighing a few of each book type and correcting the defaults, because both Shippo and EasyPost bill you weeks later if the real parcel is heavier than the label said."],
   ["3.3.78","TRUE PROFIT -- WHAT YOU ACTUALLY MADE, NOT WHAT IT SOLD FOR. WIM knew the sale price and what you paid for an item, and quietly called the difference profit. It is not. eBay takes a final value fee, a fixed fee per order, an ad fee if the listing was promoted, and regulatory charges -- and if you buy the label through eBay, the postage comes out too. On a 49 dollar book that cost you 3 dollars, WIM was overstating what you made by about 11 dollars. New button on Shipping, Completed tab: Pull eBay Fees. It asks eBay what it actually charged on each order and what the postage really cost, and a sold item landing page now shows the honest breakdown -- sold for, minus eBay fees, minus postage, minus what you paid, and the real number at the end with the margin. Refunds are counted too, so a returned sale shows as the loss it actually is. Note that fees do not appear the moment something sells -- eBay settles them over the following hours or days -- so run the pull again later for anything still pending. WIM says plainly when it does not yet know the fees, rather than showing you a flattering number and letting you believe it."],
@@ -10574,6 +10575,20 @@ function trueCost(who, rate, service){
 // The weight to quote with. The record froze the weight at sale time; for items sold before weights
 // existed that snapshot is blank and stays blank forever. So look at the item as it is NOW, then the
 // sub-category default, then 1 lb. A rough number you can sanity-check beats a blank row.
+// Guess a book type's shipping weight from words in its title. This is the only estimate available
+// for "not inventoried" items pulled from sold listings — they have no matching WIM item, and eBay
+// never recorded a weight because free/flat shipping doesn't require one. So a comic still lands at
+// ~0.3 lb instead of everything defaulting to a meaningless 1 lb.
+function weightFromTitle(title){
+  const t=String(title||"").toLowerCase();
+  if(/\bcomic|\bissue\b|\b#\d/.test(t)) return "0.3";
+  if(/manga|graphic novel|\btpb\b|trade paperback/.test(t)) return "0.7";
+  if(/magazine/.test(t)) return "0.5";
+  if(/hardcover|hardback|\bhc\b/.test(t)) return "1.8";
+  if(/textbook/.test(t)) return "3.0";
+  if(/paperback|\bpb\b|\bnovel\b/.test(t)) return "0.7";
+  return "";  // genuinely unknown
+}
 function comparisonWeight(rec){
   const own=parseFloat(rec.weight);
   if(!isNaN(own) && own>0) return { w:String(own), estimated:false };
@@ -10586,6 +10601,9 @@ function comparisonWeight(rec){
       if(!isNaN(d) && d>0) return { w:String(d), estimated:true };
     }
   }
+  // No inventoried item — guess from the listing title before giving up on 1 lb.
+  const guess=weightFromTitle(rec.desc);
+  if(guess) return { w:guess, estimated:true };
   return { w:"1", estimated:true };
 }
 // What eBay ACTUALLY billed you for the label (from the fee pull). A hand-typed value wins, since a
@@ -10734,24 +10752,34 @@ function openShippingComparison(){
     // THE SCOREBOARD. Judged across EVERY record (not just the current page), on TRUE cost — the
     // quote plus each service's own per-label fee. This is the point of the screen: who is actually
     // cheapest, how often, and what buying through eBay has really cost you.
+    // For each provider, count how often it's the cheapest AND how much it saves you when it is —
+    // the saving is the gap to the NEXT-cheapest option on that same sale. So "Total Amount Saved"
+    // on eBay's card is what buying through eBay saved vs the closest competitor, on the sales eBay
+    // won; on Shippo's card it's what Shippo saved vs the next option, on the sales Shippo won; etc.
+    // That's the real answer to "what did picking this service actually get me."
     const tally={eBay:0,Shippo:0,EasyPost:0};
-    const spend={eBay:0,Shippo:0,EasyPost:0};
+    const saved={eBay:0,Shippo:0,EasyPost:0};   // total saved on the sales THIS provider won
     let compared=0, ebayOverpaid=0, estimates=0;
     rows.forEach(r=>{
-      const w=comparisonWinner(r); if(!w) return;
-      tally[w.winner]++; compared++;
+      // Gather every provider's true cost for this one sale.
+      const opts=[];
+      const eb=ebayCostFor(r); if(eb!=null) opts.push({who:"eBay", amt:trueCost("eBay",eb,"")});
+      const sh=trueCost("Shippo", r.shippoRate, r.shippoService); if(sh!=null) opts.push({who:"Shippo", amt:sh});
+      const ep=trueCost("EasyPost", r.easypostRate, r.easypostService); if(ep!=null) opts.push({who:"EasyPost", amt:ep});
+      if(opts.length<2) return;                  // need at least two to say anyone "saved" anything
+      opts.sort((a,b)=>a.amt-b.amt);
+      const winner=opts[0], runnerUp=opts[1];
+      tally[winner.who]++; compared++;
+      saved[winner.who] += (runnerUp.amt - winner.amt);   // gap to the next-best option
       if(r.weightEstimated) estimates++;
-      const eb=ebayCostFor(r);
-      if(eb!=null){ const ebT=trueCost("eBay",eb,""); spend.eBay+=ebT; if(w.winner!=="eBay") ebayOverpaid+=(ebT-w.amount); }
-      const sh=trueCost("Shippo", r.shippoRate, r.shippoService); if(sh!=null) spend.Shippo+=sh;
-      const ep=trueCost("EasyPost", r.easypostRate, r.easypostService); if(ep!=null) spend.EasyPost+=ep;
+      if(winner.who!=="eBay" && eb!=null) ebayOverpaid += (trueCost("eBay",eb,"") - winner.amt);
     });
     const leader=Object.keys(tally).sort((a,b)=>tally[b]-tally[a])[0];
     const F=shipPlatformFees();
     const scard=(name,color)=>`<div style="flex:1;min-width:130px;background:#fff;border:1px solid ${tally[name]&&name===leader?'#9AD3AE':'#dfe4ea'};border-top:4px solid ${color};border-radius:8px;padding:9px 12px;">
         <div style="font-size:11px;color:#5b6470;letter-spacing:.5px;">${name.toUpperCase()}${name===leader&&tally[name]?' · CHEAPEST MOST OFTEN':''}</div>
         <div style="font-size:22px;font-weight:800;color:#1B2A41;">${tally[name]}<span style="font-size:12px;font-weight:600;color:#7b828e;"> win${tally[name]===1?'':'s'}</span></div>
-        ${spend[name]?`<div class="smallhint">would total $${spend[name].toFixed(2)}</div>`:``}
+        ${tally[name]?`<div class="smallhint">Total Amount Saved: <b style="color:#1F7244;">$${saved[name].toFixed(2)}</b></div><div class="smallhint" style="font-size:10px;">vs the next-cheapest, on sales it won</div>`:`<div class="smallhint">never cheapest</div>`}
       </div>`;
     const summaryHtml = compared ? `<div style="margin-bottom:10px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;">${scard("eBay","#e53238")}${scard("Shippo","#0f6cbd")}${scard("EasyPost","#1F9D55")}</div>
@@ -10791,12 +10819,16 @@ function openShippingComparison(){
       const winCell = w ? `<span style="font-weight:700;font-size:11.5px;color:${winColor[w.winner]};">${w.winner}</span><div class="smallhint">$${w.amount.toFixed(2)}${w.saves>0.005?" · saves $"+w.saves.toFixed(2):""}</div>` : `<span class="smallhint">needs 2+ rates</span>`;
       // eBay's real label cost, if the fee pull has found it — shown as a hint under the editable box.
       const ebayReal=ebayCostFor(r);
-      tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}${r.notInInventory?' <span class="badge" style="font-size:9px;background:#8a6d3b;">not inventoried</span>':''}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
+      tr.innerHTML=`<td style="font-size:12px;">${esc(r.desc)}${r.notInInventory?' <span style="font-size:10px;font-weight:700;color:#B8860B;letter-spacing:.3px;">• Not Inventoried</span>':''}</td><td style="font-size:11px;">${r.soldAt?fmtDay(r.soldAt):"—"}</td>
         <td style="font-size:11px;" title="${W.estimated?'Estimated from the sub-category — weigh it to be sure':'Measured weight'}">${esc(wt)}<div class="smallhint">${esc(dims)}</div></td>
         <td style="font-size:11px;">${esc(shipTo)}</td>
         <td style="font-size:12px;">${r.shippoRate?"$"+esc(r.shippoRate)+"<div class=\"smallhint\">"+esc(r.shippoService||"")+"</div>":(shippoTok?'<span class="smallhint">—</span>':'<span class="smallhint" style="color:#b06000;">not connected</span>')}</td>
         <td style="font-size:12px;">${r.easypostRate?"$"+esc(r.easypostRate)+"<div class=\"smallhint\">"+esc(r.easypostService||"")+"</div>":(epKey?'<span class="smallhint">—</span>':'<span class="smallhint" style="color:#b06000;">not connected</span>')}</td>
-        <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost||"")}" inputmode="decimal" placeholder="${ebayReal!=null?ebayReal.toFixed(2):'0.00'}" style="width:100%;box-sizing:border-box;">${(ebayReal!=null && !(parseFloat(r.ebayActualCost)>0))?`<div class="smallhint" style="color:#1f7244;">eBay billed $${ebayReal.toFixed(2)}</div>`:''}</td>
+        <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost|| (ebayReal!=null?ebayReal.toFixed(2):"") )}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;">${
+          ebayReal!=null
+            ? `<div class="smallhint" style="color:#1f7244;">from eBay's bill</div>`
+            : `<div class="smallhint" style="color:#8a6d3b;">run Pull eBay Fees, or type it</div>`
+        }</td>
         <td class="cc">${winCell}</td>
         <td class="cc"><button class="btn sm" data-fetch="${esc(r.id)}">Fetch</button></td>`;
       tb.appendChild(tr);
