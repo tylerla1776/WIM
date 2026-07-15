@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.81", BUILD_DATE="2026-12-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.82", BUILD_DATE="2026-12-13", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.82","Shipping Comparison now has everything you need right on the screen. PULL EBAY FEES button is now on this screen -- you no longer have to go find it on the Shipping tab. Click it and it fills the eBay Actual column with what eBay really charged you for each label. RESET SCOREBOARD button clears all the fetched Shippo and EasyPost quotes and pulled eBay costs so the whole thing starts fresh -- the sales stay, only the numbers are wiped. And FETCH is now selectable: a dropdown next to Fetch Missing Rates lets you pull just Shippo, just EasyPost, just eBay fees, or all of them, so you can prefetch exactly the one you want instead of everything at once. The old broken no weight, cannot fetch message is gone -- fetching always works now, quoting at the estimated weight."],
   ["3.3.81","SHIPPING COMPARISON -- the four things from your notes. ONE, weights no longer all show 1 lb. Sold listings that were never in WIM had no weight to match against, so everything defaulted to 1 lb; WIM now reads the listing title and estimates by book type (comic 0.3, manga and trade paperback 0.7, hardcover 1.8, and so on), still marked with a star as an estimate. Note honestly: eBay does NOT expose the real weight that was actually shipped -- it is not in the shipping-label charge, and the one API that has it is approval-only and closed to us -- so for free-shipping sales an estimate is genuinely the best that exists. TWO, the eBay Actual box now fills in what eBay billed you for the label when the fee pull has found it, and says plainly run Pull eBay Fees or type it when it has not, instead of sitting there as a blank that looks broken. THREE, the tabs no longer say would total -- each now shows Total Amount Saved, the real money that service saved you versus the next-cheapest option on the sales it won (and for eBay, what eBay saved you versus the closest competitor). FOUR, the hard-to-read brown Not Inventoried box is now clear gold text."],
   ["3.3.80","Fixed a crash on the Shipping Comparison screen -- comparisonWeight is not defined -- that hit when the screen was opened in its own pop-out window. The helper functions the screen needs had ended up defined inside another function where a pop-out could not see them, and part of the previous rebuild had not saved cleanly. All of that is now sorted: the weight logic, the true cost with per-label fees, the real eBay label cost, and the three-way scoreboard are all in place and work in both the docked and popped-out window. If you were on 3.3.79 and the comparison screen would not open, this is the fix."],
   ["3.3.79","SHIPPING COMPARISON REBUILT SO IT ACTUALLY WORKS. Three things were broken. One, it refused to quote anything, saying items had no weight -- because it froze the weight at the moment of sale, and items sold before weights existed were frozen blank forever. It now uses the item current weight, or the sub-category default (a comic at 0.3 lb and so on), or 1 lb, and never refuses. Two, the eBay actual cost column was always empty because it was reading what the BUYER paid for postage -- which on your free shipping is zero every time. It now reads what eBay actually billed YOU for the label, from the fee pull. Three, and most important, it now folds each service per-label fee into the comparison before declaring a winner. Shippo charges about 5 cents a label, EasyPost adds 3 percent on USPS postage -- so a quote that looks 3 cents cheaper can actually be the most expensive once the fee is counted. Judging on the headline rate alone would have sent you to the dearest option thinking it was the cheapest. New scoreboard at the top: three cards for eBay, Shippo and EasyPost showing how many times each was cheapest and what each would have cost in total, plus a plain line telling you how much buying through eBay has cost you over the cheapest option. Loads 20 at a time with Older and Newer buttons to page back through your history. Estimated weights are marked with a star -- worth weighing a few of each book type and correcting the defaults, because both Shippo and EasyPost bill you weeks later if the real parcel is heavier than the label said."],
@@ -10789,11 +10790,19 @@ function openShippingComparison(){
         <div class="smallhint" style="margin-top:6px;">Winner is the <b>true</b> cost — quote plus each service's per-label fee (Shippo $${(F.shippoPerLabel||0).toFixed(2)}, EasyPost $${(F.easypostPerLabel||0).toFixed(2)}${F.easypostUspsPct?` + ${F.easypostUspsPct}% on USPS`:''}).${estimates?` <b style="color:#8A5E10;">${estimates} used an estimated weight (marked *)</b> — carriers bill the difference later, so weigh a few and fix the defaults.`:''}</div>
       </div>` : ``;
     body.innerHTML=`<div style="padding:12px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
         <button class="btn primary sm" id="sc-fetchall">Fetch Missing Rates</button>
+        <select class="cmb sm" id="sc-fetchwhich" title="Choose which quotes to fetch when you click Fetch Missing Rates" style="height:30px;">
+          <option value="all">Fetch: all services</option>
+          <option value="shippo">Fetch: Shippo only</option>
+          <option value="easypost">Fetch: EasyPost only</option>
+          <option value="ebay">Fetch: eBay fees only</option>
+        </select>
+        <button class="btn sm" id="sc-fees" title="Ask eBay what it actually charged you for each label on these sales (needs the eBay connection)">💰 Pull eBay Fees</button>
         <button class="btn sm" id="sc-pull">Pull Sold eBay Listings</button>
         <span class="smallhint" id="sc-msg"></span>
         <span style="flex:1;"></span>
+        <button class="btn sm" id="sc-reset" title="Clear all fetched quotes and eBay costs so the scoreboard starts fresh">↺ Reset scoreboard</button>
         <button class="btn sm" id="sc-export">Export to Excel</button>
       </div>
       ${connectionBanner()}
@@ -10827,7 +10836,7 @@ function openShippingComparison(){
         <td><input class="txt" data-actual="${esc(r.id)}" value="${esc(r.ebayActualCost|| (ebayReal!=null?ebayReal.toFixed(2):"") )}" inputmode="decimal" placeholder="0.00" style="width:100%;box-sizing:border-box;">${
           ebayReal!=null
             ? `<div class="smallhint" style="color:#1f7244;">from eBay's bill</div>`
-            : `<div class="smallhint" style="color:#8a6d3b;">run Pull eBay Fees, or type it</div>`
+            : `<div class="smallhint" style="color:#8a6d3b;">click 💰 Pull eBay Fees above, or type it</div>`
         }</td>
         <td class="cc">${winCell}</td>
         <td class="cc"><button class="btn sm" data-fetch="${esc(r.id)}">Fetch</button></td>`;
@@ -10855,15 +10864,49 @@ function openShippingComparison(){
     };
     body.querySelector("#sc-fetchall").onclick=async ()=>{
       const msg=body.querySelector("#sc-msg");
-      // Don't silently do nothing — that's what made this look broken. Say what's actually wrong.
-      if(!shippoTok && !epKey){ msg.style.color="#c0392b"; msg.textContent="No API keys yet — click \u201cAdd API keys\u201d above. Without them there's nothing to compare eBay against."; return; }
-      const missing=rows.filter(r=>!r.fetchedAt && r.weight);
-      const noWeight=rows.filter(r=>!r.fetchedAt && !r.weight).length;
-      if(!missing.length){ msg.style.color="#555"; msg.textContent=noWeight
-        ? ("Nothing to fetch — "+noWeight+" record(s) have no package weight, so no carrier can quote them. Add a weight on the item.")
-        : "Nothing to fetch — every record already has its rates."; return; }
-      let i=0; for(const r of missing){ i++; msg.textContent="Fetching "+i+" of "+missing.length+"…"; await fetchOneComparisonRate(r); }
-      save(); msg.textContent="Done."; render();
+      const which=(body.querySelector("#sc-fetchwhich")||{}).value||"all";
+      // eBay fees are a different pull entirely — hand off to the fee button's logic.
+      if(which==="ebay"){ body.querySelector("#sc-fees").click(); return; }
+      if(!shippoTok && !epKey){ msg.style.color="#c0392b"; msg.textContent="No API keys yet — click \u201cChange API keys\u201d above. Without them there's nothing to compare eBay against."; return; }
+      // A record needs (re)fetching if the service we're asking for has no rate yet. Weight is no
+      // longer a gate — comparisonWeight() always resolves one (estimated if need be).
+      const wants=(r)=> which==="all" ? (!r.shippoRate || !r.easypostRate)
+                     : which==="shippo" ? !r.shippoRate
+                     : !r.easypostRate;
+      const missing=rows.filter(wants);
+      if(!missing.length){ msg.style.color="#555"; msg.textContent="Nothing to fetch — every record already has its "+(which==="all"?"rates":which+" rate")+"."; return; }
+      let i=0; for(const r of missing){ i++; msg.style.color="#555"; msg.textContent="Fetching "+i+" of "+missing.length+"…"; await fetchOneComparisonRate(r, null, which); }
+      save(); msg.style.color="#1f7244"; msg.textContent="Done — fetched "+missing.length+"."; render();
+    };
+    // Pull eBay's REAL label cost for the sales shown here — right on this screen, so you never have
+    // to hunt for it on the Shipping tab. Fills the eBay Actual column.
+    body.querySelector("#sc-fees").onclick=async ()=>{
+      const msg=body.querySelector("#sc-msg");
+      if(!EBAY.ready()){ msg.style.color="#c0392b"; msg.textContent="Connect to eBay first (mode badge at top)."; return; }
+      // Match each comparison record to its WIM item so pullEbayFees has an order to ask about.
+      const items=rows.map(r=>(DB.items||[]).find(x=>x.id===r.itemId)).filter(Boolean);
+      if(!items.length){ msg.style.color="#8a6d3b"; msg.textContent="These sales aren't linked to inventory items, so there's no order to pull fees for. Type the eBay cost in by hand instead."; return; }
+      const btn=body.querySelector("#sc-fees"); btn.disabled=true;
+      const r=await pullEbayFees(items,(d,t)=>{ msg.style.color="#555"; msg.textContent="Reading eBay fees "+d+"/"+t+"…"; });
+      btn.disabled=false;
+      msg.style.color="#1f7244";
+      msg.textContent="eBay fees updated on "+r.updated+" order(s)."+(r.stillPending?" "+r.stillPending+" still settling — try later.":"");
+      render();
+    };
+    // Reset the scoreboard: clear every fetched quote and pulled eBay cost so it all recomputes from
+    // scratch. Does NOT delete the records themselves — just the numbers on them.
+    body.querySelector("#sc-reset").onclick=()=>{
+      uiConfirm("Clear all fetched Shippo/EasyPost quotes and pulled eBay costs? The sales stay; only the rate numbers are wiped, so the scoreboard starts fresh.", ()=>{
+        (DB.shippingComparisons||[]).forEach(r=>{
+          r.shippoRate=null; r.shippoService="";
+          r.easypostRate=null; r.easypostService="";
+          r.ebayActualCost="";
+          r.fetchedAt=null; r.weightEstimated=false;
+        });
+        save();
+        const msg=body.querySelector("#sc-msg"); if(msg){ msg.style.color="#555"; msg.textContent="Scoreboard reset — fetch again to rebuild it."; }
+        render();
+      });
     };
     body.querySelector("#sc-export").onclick=()=>{
       const headers=["Description","In Inventory","Sold Date","Weight (lb)","Length","Width","Height","Ship To City","Ship To State","Shippo Rate","Shippo Service","EasyPost Rate","EasyPost Service","eBay Actual Cost","Winner","Winner Cost"];
@@ -10896,12 +10939,13 @@ function countApiCall(service){
     save();
   }catch(e){}
 }
-async function fetchOneComparisonRate(rec, onDone){
+async function fetchOneComparisonRate(rec, onDone, which){
+  which=which||"all";   // "all" | "shippo" | "easypost" — lets you prefetch just one provider
   const Wq=comparisonWeight(rec);
   rec.weight=Wq.w; rec.weightEstimated=Wq.estimated;   // quote at the resolved weight; never refuse
   const from=DB.shipFrom;
   try{
-    const shippoTok=await carrierGetSecret2("shippo","token");
+    const shippoTok=(which==="all"||which==="shippo") ? await carrierGetSecret2("shippo","token") : null;
     if(shippoTok){
       countApiCall("shippo"); const r=await wimDesktop.invoke("shippo_get_rates",{ token:shippoTok,
         fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
@@ -10912,7 +10956,7 @@ async function fetchOneComparisonRate(rec, onDone){
     }
   }catch(e){}
   try{
-    const epKey=await carrierGetSecret2("easypost","key");
+    const epKey=(which==="all"||which==="easypost") ? await carrierGetSecret2("easypost","key") : null;
     if(epKey){
       countApiCall("easypost"); const r=await wimDesktop.invoke("easypost_get_rates",{ apiKey:epKey,
         fromCity:from.city, fromState:from.state, fromZip:from.zip, fromCountry:from.country||"US",
