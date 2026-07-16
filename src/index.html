@@ -499,7 +499,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.3.88", BUILD_DATE="2026-12-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.3.89", BUILD_DATE="2026-12-20", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -605,6 +605,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.3.89","Fixed Listed no SKU failing with an OutputSelector error. When the listing pull was sped up in 3.3.74 by asking eBay for only the fields WIM reads, one field name in that request was wrong -- eBay stores the category as PrimaryCategory containing CategoryID, not as a single PrimaryCategoryID -- and eBay refuses the ENTIRE request over one bad name. The name is corrected. More importantly, the safety net now actually catches this: it was built to retry at full detail if the trimmed request came back EMPTY, but a rejected request errored out before the retry could run. Now a refused selector quietly falls back to the slower full request and the pull just works -- you should never see raw XML again for this. Also fixed a crash hiding inside that retry path itself."],
   ["3.3.88","CONDITION, DONE PROPERLY THIS TIME. The Condition field is now a true dropdown -- you can only pick, never type -- and the options come from eBay itself: whatever conditions the item mapped eBay category actually allows. Change the category and the list changes with it. It is now impossible to choose a condition the listing will bounce on. If an old item carries a condition the category no longer allows, it shows marked as not allowed so you can change it consciously -- WIM never silently rewrites your data. UNDERNEATH, the real bug: WIM table translating eBay condition numbers to names was off by one slot -- Good was labeled Acceptable, Acceptable was missing entirely -- which is why the previous error could contradict itself, refusing Used - Good while listing Used - Good as accepted. The table is fixed, the mistranslated cache is wiped and refetched, and Used - Excellent (which 3.3.86 wrongly removed as not real -- it is real) is restored. The error message is also more honest now: it only blames the condition when it can prove the condition is the problem; otherwise it shows eBay own message text and the likely causes, instead of guessing."],
   ["3.3.87","FIVE FIXES FROM YOUR NOTES. One: when eBay refuses an item condition, WIM now says so in plain words -- this category does not allow New, here are the conditions it accepts -- instead of dumping the raw error and the whole payload on you. Two: the Condition field is a proper WIM dropdown again (click, see the list, pick one) instead of the type-and-guess suggestion box -- which is how a magazine quietly ended up marked New in the first place. New items also no longer default to New; the condition starts blank so someone consciously picks it. Three: Find on eBay inside a popped-out window no longer closes the whole screen when you click Use this. It now opens as its own layer on top; Use this closes just that layer and the fields underneath refresh with the imported category and details. Four: new items default their category to Books and Magazines. Five: the photo editor grew up -- zoom now actually works and goes from 10 percent to 500 percent with a live preview, and there is a Crop tool: click the scissors, drag a box over the part you want to keep, save. Crop is measured at true size so the box you draw is exactly what you get."],
   ["3.3.86","FIXED THE LISTING ERROR (eBay 2004 Invalid request). Two causes, both about item condition. One: eBay condition values are not the same for every category -- a book category rejects NEW outright, it wants Like New or one of the Used grades. WIM was sending whatever condition you picked without checking, so a book marked New got a cryptic error with no explanation. WIM now asks eBay which conditions the category actually allows and, if yours is not on the list, quietly switches to the closest one that is -- your Fantastic Four book listed as New becomes Like New and goes through. It tells you in the status line when it adjusts. Two: one of WIM own condition codes -- Used Excellent -- was not a real eBay value at all, so anything set to it failed instantly. That is corrected to Used Very Good. The allowed conditions per category are remembered so it is one quick check, not a delay on every item."],
@@ -13716,10 +13717,19 @@ async function pullNewListings(after,silent,opts){
         `<OutputSelector>ActiveList.ItemArray.Item.Quantity</OutputSelector>`+
         `<OutputSelector>ActiveList.ItemArray.Item.SellingStatus.CurrentPrice</OutputSelector>`+
         `<OutputSelector>ActiveList.ItemArray.Item.StartPrice</OutputSelector>`+
-        `<OutputSelector>ActiveList.ItemArray.Item.PrimaryCategoryID</OutputSelector>`+
+        `<OutputSelector>ActiveList.ItemArray.Item.PrimaryCategory.CategoryID</OutputSelector>`+
         `<OutputSelector>ActiveList.ItemArray.Item.PictureDetails.GalleryURL</OutputSelector>`+
         `</GetMyeBaySellingRequest>`;
-      const r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xml });
+      let r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xml });
+      if(!r.ok && String(r.body||"").indexOf("OutputSelector")>=0){
+        // Our trimmed request was refused because of a selector — fall back to the full request
+        // rather than failing. Slower, but correct beats fast, and the user never sees XML.
+        const xmlFull0=`<?xml version="1.0" encoding="utf-8"?><GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">`+
+          `<ActiveList><Sort>TimeLeft</Sort><Pagination><EntriesPerPage>50</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>`+
+          `<DetailLevel>ReturnAll</DetailLevel></GetMyeBaySellingRequest>`;
+        set("Reading page "+page+" — retrying with full detail…");
+        try{ r=await wimDesktop.invoke("ebay_trading_call",{ env:(DB.ebay.env||"sandbox"), appId:DB.ebay.appId, certId:DB.ebay.certId, refreshToken:DB.ebay.refreshToken, callName:"GetMyeBaySelling", siteId:"0", xmlBody:xmlFull0 }); }catch(e){}
+      }
       if(!r.ok){ stopDots(); if(!silent){ closeAllModals();
         const scopeMsg=ebayScopeError(r.body);
         uiAlert(scopeMsg || ("eBay listing read failed (HTTP "+r.status+"): "+(r.body||"").slice(0,300))); } return; }
@@ -13771,7 +13781,7 @@ async function pullNewListings(after,silent,opts){
         const qty=txt("Quantity")||"1";
         const title=txt("Title")||row.sku;
         const galleryUrl=txt("GalleryURL")||"";
-        const catId=txt("PrimaryCategoryID")||"";
+        const catId=txt("CategoryID")||txt("PrimaryCategoryID")||"";
         // Pictures: PictureDetails/PictureURL can repeat.
         const pics=[]; const pd=el.getElementsByTagName("PictureURL");
         for(let k=0;k<pd.length;k++) pics.push(pd[k].textContent);
