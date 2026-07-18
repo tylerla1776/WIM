@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.14", BUILD_DATE="2026-07-18", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.15", BUILD_DATE="2026-07-18", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.15","BUGFIX: BULK ADD CRASH ON OPEN (findMatches is not defined). When Bulk Add built a scan card it called a helper that checks whether the same item is ALREADY LISTED or has SOLD BEFORE -- but that helper lived inside the old Import Scans window code, so once Import Scans was removed from the menus the function was no longer reachable from Bulk Add, and opening Bulk Add (especially popped out) threw a ReferenceError and showed the error screen instead of the cards. The helper is now defined at the top level so every screen that renders a scan card can reach it, and the ALREADY LISTED / SOLD BEFORE badges work again. No behavior change beyond the fix."],
   ["3.4.14","WIM ANALYTICS COMPLETE: FORECASTING AND LABOR + THE CROSS-MODULE PRIORITY ACTION CENTER. This finishes the entire 21-dashboard analytics blueprint. FORECASTING AND LABOR plans weekly targets and a full multi-month scenario from your REAL throughput history -- the last twelve weeks of cataloged, listed and completed units WIM actually recorded. You enter your own assumptions in a clearly-labeled input row (goal length in months, pallets remaining, units per pallet, labor hours per person per week, and minutes per catalog/list/ship step) and every projection updates live. It computes the weekly listing target needed to hit the goal, the labor hours and roughly how many people that implies, and whether your current pace is on track or behind -- with a real twelve-week throughput chart, a current-versus-needed cumulative pace projection, a labor-mix-by-stage donut, and a weekly-targets-by-stage table showing the gap. Crucially it NEVER pretends to know what is inside an unopened pallet: the known backlog (real WIM items) and the assumed pallet units are shown separately, and every number that leans on the pallet estimate says plainly that it is your assumption, not something WIM knows. THE PRIORITY ACTION CENTER on the Executive Overview is now CROSS-MODULE: instead of one recommendation from one area, it gathers the single best reviewable action from every dashboard engine across the whole suite -- fees to pull, the review queue, a reprice, a backed-up workflow stage, unanswered negative feedback, an over-interested listing worth an offer, low fee coverage, a dominant return reason -- scores them all on one common scale of value, urgency, reach and feasibility, and ranks the top six into a single what-to-do-next list, each linking straight to the dashboard it came from. If every engine reports a clean state, it says so honestly rather than inventing work. Everything remains review-only: it opens the relevant screen and runs nothing on its own, and unknown pallet contents are never ranked as backlog. All twenty-one dashboards are now live. This completes WIM Analytics."],
   ["3.4.13","WIM ANALYTICS PART 9: ADVERTISING + CUSTOMER RETENTION + DATA AND API HEALTH. ADVERTISING is honestly a setup-state dashboard: Promoted Listings performance comes from eBay Marketing reporting, which WIM does not pull yet, so rather than invent ad numbers this page explains exactly what will appear (spend vs attributed sales, ROAS, ad click-through, cost-per-click, per-campaign efficiency, and a scale/hold/cut recommendation judged on true profit after the ad fee) and fills in automatically if that integration is ever added. No fabricated advertising data is shown. CUSTOMER RETENTION measures repeat buyers using ONLY the buyer username eBay already shows you -- never an address, and anyone who requested data deletion is excluded. Repeat buyer rate (correctly counting a buyer as repeat only when they had a purchase BEFORE the current period), orders per buyer, repeat revenue, and a count of loyal buyers with two-plus lifetime orders; plus a purchase-frequency distribution, a repeat-versus-new revenue trend, a top-repeat-buyers table, and a Best Retention Cohort to Test card that names a privacy-safe group -- defined only by what they bought -- worth a small thank-you or early-offer test. For a book and media reseller, mostly one-time buyers is normal, and the dashboard says so rather than treating it as a problem. DATA AND API HEALTH answers whether the numbers in every other dashboard can be trusted: sync freshness, fee coverage (how many sales have real pulled fees versus the estimated rate), cost coverage (cataloged items carrying a real unit cost), and lifecycle coverage (sold items with the full sold-to-shipped-to-completed chain), plus a data-coverage chart, a freshness table flagging anything stale, and a plain-language read of the few things that would make the numbers more accurate -- pull fees, fill in costs, refresh the traffic report. Low coverage is framed as leaning on estimates, not as an error. Twenty of twenty-one dashboards are now live -- only Forecasting and Labor remains, and it arrives next with the full cross-module Priority Action Center that ties every dashboard recommendation together."],
   ["3.4.12","WIM ANALYTICS PART 8: THE REPUTATION CLUSTER -- FEEDBACK OVERVIEW + REPUTATION AND REVIEWS + CUSTOMER VOICE. All three read the REAL eBay feedback WIM already pulls on the Reviews screen (Positive/Neutral/Negative plus a comment -- eBay does not use 1-to-5 stars, and none is invented here). If you have not pulled feedback yet, each dashboard says so plainly instead of showing blanks. FEEDBACK OVERVIEW: positive, neutral and negative rates for the period, your account lifetime positive percent, and a clear count of negatives/neutrals still needing a public response, with a weekly feedback trend, a Comment Themes chart that classifies what buyers actually wrote, and a Most Preventable Issue card that names the single operational fault (slow shipping, not-as-described, poor packaging) showing up most in the complaints -- the fix with the clearest link to reputation. REPUTATION AND REVIEWS is the early-warning view: negative rate, how well negatives and neutrals are being answered (response coverage), open unanswered risks, and a real acceleration check -- if the last 30 days are running well above the prior 30, a red banner says so, because catching a rising trend early is the whole point. A weekly negative-rate trend, a chart of which themes the risk concentrates on, and a table of every unanswered negative/neutral. CUSTOMER VOICE connects comments to repeat purchasing: comment volume, repeat buyers (who left feedback more than once), and the themes buyers praise versus gripe about, with an overall sentiment donut, a What Buyers Praise chart, a stream of real recent buyer comments, and a Top Experience Improvement card naming the gripe raised most often -- the change most likely to lift repeat buying and cut negatives together. Theme matching is keyword-based and labeled as directional, never presented as exact. Every recommendation is review-only and opens the Reviews screen; nothing posts or acts on its own. Sixteen of twenty-one dashboards are now live -- only Advertising, Customer Retention, Data and API Health, and Forecasting and Labor remain, plus the cross-module Priority Action Center."],
@@ -8714,6 +8715,34 @@ async function openImportScans(){
   // message line exactly as if the button was clicked.
   (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await refreshPhotos(); } }catch(e){} })();
 }
+// Top-level: finds an existing listed / previously-sold copy of the same item (by ISBN/barcode,
+// else strong title overlap). Used by Bulk Add's rich scan card for the ALREADY LISTED / SOLD
+// BEFORE indicators. Defined here (not only inside the old Import Scans window) so every scope
+// that renders a scan card can reach it.
+function findMatches(it){
+  const bc=(it.barcode||"").replace(/[^0-9X]/gi,"");
+  const norm=(x)=>((x&&x.desc)||"").toLowerCase();
+  const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
+  const words=norm(it).split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
+  const sameThing=(x)=>{
+    if(x.id===it.id) return false;
+    const xbc=(x.barcode||"").replace(/[^0-9X]/gi,"");
+    if(bc && xbc) return bc===xbc;
+    if(!words.length) return false;
+    const hay=norm(x)+" "+(((x.listing&&x.listing.title)||"").toLowerCase());
+    let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
+    return (hits/words.length) >= 0.6;
+  };
+  let listed=null, sold=null;
+  (DB.items||[]).forEach(x=>{
+    if(!sameThing(x)) return;
+    const st=itemStatus(x);
+    if(!listed && x.listing && x.listing.status==="listed" && st!=="sold" && st!=="inactive") listed=x;
+    if(!sold && (st==="sold"||st==="inactive") && x.fulfillment && x.fulfillment.soldAt) sold=x;
+  });
+  return { listed, sold };
+}
+
 function openBulkAdd(){
   if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
   const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:1180,height:640,popoutKey:"bulkadd",
