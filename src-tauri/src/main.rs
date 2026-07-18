@@ -652,7 +652,17 @@ async fn apify_fetch_sold(token: String, actor: String, keywords: String, max_re
     a = a.trim_matches('/').to_string();
     let actor_id = a.replace('/', "~");
     let url = format!("https://api.apify.com/v2/acts/{}/run-sync-get-dataset-items?token={}", actor_id, token);
-    let body = serde_json::json!({ "keywords": [keywords], "maxListingsPerSearch": max_results }).to_string();
+    // Different versions/forks of the eBay sold scraper name the search field differently
+    // (searchQueries vs keywords) and the cap differently (maxItems / maxListingsPerSearch /
+    // maxResults). We send all the common aliases; the actor reads the ones its schema defines and
+    // ignores the rest, so a schema change on Apify's side can't break the call.
+    let body = serde_json::json!({
+        "searchQueries": [keywords.clone()],
+        "keywords": [keywords],
+        "maxItems": max_results,
+        "maxListingsPerSearch": max_results,
+        "maxResults": max_results
+    }).to_string();
     match client.post(&url).header("Content-Type", "application/json").body(body).send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
