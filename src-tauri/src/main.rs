@@ -632,6 +632,25 @@ async fn iq_fetch_scans(base_url: String, token: String) -> ApiResult {
     }
 }
 
+// Calls an Apify actor's run-sync-get-dataset-items endpoint and returns the raw JSON dataset.
+// Used for the direct-from-WIM sold-listings pull (Deep Search). The token is passed per-call
+// from WIM's admin-only Apify Connection settings; nothing is stored in Rust. A generous timeout
+// is fine — an actor run can take a while — but http_client() already caps it.
+#[tauri::command]
+async fn apify_fetch_sold(token: String, actor: String, keywords: String, max_results: u32) -> ApiResult {
+    let client = http_client();
+    let url = format!("https://api.apify.com/v2/acts/{}/run-sync-get-dataset-items?token={}", actor, token);
+    let body = serde_json::json!({ "keywords": [keywords], "maxListingsPerSearch": max_results }).to_string();
+    match client.post(&url).header("Content-Type", "application/json").body(body).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 // Marks one scan imported so InventoryIQ stops returning it.
 #[tauri::command]
 async fn iq_mark_imported(base_url: String, token: String, scan_id: String) -> ApiResult {
@@ -654,6 +673,25 @@ fn wim_ensure_folder(path: String) -> Result<String, String> {
     Ok(path)
 }
 
+// Lists the sub-folder names directly inside a folder (one level, folders only). Used by the
+// photo pipeline to see which per-item photo folders exist in the synced Drive folder, so WIM can
+// match them to items and surface unmatched ones instead of guessing. Missing folder = empty list.
+#[tauri::command]
+fn wim_list_folders(path: String) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.is_dir() { return Ok(out); }
+    let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            if let Some(name) = entry.file_name().to_str() {
+                out.push(name.to_string());
+            }
+        }
+    }
+    Ok(out)
+}
+
 // Reads every image in a folder, returning them as base64 data URLs (same format WIM stores
 // photos in) alongside their filenames. Returns an empty list if the folder doesn't exist yet.
 #[tauri::command]
@@ -666,14 +704,21 @@ fn wim_read_folder_images(path: String) -> Result<Vec<serde_json::Value>, String
         let p = entry.path();
         if !p.is_file() { continue; }
         let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        // HEIC/HEIF (iPhone default) are returned FLAGGED, not skipped — the webview decodes them
+        // with the bundled libheif WASM and writes a JPEG back via wim_write_file. Every other
+        // format is handed straight through as a data URL as before.
+        let heic = ext == "heic" || ext == "heif";
         let mime = match ext.as_str() {
             "png" => "image/png", "gif" => "image/gif", "webp" => "image/webp",
-            "bmp" => "image/bmp", "jpg" | "jpeg" => "image/jpeg", _ => continue,
+            "bmp" => "image/bmp", "jpg" | "jpeg" => "image/jpeg",
+            "heic" => "image/heic", "heif" => "image/heif", _ => continue,
         };
         let bytes = match std::fs::read(&p) { Ok(b) => b, Err(_) => continue };
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("photo").to_string();
         out.push(serde_json::json!({
             "name": name,
+            "path": p.to_string_lossy(),
+            "needsConvert": heic,
             "dataUrl": format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes))
         }));
     }
@@ -697,6 +742,42 @@ fn wim_delete_folder(path: String, must_be_under: String) -> Result<bool, String
         return Err("Refused: won't delete the base folder itself.".to_string());
     }
     std::fs::remove_dir_all(&target_abs).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+// Writes bytes (base64) to a file — used to save a converted JPEG back into a photo folder.
+// Guarded exactly like wim_delete_folder: the destination must be inside the named base folder,
+// so a bad path can never write outside the WIM photo area.
+#[tauri::command]
+fn wim_write_file(path: String, base64_data: String, must_be_under: String) -> Result<bool, String> {
+    let target = std::path::PathBuf::from(&path);
+    let base = std::path::PathBuf::from(&must_be_under);
+    let base_abs = base.canonicalize().map_err(|e| e.to_string())?;
+    // The file may not exist yet, so canonicalize its PARENT and confirm that sits under base.
+    let parent = target.parent().ok_or_else(|| "No parent directory".to_string())?;
+    let parent_abs = parent.canonicalize().map_err(|e| e.to_string())?;
+    if !parent_abs.starts_with(&base_abs) {
+        return Err("Refused: destination is not inside the WIM photo base folder.".to_string());
+    }
+    let bytes = general_purpose::STANDARD.decode(base64_data.as_bytes()).map_err(|e| e.to_string())?;
+    std::fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+// Deletes a single file — used to remove a HEIC after its JPEG has been written. Same guard.
+#[tauri::command]
+fn wim_delete_file(path: String, must_be_under: String) -> Result<bool, String> {
+    let target = std::path::PathBuf::from(&path);
+    let base = std::path::PathBuf::from(&must_be_under);
+    let target_abs = target.canonicalize().map_err(|e| e.to_string())?;
+    let base_abs = base.canonicalize().map_err(|e| e.to_string())?;
+    if !target_abs.starts_with(&base_abs) {
+        return Err("Refused: target file is not inside the WIM photo base folder.".to_string());
+    }
+    if !target_abs.is_file() {
+        return Err("Refused: not a file.".to_string());
+    }
+    std::fs::remove_file(&target_abs).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -1470,10 +1551,14 @@ fn main() {
             pick_photo_folder,
             pick_photos_in_folder,
             iq_fetch_scans,
+            apify_fetch_sold,
             iq_mark_imported,
             wim_ensure_folder,
             wim_read_folder_images,
+            wim_list_folders,
             wim_delete_folder,
+            wim_write_file,
+            wim_delete_file,
             open_url,
             supabase_rpc,
             shippo_get_rates,
