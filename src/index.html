@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.17", BUILD_DATE="2026-07-18", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.18", BUILD_DATE="2026-07-18", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.18","PRICE COMPARE NOW SEARCHES BY EXACTLY WHAT IS IN THE TITLE FIELD. Deep Search sold (Apify), Pull Sold Listings, and the like-with-like filtering and best-match ranking all now use the item Title field -- the box you see and edit on the card -- as the search term, instead of sometimes using an older internal listing-title value that could differ from what is shown. So whatever you type or correct in the Title box is exactly what gets searched: fix a generic title to name the specific edition and the sold results follow immediately. It falls back to the listing title or sub-category only if the Title field is empty. This makes the search predictable -- what you see in Title is what is searched -- and is the simplest, most reliable way to get accurate comps: give the item a precise title and the comps match it. No settings change."],
   ["3.4.17","BUGFIX: APIFY SOLD SEARCH REJECTED THE INPUT (Field input.searchQueries is required). The 404 is gone -- the actor is now reached correctly -- but this actor wants its search term in a field called searchQueries, while WIM was sending keywords. Actor authors rename these fields between versions, so rather than guess one name, WIM now sends the search term under every common alias (searchQueries AND keywords) and the result cap under every common alias (maxItems, maxListingsPerSearch, maxResults) in the same request. The actor reads whichever fields its current schema defines and ignores the rest, so Deep Search sold works now and keeps working if the actor is updated again. The matching Worker paste applies the same fix to the phone-side Apify pull. No settings change on your end."],
   ["3.4.16","BUGFIX: APIFY SOLD SEARCH RETURNED A 404 (page-not-found). The Apify API needs an actor's name written with a tilde instead of the slash it shows in the console -- so automation-lab/ebay-sold-scraper has to become automation-lab~ebay-sold-scraper in the request URL. WIM was passing the actor through exactly as typed, so the slash made Apify read it as a bad URL and reject the call. Now WIM normalizes whatever you enter -- the natural slash form, the tilde form, even a full pasted API URL or stray spaces -- into the form Apify expects, so Deep Search sold works. You can keep the actor field exactly as you have it (automation-lab/ebay-sold-scraper); no change needed on your end. The Apify Connection screen also now notes that the slash form is fine."],
   ["3.4.15","BUGFIX: BULK ADD CRASH ON OPEN (findMatches is not defined). When Bulk Add built a scan card it called a helper that checks whether the same item is ALREADY LISTED or has SOLD BEFORE -- but that helper lived inside the old Import Scans window code, so once Import Scans was removed from the menus the function was no longer reachable from Bulk Add, and opening Bulk Add (especially popped out) threw a ReferenceError and showed the error screen instead of the cards. The helper is now defined at the top level so every screen that renders a scan card can reach it, and the ALREADY LISTED / SOLD BEFORE badges work again. No behavior change beyond the fix."],
@@ -6165,7 +6166,7 @@ function applyCompQuality(ourTitle, rows){
 function mountPriceCompare(opts){
   const it = opts.item;
   // The title the like-with-like filter judges comps against — live, so edits mid-session count.
-  const ourTitleForCompare=()=>((it.listing&&it.listing.title)||it.desc||"");
+  const ourTitleForCompare=()=>((it.desc&&it.desc.trim())||(it.listing&&it.listing.title)||"");
   // Condition bucketing: maps free-text condition strings (ours and eBay's) to a coarse bucket so
   // like-condition comparison works even when the exact wording differs ("Used - Good" vs "Good").
   function condBucketOf(s){ s=String(s||"").toLowerCase();
@@ -6275,7 +6276,10 @@ function mountPriceCompare(opts){
     const cfg=DB.apifySold||{};
     if(!cfg.enabled || !cfg.token){ uiAlert("Apify isn't set up. An admin can add a scoped token in Configuration → Setup → Apify Connection."); return; }
     if(!WIM_IS_DESKTOP){ uiAlert("The Apify sold pull runs in the desktop app."); return; }
-    const q=(it.listing&&it.listing.title)?it.listing.title:(it.desc||it.subCategory||"");
+    // Search Apify by exactly what is in the Title field (it.desc) -- that is the box the lister
+    // edits and sees, so the sold search always matches the visible title. Falls back to the
+    // listing title or sub-category only if the Title field is somehow empty.
+    const q=(it.desc&&it.desc.trim())?it.desc.trim():((it.listing&&it.listing.title)||it.subCategory||"");
     if(!q){ uiAlert("Add a title/description first, so there's something to search."); return; }
     // Per-level cap.
     const lvl=(typeof role==="function"?role():"warehouse");
@@ -6491,7 +6495,7 @@ function mountPriceCompare(opts){
     const cf=tabbody.querySelector("#cmps-condfilter"); if(cf) cf.onchange=()=>{ soldCondFilter=cf.value; compareTab(); };
     const apBtn=tabbody.querySelector("#cmps-apify");
     if(apBtn) apBtn.onclick=async ()=>{ apBtn.disabled=true; const had=!!(it.compareSold&&it.compareSold.apify&&(it.compareSold.apify.items||[]).length); await pullApifySold(had); apBtn.disabled=false; };
-    const qText=()=> it.listing&&it.listing.title?it.listing.title:(it.desc||it.subCategory||"");
+    const qText=()=> (it.desc&&it.desc.trim())?it.desc.trim():((it.listing&&it.listing.title)||it.subCategory||"");
     const upd=tabbody.querySelector("#cmps-update");
     if(upd) upd.onclick=async ()=>{
       if(!EBAY.ready()){ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); return; }
