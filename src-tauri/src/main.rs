@@ -639,7 +639,19 @@ async fn iq_fetch_scans(base_url: String, token: String) -> ApiResult {
 #[tauri::command]
 async fn apify_fetch_sold(token: String, actor: String, keywords: String, max_results: u32) -> ApiResult {
     let client = http_client();
-    let url = format!("https://api.apify.com/v2/acts/{}/run-sync-get-dataset-items?token={}", actor, token);
+    // Apify's API needs the actor's slash written as a tilde: "user/name" -> "user~name". Users
+    // naturally type it the way Apify shows it (with a slash), and some paste a whole console URL.
+    // Normalize all of those here so the endpoint always resolves instead of 404-ing.
+    let mut a = actor.trim().to_string();
+    // If someone pasted a full URL, keep only the "<user>/<name>" (or already-tilde) actor segment.
+    if let Some(pos) = a.find("/acts/") {
+        a = a[pos + 6..].to_string();
+        // drop anything after the actor id (e.g. /run-sync-get-dataset-items?...)
+        if let Some(slash) = a.find("/run") { a = a[..slash].to_string(); }
+    }
+    a = a.trim_matches('/').to_string();
+    let actor_id = a.replace('/', "~");
+    let url = format!("https://api.apify.com/v2/acts/{}/run-sync-get-dataset-items?token={}", actor_id, token);
     let body = serde_json::json!({ "keywords": [keywords], "maxListingsPerSearch": max_results }).to_string();
     match client.post(&url).header("Content-Type", "application/json").body(body).send().await {
         Ok(resp) => {
