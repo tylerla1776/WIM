@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.18", BUILD_DATE="2026-07-18", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.24", BUILD_DATE="2026-07-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,12 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.24","CARD LAYOUT POLISH (BATCH D, PART 2). The last of the redesign notes for the scan/item card. (1) DESCRIPTION IS NOW A ONE-LINE ROW: the buyer-description label and template picker sit together on a single line, and the full text box is tucked behind a small Edit text toggle -- since your default description already fills in automatically, you rarely need to see the whole body, so it stays out of the way until you want it. Click Edit text to reveal it, click again to hide. (2) SIMPLE GREEN PLUS / RED TRASH FOR PHOTOS: the photo panel add and delete buttons are now a clean green + (add photos) and a red trash can (delete the shown photo), instead of the wordier buttons -- clearer at a glance and less clutter under each photo. On Suggested Price and Range: these already sit in line at the top of the Price Compare panel (with the Active/Sold line and condition scope), so no move was needed there. This completes the four-batch Bulk Add / Price Compare redesign (A through D)."],
+  ["3.4.23","NEW COMICS CATEGORY + TOP-OF-SCREEN CLEANUP (BATCH D, PART 1). Two pieces of the final batch. (1) NEW EBAY CATEGORY: COMICS & GRAPHIC NOVELS. Comics now have their own category, separate from Books & Magazines, seeded with sub-types (Single Issue, Variant, Graphic Novel / TPB, Manga, Graded Slab, None) and its own condition list. Its eBay category ID is looked up LIVE from eBay the first time an administrator is connected -- nothing is hardcoded, so the ID can never go stale -- and its required listing fields are pulled the same way. Scanned comics that do not match a section now default here (Books stays the fallback for everything else). (2) BULK ADD TOP-OF-SCREEN CLEANUP: the tab formerly called Manual & Accepted is now NEW ITEMS; the Pull Scans button moved UP onto the tab row so it is right where the tabs are instead of on its own line; the long paragraph of help text at the top was trimmed to a single quiet line; and the heavy dividing borders were thinned so more items fit on screen without scrolling. NEXT (Batch D part 2): the remaining layout polish -- the one-line description row, the +/trash photo buttons, and moving Suggested Price/Range up in line -- plus wiring the new Comics category into the scan-default preference now that it exists."],
+  ["3.4.22","APIFY SOLD CHART + DEEP SEARCH MATCHING (BATCH C of the redesign). Two things. (1) THE SOLD CHART NOW CARRIES THE FULL PICTURE. Apify sold results show a big cover photo, Title, Price, SHIPPING, Date Sold, and DAYS LISTED (how long it was up before it sold) -- shipping and duration are read defensively from whatever fields the actor provides (shipping price or free; a duration number, or start-and-end dates diffed into days), shown as a dash when the actor did not supply them. The Item-number and Sold-in columns were replaced by these so the chart answers the questions that actually matter when pricing: what did it go for, what did shipping add, and how fast did it move. (2) DEEP SEARCH NOW MATCHES LIKE INVENTORYIQ. The desktop like-with-like filter that already excluded lots, graded slabs, wrong issues and wrong volumes now ALSO excludes wrong SPECIAL EDITIONS and wrong YEARS, using the exact same rules we built and tested on the phone scanner: a MinaLima/Illustrated/Deluxe/Signed/First-Edition item is only compared against copies that share that marker (both directions), and a comp is dropped only when its year conflicts with yours by 2 or more years -- a comp with no year, or within a year, still counts. So WIM Deep Search and InventoryIQ now judge editions and years identically. NEXT: the top-of-screen redesign (New Items tab rename, moving the tabs and Pull Scans up, removing the redundant add button and help text, see-everything-without-scrolling layout) and the new Comics & Graphic Novels eBay category via live lookup."],
+  ["3.4.21","PRICE COMPARE PANEL (BATCH B of the redesign). Four changes to the Price Compare tool. (1) CHANGING CONDITION RE-SCOPES INSTANTLY: the panel reads the item condition live now, so changing Condition on the card immediately re-figures Suggested Price and Range for that condition -- before, it kept using the condition from when the panel first opened. (2) THE TOGGLE BUTTON NOW REFLECTS ITS STATE: when scoped to the item condition it reads View all (click to see every condition); when showing everything it reads Condition: <that condition> (click to scope back), so the label always tells you what a click will do instead of always saying View all. (3) A MATCHING TOGGLE ON THE CHART: the Condition column header now has a small scope button right next to it -- All when unscoped, the condition name when scoped -- so you can flip the scope from the chart itself, exactly where you are reading conditions. (4) BIGGER COMP PHOTOS: comparison thumbnails on both the Active and Sold tabs are now much larger (72px, up from 38px) so you can confirm the cover is the right issue/edition without having to hover to zoom. NEXT: the richer Apify sold chart (photo, title, price, shipping, date sold, listing duration) plus porting the issue/edition/year matching gate into WIM Deep Search, then the top-of-screen redesign and the new Comics & Graphic Novels eBay category."],
+  ["3.4.20","BULK ADD REFINEMENTS (BATCH A, PART 2). Two more items from the redesign notes. (1) LIVE SEARCH ACROSS EVERY PAGE: the Bulk Add search box now filters the accepted scan cards AND the research cards as you type, across ALL pages -- not just the page you are on. Start typing a title and it jumps straight to the matching card wherever it lived, shows how many matches there are, and resets to the first page of results. It also now searches each card linked item title, category and item number, so partial titles find the right card. (2) LISTING DETAILS CARROT IS BACK -- AND AUTO-PULLS. The collapsible Listing Details drawer now shows on every scan card (it used to appear only after fields were already pulled, so a fresh card looked like it was missing), sitting right above the Price Compare drawer. Open it and, if the eBay category fields for that item are not already cached, WIM pulls them live from eBay automatically -- no separate button click -- so the details fill themselves in based on the item category. The Import Listing Fields button is still there for a manual re-pull. NEXT: Price Compare panel changes (condition-driven default, the View all / Condition toggle, bigger comp photos), the richer Apify sold chart, then the top-of-screen redesign with the new Comics & Graphic Novels eBay category."],
+  ["3.4.19","BULK ADD REFINEMENTS (BATCH A of the redesign). Five changes to the scan/item cards, based on the redesign notes. (1) PRICES END IN .95: the price prefilled from the scan median now rounds to the nearest .95 -- 11.50 becomes 11.95, 13.12 becomes 12.95 -- so listed prices are always clean. (2) CATEGORY NO LONGER DEFAULTS TO BABY: a scanned item whose category does not match a WIM section now defaults to Comics & Graphic Novels or Books & Magazines (whichever exists) instead of whatever section happened to be second in the list. (3) DEFAULT DESCRIPTION AUTO-FILLS: new scan cards start with your default description already selected and filled in the buyer-description box -- no need to pick it each time (set the default in Description Manager). (4) TITLE FIELD IS NOW TWO LINES TALL so you can read the whole title without scrolling sideways, and it is resizable. (5) Confirmed the Reserve and Manually-slot checkboxes and the description-template picker are present and wired on the card. NOTE: this is the first of several batches -- live type-ahead search, the listing-details drawer with auto-pull, the Price Compare panel changes, the richer Apify sold chart, and the top-of-screen redesign with the new Comics & Graphic Novels eBay category are coming in the next versions."],
   ["3.4.18","PRICE COMPARE NOW SEARCHES BY EXACTLY WHAT IS IN THE TITLE FIELD. Deep Search sold (Apify), Pull Sold Listings, and the like-with-like filtering and best-match ranking all now use the item Title field -- the box you see and edit on the card -- as the search term, instead of sometimes using an older internal listing-title value that could differ from what is shown. So whatever you type or correct in the Title box is exactly what gets searched: fix a generic title to name the specific edition and the sold results follow immediately. It falls back to the listing title or sub-category only if the Title field is empty. This makes the search predictable -- what you see in Title is what is searched -- and is the simplest, most reliable way to get accurate comps: give the item a precise title and the comps match it. No settings change."],
   ["3.4.17","BUGFIX: APIFY SOLD SEARCH REJECTED THE INPUT (Field input.searchQueries is required). The 404 is gone -- the actor is now reached correctly -- but this actor wants its search term in a field called searchQueries, while WIM was sending keywords. Actor authors rename these fields between versions, so rather than guess one name, WIM now sends the search term under every common alias (searchQueries AND keywords) and the result cap under every common alias (maxItems, maxListingsPerSearch, maxResults) in the same request. The actor reads whichever fields its current schema defines and ignores the rest, so Deep Search sold works now and keeps working if the actor is updated again. The matching Worker paste applies the same fix to the phone-side Apify pull. No settings change on your end."],
   ["3.4.16","BUGFIX: APIFY SOLD SEARCH RETURNED A 404 (page-not-found). The Apify API needs an actor's name written with a tilde instead of the slash it shows in the console -- so automation-lab/ebay-sold-scraper has to become automation-lab~ebay-sold-scraper in the request URL. WIM was passing the actor through exactly as typed, so the slash made Apify read it as a bad URL and reject the call. Now WIM normalizes whatever you enter -- the natural slash form, the tilde form, even a full pasted API URL or stray spaces -- into the form Apify expects, so Deep Search sold works. You can keep the actor field exactly as you have it (automation-lab/ebay-sold-scraper); no change needed on your end. The Apify Connection screen also now notes that the slash form is fine."],
@@ -1441,7 +1447,28 @@ function migrate(d){
       }
     });
   }
-  if(!Array.isArray(d.deletionAuditLog)) d.deletionAuditLog=[];
+  // Seed the new COMICS & GRAPHIC NOVELS section (its own eBay category, separate from books).
+  // The eBay category ID is looked up LIVE the first time an admin is connected (see
+  // ensureComicsCategoryMapped), so we don't hardcode an ID that could go stale.
+  if(Array.isArray(d.sections) && !d.sections.includes("Comics & Graphic Novels")){
+    // Insert near Books & Magazines if present, else at the front of the real sections.
+    const bi=d.sections.indexOf("Books & Magazines");
+    if(bi>=0) d.sections.splice(bi+1,0,"Comics & Graphic Novels"); else d.sections.unshift("Comics & Graphic Novels");
+    if(!d.conditionsByCat) d.conditionsByCat={};
+    if(!d.conditionsByCat["Comics & Graphic Novels"]) d.conditionsByCat["Comics & Graphic Novels"]=(d.conditions||STATIC.conditions).slice();
+    if(!d.subcats) d.subcats={};
+    if(!d.subcats["Comics & Graphic Novels"]){
+      d.subcats["Comics & Graphic Novels"]=[
+        { name:"Single Issue",      ebayId:"", ebayName:"", aspects:[], defaultWeight:"0.3" },
+        { name:"Variant",           ebayId:"", ebayName:"", aspects:[], defaultWeight:"0.3" },
+        { name:"Graphic Novel / TPB",ebayId:"", ebayName:"", aspects:[], defaultWeight:"1.0" },
+        { name:"Manga",             ebayId:"", ebayName:"", aspects:[], defaultWeight:"0.5" },
+        { name:"Graded Slab",       ebayId:"", ebayName:"", aspects:[], defaultWeight:"1.2" },
+        { name:"None",              ebayId:"", ebayName:"", aspects:[], defaultWeight:"" },
+      ];
+    }
+    d._comicsCatNeedsMapping=true;   // triggers the live eBay category lookup when connected
+  }
   if(!d.cachedFeedback) d.cachedFeedback={};
   if(!Array.isArray(d.feedbackSeenIds)) d.feedbackSeenIds=[];
   if(!d.cachedFeedbackSummary) d.cachedFeedbackSummary={ positivePercent:null, fetchedAt:null };
@@ -1976,7 +2003,10 @@ async function syncDelta(){
     return { ok:true, rows, full:!since };
   }catch(e){ return { ok:false, error:(e&&e.message)||String(e) }; }
 }
-function setEbayOnline(v){ EBAY_ONLINE=!!v; try{ localStorage.setItem("WIM_EBAY_ONLINE", EBAY_ONLINE?"1":"0"); }catch(e){} paintLiveBadge(); }
+function setEbayOnline(v){ EBAY_ONLINE=!!v; try{ localStorage.setItem("WIM_EBAY_ONLINE", EBAY_ONLINE?"1":"0"); }catch(e){} paintLiveBadge();
+  // First time we're genuinely online, make sure the Comics category has its live eBay mapping.
+  if(EBAY_ONLINE && DB && DB._comicsCatNeedsMapping && typeof ensureComicsCategoryMapped==="function"){ setTimeout(()=>{ ensureComicsCategoryMapped(); }, 800); }
+}
 window.addEventListener("storage", e=>{
   if(e.key==="WIM_EBAY_ONLINE"){ EBAY_ONLINE = e.newValue==="1"; ebayConnectGen++; paintLiveBadge(); try{ renderDashboard(); }catch(_){} }
 });
@@ -2044,6 +2074,38 @@ function categoryEbayId(cat){
   const sc=subcatsOf(cat).find(s=>s&&s.ebayId); return sc?sc.ebayId:"";
 }
 function aspectsFor(it){ return (DB.categoryAspects && DB.categoryAspects[it.section]) || []; }
+// Maps the Comics & Graphic Novels WIM section to a real eBay category ID via a LIVE lookup (no
+// hardcoded ID that could go stale), then pulls that category's required listing fields. Runs once
+// when an admin is connected; safe to call repeatedly (it no-ops once mapped).
+async function ensureComicsCategoryMapped(){
+  const CAT="Comics & Graphic Novels";
+  try{
+    if(!DB.sections || !DB.sections.includes(CAT)) return;
+    if(!DB._comicsCatNeedsMapping && categoryEbayId(CAT)) return;   // already mapped
+    if(!EBAY.ready()) return;                                       // wait until connected
+    const tree=await EBAY.treeId();
+    // Ask eBay which leaf category best matches — try a couple of phrasings, take the first solid hit.
+    let mapped=null;
+    for(const q of ["Comic Books","Comics & Graphic Novels","Comic Book"]){
+      const r=await EBAY.app(`/commerce/taxonomy/v1/category_tree/${tree}/get_category_suggestions?q=`+encodeURIComponent(q));
+      if(r.ok){
+        const j=JSON.parse(r.body); const sugg=(j.categorySuggestions||[]);
+        // Prefer a suggestion whose path mentions comics/graphic novels.
+        const pick=sugg.find(s=>/comic|graphic novel/i.test((s.categoryTreeNodeAncestors||[]).map(a=>a.categoryName).join(" ")+" "+((s.category&&s.category.categoryName)||""))) || sugg[0];
+        if(pick && pick.category && pick.category.categoryId){ mapped={ id:pick.category.categoryId, name:pick.category.categoryName||"" }; break; }
+      }
+    }
+    if(mapped){
+      if(!DB.categoryEbayMap) DB.categoryEbayMap={};
+      DB.categoryEbayMap[CAT]=mapped.id;
+      // Record the eBay name on each subcat donor so listing never blocks for lack of a mapping.
+      if(DB.subcats && DB.subcats[CAT]) DB.subcats[CAT].forEach(sc=>{ if(!sc.ebayId){ sc.ebayId=mapped.id; sc.ebayName=mapped.name; } });
+      DB._comicsCatNeedsMapping=false;
+      save();
+      try{ await fetchCategoryAspects(CAT); }catch(e){}   // pull its required listing fields now
+    }
+  }catch(e){ /* best-effort; retried next time an admin opens with eBay connected */ }
+}
 // Fetch a category's eBay aspects live and cache them at the category level. Called when the
 // category changes on an item, so the listing fields always reflect the current category.
 async function fetchCategoryAspects(cat, onStep){
@@ -2506,6 +2568,19 @@ function restoreSlot(it){
 }
 function fmtDate(iso){ if(!iso)return "—"; const d=new Date(iso); return d.toLocaleDateString()+" "+d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
 function fmtDay(iso){ if(!iso)return "—"; return new Date(iso).toLocaleDateString(); }
+// Rounds a suggested price to the nearest .95 ending (11.50 -> 11.95, 13.12 -> 12.95). Used for
+// the price prefilled from the scan median so listed prices always end in .95. Returns a string
+// with 2 decimals, or "" for a non-positive/invalid input.
+function roundTo95(v){
+  const n=parseFloat(v);
+  if(!(n>0)) return "";
+  // candidate .95 endings are (k + 0.95); pick the nearest one, so 13.12 -> 12.95, 11.50 -> 11.95.
+  const below=Math.floor(n)-1+0.95;   // e.g. 13.12 -> 12.95
+  const at=Math.floor(n)+0.95;        // e.g. 13.12 -> 13.95
+  const pick=(Math.abs(n-below)<=Math.abs(n-at))?below:at;
+  const out=pick<0.95?0.95:pick;      // never below 0.95
+  return out.toFixed(2);
+}
 
 /* ---- item-number grouping (same Item Number = quantity of one item) ---- */
 function skuCmp(a,b){ const sa=a||"\uffff", sb=b||"\uffff"; return sa.localeCompare(sb,undefined,{numeric:true}); }
@@ -6135,7 +6210,17 @@ function titleCompInfo(t){
   if((m=/#\s*(\d{1,4})\b/.exec(t))) issue=parseInt(m[1],10);
   else if((m=/\b(?:no\.?|issue|number)\s*(\d{1,4})\b/i.exec(t))) issue=parseInt(m[1],10);
   if((m=/\bvol(?:ume)?\.?\s*(\d{1,3})\b/i.exec(t))) vol=parseInt(m[1],10);
-  return { issue, vol, isLot:isLot&&!isGradedRangeException(low), isGraded };
+  // Distinctive special-edition markers (same set as InventoryIQ) — a $30 illustrated copy must not
+  // be priced against a $4 standard one. Returns the list of markers present in the title.
+  const EDMK=[["minalima",/\bmina[\s-]?lima\b/i],["illustrated",/\billustrat/i],["deluxe",/\bdeluxe\b/i],
+    ["slipcase",/\bslip[\s-]?case/i],["collector",/\bcollector'?s?\b/i],["anniversary",/\banniversary\b/i],
+    ["boxed set",/\bbox(ed)?[\s-]?set\b/i],["leather",/\bleather/i],["signed",/\bsigned\b|\bautograph/i],
+    ["first edition",/\b(first|1st)\s?(edition|print)/i],["limited",/\blimited\b/i],["special edition",/\bspecial edition\b/i],
+    ["gift edition",/\bgift edition\b/i],["hogwarts library",/\bhogwarts library\b/i]];
+  const markers=EDMK.filter(([,re])=>re.test(t)).map(([l])=>l);
+  // Edition/publication year (19xx/20xx), or 0 if none.
+  let year=0; const ym=t.match(/\b(19\d{2}|20\d{2})\b/); if(ym) year=parseInt(ym[1],10);
+  return { issue, vol, markers, year, isLot:isLot&&!isGradedRangeException(low), isGraded };
   function isGradedRangeException(){ return false; }
 }
 // Judge one comp against OUR title. Symmetric on lots: pricing a lot? compare against lots.
@@ -6148,6 +6233,13 @@ function compExcludeReason(ourTitle, compTitle){
   if(!o.isGraded && c.isGraded) return "graded/slabbed";
   if(o.issue!=null && c.issue!=null && o.issue!==c.issue) return "different issue (#"+c.issue+")";
   if(o.vol!=null && c.vol!=null && o.vol!==c.vol) return "different volume (Vol "+c.vol+")";
+  // Special-edition markers, symmetric (matches InventoryIQ): if ours is illustrated/MinaLima/deluxe,
+  // a comp lacking those markers is a different product; and vice versa.
+  const om=o.markers||[], cm=c.markers||[];
+  if(om.length && !om.every(x=>cm.includes(x))) return "not "+om[0]+" edition";
+  if(cm.length && !cm.every(x=>om.includes(x))) return cm[0]+" edition (yours isn't)";
+  // Year: discard only on a clear conflict — both have a year and they differ by 2+ years.
+  if(o.year && c.year && Math.abs(o.year-c.year)>=2) return "different year ("+c.year+")";
   return null;
 }
 // Partition comps into kept / excluded, flagging kept-but-unknown-issue comps as _noStat: they
@@ -6299,8 +6391,20 @@ function mountPriceCompare(opts){
         let p=o.soldPrice!=null?o.soldPrice:(o.price!=null?o.price:null);
         if(p && typeof p==="object") p=(p.value!=null?p.value:p.amount);
         const price=(typeof p==="number")?p:parseFloat(String(p==null?"":p).replace(/[^0-9.]/g,""));
+        // Shipping — actors name it many ways; read defensively, blank if truly absent.
+        let sh=o.shippingPrice!=null?o.shippingPrice:(o.shipping!=null?o.shipping:(o.shippingCost!=null?o.shippingCost:(o.deliveryPrice!=null?o.deliveryPrice:null)));
+        if(sh && typeof sh==="object") sh=(sh.value!=null?sh.value:sh.amount);
+        let shStr="";
+        if(sh!=null){ const shs=String(sh).toLowerCase(); if(shs.includes("free")) shStr="Free"; else { const shn=parseFloat(String(sh).replace(/[^0-9.]/g,"")); if(!isNaN(shn)) shStr=(shn===0?"Free":shn.toFixed(2)); } }
+        // Listing duration in days — how long it was listed before selling. Actors expose either a
+        // duration number, or start+end dates we can diff.
+        let durDays=null;
+        const durRaw=o.listingDuration!=null?o.listingDuration:(o.daysListed!=null?o.daysListed:(o.duration!=null?o.duration:null));
+        if(durRaw!=null){ const dn=parseFloat(String(durRaw).replace(/[^0-9.]/g,"")); if(!isNaN(dn)) durDays=Math.round(dn); }
+        if(durDays==null){ const start=o.startDate||o.listedDate||o.startTime||o.listingDate||""; const end=o.soldDate||o.endDate||o.date||""; if(start&&end){ const ds=new Date(start), de=new Date(end); if(!isNaN(ds)&&!isNaN(de)&&de>=ds) durDays=Math.round((de-ds)/86400000); } }
         return { title:o.title||"", price:(!isNaN(price)&&price>0)?String(price):"", condition:o.condition||"",
           soldDate:o.soldDate||o.date||"", webUrl:o.url||o.itemWebUrl||"", thumb:o.thumbnail||o.image||"",
+          shipping:shStr, durationDays:(durDays!=null?durDays:""),
           date:o.soldDate||o.date||"" };
       }).filter(x=>x.price);
       it.compareSold=it.compareSold||{};
@@ -6359,8 +6463,11 @@ function mountPriceCompare(opts){
       // Condition scoping (v3.4.5): by default show only comps whose condition matches the item's,
       // so Suggested Price and Range reflect like-condition sales. View-all lifts this. A comp with
       // no readable condition is never dropped by this scope (it just isn't a mismatch).
-      if(!cmpViewAllConds && ourCondBucket){
-        v=v.filter(r=>{ const b=condBucketOf(r.condition); return !b || b===ourCondBucket; });
+      // Re-read the item's condition LIVE each time (not a value captured at mount), so changing the
+      // condition on the card immediately re-scopes which comps count toward Suggested Price/Range.
+      const liveCondBucket=condBucketOf(it.condition);
+      if(!cmpViewAllConds && liveCondBucket){
+        v=v.filter(r=>{ const b=condBucketOf(r.condition); return !b || b===liveCondBucket; });
       }
       // Best-match ordering (v3.4.5): closest title match first, so the top rows are the ones a
       // lister should trust. Grouping, when chosen, overrides this.
@@ -6369,7 +6476,7 @@ function mountPriceCompare(opts){
       if(cmpShowExcluded && q.excluded.length){ q.excluded.forEach(r=>{ r._noStat=true; }); v=v.concat(q.excluded); }
       return v; }
     const anyFilter=Object.keys(cmpFilter).some(k=>cmpFilter[k]!==undefined);
-    const pinHead=(col,label,w)=>`<th style="position:relative;${w?('width:'+w+';'):''}"><span class="cmp-h" data-col="${col}" style="cursor:pointer;" title="Click to group by ${label}">${label}${cmpGroup===col?' ⤓':''}</span> <span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${(cmpFilter[col]!==undefined)?'#1f5fbf':'#9a9a9a'};font-size:11px;">▾</span></th>`;
+    const pinHead=(col,label,w)=>`<th style="position:relative;${w?('width:'+w+';'):''}"><span class="cmp-h" data-col="${col}" style="cursor:pointer;" title="Click to group by ${label}">${label}${cmpGroup===col?' ⤓':''}</span>${col==="condition"?` <button class="cmp-condtoggle" title="${cmpViewAllConds?'Showing all conditions — click to scope to this item':'Scoped to this item condition — click to show all'}" style="border:1px solid ${cmpViewAllConds?'#3b7dd8':'#c3c9d2'};background:${cmpViewAllConds?'#3b7dd8':'#fff'};color:${cmpViewAllConds?'#fff':'#5b6470'};font-size:9.5px;border-radius:4px;padding:1px 5px;cursor:pointer;vertical-align:middle;">${cmpViewAllConds?'All':(esc((it.condition||'this').split(' - ').pop()))}</button>`:''} <span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${(cmpFilter[col]!==undefined)?'#1f5fbf':'#9a9a9a'};font-size:11px;">▾</span></th>`;
     const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
     tabbody.innerHTML=`
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
@@ -6378,19 +6485,20 @@ function mountPriceCompare(opts){
         <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;" id="cmp-range">—</div></div>
         <div class="smallhint" id="cmp-count"></div>
         <div class="smallhint" id="cmp-condscope" style="display:flex;align-items:center;gap:6px;">
-          <span>Condition: <b>${esc(it.condition||"any")}</b></span>
-          <button class="btn sm" id="cmp-viewall" style="${cmpViewAllConds?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}" title="Show comps of all conditions, not just this one">View all</button>
+          <span>Viewing: <b>${cmpViewAllConds?"All conditions":esc(it.condition||"any")}</b></span>
+          <button class="btn sm" id="cmp-viewall" style="${cmpViewAllConds?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}" title="${cmpViewAllConds?'Currently showing every condition — click to scope back to this item condition':'Currently scoped to this item condition — click to show every condition'}">${cmpViewAllConds?("Condition: "+esc(it.condition||"any")):"View all"}</button>
         </div>
         <span style="flex:1;"></span>
         <div style="text-align:right;">${(anyFilter||cmpGroup)?'<button class="btn sm" id="cmp-clear">Reset</button> ':''}<button class="btn sm" id="cmp-update" ${ro?'disabled':''}>Update Listings</button>
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date Listed","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:80px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date Listed","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
     tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
     const upd=tabbody.querySelector("#cmp-update"); if(upd) upd.onclick=pullCompare;
     const clr=tabbody.querySelector("#cmp-clear"); if(clr) clr.onclick=()=>{ cmpFilter={}; cmpGroup=null; compareTab(); };
     const va=tabbody.querySelector("#cmp-viewall"); if(va) va.onclick=()=>{ cmpViewAllConds=!cmpViewAllConds; compareTab(); };
+    tabbody.querySelectorAll(".cmp-condtoggle").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); cmpViewAllConds=!cmpViewAllConds; compareTab(); });
     if(!cmp && !it._compareAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareAutoTried=true; pullCompare(); return; }
 
     // click header text -> group by that column (toggle off if already grouped)
@@ -6449,7 +6557,7 @@ function mountPriceCompare(opts){
       visible.forEach((row)=>{ const tr=document.createElement("tr");
         const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
         const titleCell = row.webUrl ? `<a href="#" class="cmp-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
-        tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
+        tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:72px;height:72px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:5px;">`:''}</td>
           <td style="font-size:12px;">${row._excludeWhy?'<span style="background:#F3E1DE;color:#922B21;font-size:10px;padding:1px 6px;border-radius:5px;font-weight:700;margin-right:5px;">excluded: '+esc(row._excludeWhy)+'</span>':''}${titleCell}${(row._noStat&&!row._excludeWhy)?' <span title="No issue number detected in this title — shown for reference but NOT counted in the average" style="background:#FFF3D6;color:#8A5E10;font-size:10px;padding:1px 6px;border-radius:5px;font-weight:700;">issue?</span>':''}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
         const lk=tr.querySelector(".cmp-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
         const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
@@ -6490,7 +6598,7 @@ function mountPriceCompare(opts){
           <div class="smallhint" style="margin-top:3px;">${(it.compareSold&&it.compareSold.apify)?("Apify: "+((it.compareSold.apify.items||[]).length)+" sold pulled"):(cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet")}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:46px;"></th><th>Title</th><th style="width:92px;">Item #</th><th style="width:76px;">Price</th><th style="width:82px;">Sold in</th><th style="width:110px;">Discounted?</th><th style="width:92px;">Date Sold</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:80px;"></th><th>Title</th><th style="width:76px;">Price</th><th style="width:78px;">Shipping</th><th style="width:92px;">Date Sold</th><th style="width:96px;">Days Listed</th><th style="width:110px;">Discounted?</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
     tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
     const cf=tabbody.querySelector("#cmps-condfilter"); if(cf) cf.onchange=()=>{ soldCondFilter=cf.value; compareTab(); };
     const apBtn=tabbody.querySelector("#cmps-apify");
@@ -6542,13 +6650,13 @@ function mountPriceCompare(opts){
       const disc = o.discount
         ? `<span style="color:#B03A2E;font-weight:600;">−${o.discount.pct}%</span><div class="smallhint">asked $${o.discount.asked.toFixed(2)}</div>`
         : `<span style="color:#1F7244;">full price</span>`;
-      tr.innerHTML=`<td><span title="You sold this" style="display:inline-block;width:38px;height:38px;line-height:38px;text-align:center;background:#1F9D55;color:#fff;font-size:10px;font-weight:700;border-radius:4px;">OURS</span></td>
+      tr.innerHTML=`<td><span title="You sold this" style="display:inline-block;width:72px;height:72px;line-height:72px;text-align:center;background:#1F9D55;color:#fff;font-size:11px;font-weight:700;border-radius:5px;">OURS</span></td>
         <td style="font-size:12px;"><a href="#" class="cmps-ourlink" data-id="${esc(o.itemRef)}" style="color:#1F7244;font-weight:600;text-decoration:none;border-bottom:1px dotted #9AD3AE;">${esc(o.desc)}</a></td>
-        <td style="font-size:11.5px;font-family:Consolas,monospace;">${esc(o.itemId||"—")}</td>
         <td style="font-weight:700;">${fmtP(o.price)}</td>
+        <td style="font-size:11.5px;"><span class="smallhint">—</span></td>
+        <td style="font-size:11.5px;">${dStr}</td>
         <td style="font-size:12px;">${o.took?esc(o.took):'<span class="smallhint">—</span>'}</td>
-        <td style="font-size:11.5px;">${disc}</td>
-        <td style="font-size:11.5px;">${dStr}</td><td></td>`;
+        <td style="font-size:11.5px;">${disc}</td><td></td>`;
       const ol=tr.querySelector(".cmps-ourlink");
       if(ol) ol.onclick=(e)=>{ e.preventDefault(); const t=(DB.items||[]).find(x=>x.id===ol.dataset.id); if(t) openItemDetail(t,"edit"); };
       tb.appendChild(tr);
@@ -6556,8 +6664,10 @@ function mountPriceCompare(opts){
     rows.forEach((row)=>{ const tr=document.createElement("tr");
       const d=row.soldDate?new Date(row.soldDate):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
       const titleCell = row.webUrl ? `<a href="#" class="cmps-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
-      tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:38px;height:38px;object-fit:contain;border:1px solid #eee;background:#fafafa;">`:''}</td>
-        <td style="font-size:12px;">${titleCell}</td><td style="font-size:11.5px;color:#8a95a3;">market</td><td>${fmtP(row.price)}</td><td><span class="smallhint">—</span></td><td><span class="smallhint">—</span></td><td style="font-size:11.5px;">${dStr}</td>`;
+      const shipCell = (row.shipping===""||row.shipping==null) ? '<span class="smallhint">—</span>' : (row.shipping==="Free"?'<span style="color:#1F7244;">Free</span>':("$"+row.shipping));
+      const durCell = (row.durationDays===""||row.durationDays==null) ? '<span class="smallhint">—</span>' : (row.durationDays+" day"+(row.durationDays==1?"":"s"));
+      tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:72px;height:72px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:5px;">`:''}</td>
+        <td style="font-size:12px;">${titleCell}<div class="smallhint" style="color:#8a95a3;">market</div></td><td>${fmtP(row.price)}</td><td style="font-size:11.5px;">${shipCell}</td><td style="font-size:11.5px;">${dStr}</td><td style="font-size:11.5px;">${durCell}</td><td><span class="smallhint">—</span></td>`;
       const lk=tr.querySelector(".cmps-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
       const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
       x.onclick=()=>{ const i=it.compareSold.items.indexOf(row); if(i>=0) it.compareSold.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
@@ -6975,14 +7085,14 @@ function itemPhotoPanel(it, onChange){
   if(peBtn) peBtn.onclick=(e)=>{ e.stopPropagation(); openPhotoEditor(it, it._viewIdx, ()=>onChange&&onChange()); };
 
   const btnRow=document.createElement("div"); btnRow.style.cssText="display:flex;gap:6px;margin-top:6px;";
-  const addB=document.createElement("button"); addB.className="btn sm"; addB.style.flex="1"; addB.textContent="+ Add photos";
+  const addB=document.createElement("button"); addB.className="btn sm"; addB.style.cssText="flex:1;background:#1F9D55;border-color:#1F9D55;color:#fff;font-weight:700;font-size:15px;line-height:1;padding:6px 0;"; addB.textContent="+"; addB.title="Add photos";
   const file=document.createElement("input"); file.type="file"; file.accept="image/*"; file.multiple=true; file.style.display="none";
   file.onchange=async ()=>{ const files=Array.from(file.files||[]);
     for(const f of files){ try{ const d=await compressImage(f); if(!it.images.includes(d)) it.images.push(d); }catch(e){} }
     file.value=""; if(it._viewIdx<0 && it.images.length) it._viewIdx=0;
     it.image=it.images[0]||""; saveIfSaved(it); onChange&&onChange(); };
   addB.onclick=()=>file.click();
-  const delB=document.createElement("button"); delB.className="btn sm"; delB.style.cssText="width:30px;border-color:#c0392b;color:#c0392b;"; delB.textContent="🗑"; delB.title="Delete the photo shown above";
+  const delB=document.createElement("button"); delB.className="btn sm"; delB.style.cssText="width:38px;background:#FBEDEC;border-color:#E0A9A2;color:#C0392B;font-size:14px;line-height:1;padding:6px 0;"; delB.textContent="🗑"; delB.title="Delete the photo shown above";
   delB.onclick=()=>{ if(it._viewIdx>=0){ it.images.splice(it._viewIdx,1);
     it._viewIdx=it.images.length?Math.min(it._viewIdx,it.images.length-1):-1;
     it.image=it.images[0]||""; saveIfSaved(it); onChange&&onChange(); } };
@@ -8078,14 +8188,14 @@ async function pullInventoryIqScans(){
       // sold examples through so the card's Sold tab shows them without paying for another pull.
       // Read defensively — lights up automatically when the Worker starts sending apifyExamples.
       const apEx = s.apifyExamples || s.apify_examples || (s.apify && s.apify.examples) || null;
-      const cat=DB.sections.includes(rec.category)?rec.category:(DB.sections[1]||DB.sections[0]||"");
+      const cat=DB.sections.includes(rec.category)?rec.category:(["Comics & Graphic Novels","Books & Magazines"].find(s=>DB.sections.includes(s))||DB.sections.find(s=>s&&s!=="NONE"&&s!=="General"&&s!=="Bulk")||DB.sections[0]||"");
       if(!(DB.vendors||[]).some(v=>String(v).toLowerCase()==="warehouse")){ DB.vendors=DB.vendors||[]; DB.vendors.push("Warehouse"); }
       const it={ id:crypto.randomUUID(), upc:genItemNumber(cat), desc:rec.desc,
         vendor:"Warehouse",
         condition:((s.condition&&(DB.conditions||[]).includes(s.condition))?s.condition:"Used - Good"), section:cat,
         unitCost:"0.00", retail:"0.00", onHand:"1", groups:[],
         category:"", subCategory:"", aspects:{},
-        listing:{status:"none",title:rec.desc,price:(rec.medianPrice||""),qty:"1"},
+        listing:{status:"none",title:rec.desc,price:(roundTo95(rec.medianPrice)||rec.medianPrice||""),qty:"1",descriptionId:(((DB.descriptions||[]).find(x=>x.isDefault)||{}).id||null)},
         images:[], imageFeatured:0, image:"", slot:"", placement:null, sku:"", manualSlot:false,
         sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null,
         caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0],
@@ -8300,7 +8410,7 @@ async function openImportScans(){
         <div class="is-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
           <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")} · scanned ${r.importedAt?fmtDay(r.importedAt):"—"}${it.barcode?" · ISBN "+esc(it.barcode):""} · <b style="color:${(function(){ const n=Math.max((it.images||[]).length, r.photoCount||0); const std=shotStdFor(it); return n>=std?'#1f9d55':(n>0?'#B8860B':'#c0392b'); })()};">${(function(){ const n=Math.max((it.images||[]).length, r.photoCount||0); const std=shotStdFor(it); return n>0?(n+"/"+std+" photos"+(n>=std?" ✓":"")):"No photos yet (0/"+std+")"; })()}</b></div>
-          <div><label style="font-size:11px;color:#5b6470;">Title</label><input class="txt is-f" data-f="desc" value="${esc(it.desc||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div><label style="font-size:11px;color:#5b6470;">Title</label><textarea class="txt is-f" data-f="desc" rows="2" style="width:100%;height:46px;box-sizing:border-box;resize:vertical;font-family:inherit;font-size:13px;line-height:1.3;padding:5px 7px;">${esc(it.desc||"")}</textarea></div>
           <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt is-f" data-f="price" value="${esc(String(L.price||it.retail||""))}" inputmode="decimal" placeholder="0.00" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Cost</label><input class="txt is-f" data-f="unitCost" value="${esc(it.unitCost||"")}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb is-f" data-f="section" style="width:100%;height:30px;font-size:12px;">${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${it.section===s?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
@@ -8329,12 +8439,15 @@ async function openImportScans(){
               ${(!!it.reserve)!==parentReserve?`<div style="margin-top:5px;color:#B03A2E;"><b>Reserve doesn't match.</b> The listing you're joining has Reserve <b>${parentReserve?"ON":"OFF"}</b>, but this card has it <b>${it.reserve?"ON":"OFF"}</b>. Either change it here, or <a href="#" class="is-openparent2" style="color:#2F6FB3;">open the existing listing</a> and change it there. Joining will follow whatever the existing listing says.</div>`:``}
             </div>`:``}
           </div>`:``}
-          <div style="grid-column:1 / -1;">
-            <label style="font-size:11px;color:#5b6470;">Description (to buyer)</label>
-            <select class="cmb is-desctpl" style="width:100%;height:30px;box-sizing:border-box;margin-bottom:5px;">
-              <option value="">(write your own below)</option>
+          <div style="grid-column:1 / -1;display:flex;align-items:center;gap:8px;">
+            <label style="font-size:11px;color:#5b6470;white-space:nowrap;">Description (to buyer)</label>
+            <select class="cmb is-desctpl" style="flex:1;height:30px;box-sizing:border-box;">
+              <option value="">(write your own)</option>
               ${(DB.descriptions||[]).map(d=>`<option value="${esc(d.id)}" ${L.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}
             </select>
+            <button type="button" class="btn sm is-desc-edit" title="Show/hide the full description text" style="white-space:nowrap;">Edit text ▾</button>
+          </div>
+          <div class="is-desc-wrap" style="grid-column:1 / -1;display:none;">
             <textarea class="txt is-f" data-f="descBody" style="width:100%;min-height:54px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc((L.descriptionId&&((DB.descriptions||[]).find(x=>x.id===L.descriptionId)||{}).body)||L.descBody||"")}</textarea>
           </div>
         </div>
@@ -8347,12 +8460,12 @@ async function openImportScans(){
           <button class="btn sm is-delete" style="background:#FDF3F2;border-color:#EFC9C4;color:#B4574C;font-weight:500;">Delete Scan</button>
         </div>
       </div>
-      ${dyn.length?`<div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
+      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
-          <div class="is-lf-hdr" style="font-size:11px;color:#5b6470;cursor:pointer;user-select:none;flex:1;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isFieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Fields</b> <span style="color:#8a95a3;">(from eBay for ${esc(it.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}</span></div>
+          <div class="is-lf-hdr" style="font-size:11px;color:#5b6470;cursor:pointer;user-select:none;flex:1;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isFieldsOpen?'90':'0'}deg);">▶</span> <b>Listing Details</b> <span style="color:#8a95a3;">${dyn.length?`(from eBay for ${esc(it.section||"this category")}) — ${dyn.length} field${dyn.length===1?'':'s'}`:`— pull the eBay category fields for this item`}</span></div>
           <button class="btn sm is-findebay" title="Search eBay for this item to set its category and pull in the required listing fields" style="border-color:#378add;color:#0c447c;font-weight:600;">🔍 Import Listing Fields</button>
         </div>
-        <div class="is-lf-body" style="display:${it._isFieldsOpen?'grid':'none'};grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt is-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join("")}</div></div>`:''}
+        <div class="is-lf-body" style="display:${it._isFieldsOpen?'grid':'none'};grid-template-columns:repeat(4,1fr);gap:8px 14px;">${dyn.length?dyn.map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt is-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join(""):`<div style="grid-column:1 / -1;font-size:12px;color:#8a95a3;padding:4px 0;">No eBay fields pulled yet. Click <b>Import Listing Fields</b> above to fetch the required fields for this item's category${it.section?` (${esc(it.section)})`:""}.</div>`}</div></div>
       <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
         <div class="is-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span style="display:inline-block;transition:transform .12s;transform:rotate(${it._isCompareOpen?'90':'0'}deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— see what similar items are listed and sold for</span></div>
         <div class="is-pc-body" style="display:${it._isCompareOpen?'block':'none'};"></div>
@@ -8443,6 +8556,14 @@ async function openImportScans(){
       f.addEventListener("input",()=>footer.markDirty());
       f.addEventListener("change",()=>footer.markDirty());
     });
+    // Changing the Condition on the card re-scopes Price Compare immediately (Suggested Price and
+    // Range re-figure for the new condition) -- the panel reads it.condition live.
+    const condField=card.querySelector('.is-f[data-f="condition"]');
+    if(condField) condField.addEventListener("change",()=>{
+      it.condition=condField.value;
+      const pcBody=card.querySelector(".is-pc-body");
+      if(pcBody && it._isCompareOpen && pcBody.dataset.mounted){ pcBody.dataset.mounted=""; pcBody.innerHTML=""; pcBody.dataset.mounted="1"; mountPriceCompare({ item:it, container:pcBody, markDirty:()=>{}, save, readOnly:false }); }
+    });
 
     card.querySelector(".is-open").onclick=()=>{
       if(typeof popOutItem==="function" && popOutItem(it,"edit")) return;
@@ -8510,6 +8631,9 @@ async function openImportScans(){
     };
 
     const isTpl=card.querySelector(".is-desctpl");
+    const descEditBtn=card.querySelector(".is-desc-edit");
+    const descWrap=card.querySelector(".is-desc-wrap");
+    if(descEditBtn && descWrap) descEditBtn.onclick=()=>{ const open=descWrap.style.display!=="none"; descWrap.style.display=open?"none":"block"; descEditBtn.textContent=open?"Edit text ▾":"Hide text ▴"; };
     if(isTpl) isTpl.onchange=()=>{
       if(!it.listing) it.listing={status:"none",title:"",price:"",qty:"1",descriptionId:null};
       const sel=isTpl.value||null;
@@ -8553,10 +8677,17 @@ async function openImportScans(){
     // Expand/collapse in place — see the note on the Supervisor Review card: re-rendering the whole
     // list just to open one drawer threw the user back to the top of the page.
     const lfHdr=card.querySelector(".is-lf-hdr");
-    if(lfHdr) lfHdr.onclick=()=>{
+    if(lfHdr) lfHdr.onclick=async ()=>{
       it._isFieldsOpen=!it._isFieldsOpen;
       const b=card.querySelector(".is-lf-body"); if(b) b.style.display=it._isFieldsOpen?"grid":"none";
       const car=lfHdr.querySelector("span"); if(car) car.style.transform="rotate("+(it._isFieldsOpen?90:0)+"deg)";
+      // Opening the drawer with no fields yet? Pull them live from eBay for this category so the
+      // details fill in on their own, no separate button click needed.
+      if(it._isFieldsOpen && it.section && !(DB.categoryAspects&&DB.categoryAspects[it.section]&&DB.categoryAspects[it.section].length) && categoryEbayId(it.section) && EBAY.ready() && !it._fieldsPulling){
+        it._fieldsPulling=true;
+        try{ await fetchCategoryAspects(it.section); }catch(e){}
+        it._fieldsPulling=false; render();
+      }
     };
     const pcHdr=card.querySelector(".is-pc-hdr");
     if(pcHdr) pcHdr.onclick=()=>{
@@ -8605,7 +8736,7 @@ async function openImportScans(){
         // Create the item shell now so opening it later goes straight to the listing flow.
         // Matches the app's standard item shape (same as Bulk Add), minus slotting/pricing,
         // which the user sets when they actually build the listing.
-        const cat=DB.sections.includes(rec.category)?rec.category:(DB.sections[1]||DB.sections[0]||"");
+        const cat=DB.sections.includes(rec.category)?rec.category:(["Comics & Graphic Novels","Books & Magazines"].find(s=>DB.sections.includes(s))||DB.sections.find(s=>s&&s!=="NONE"&&s!=="General"&&s!=="Bulk")||DB.sections[0]||"");
         if(!(DB.vendors||[]).some(v=>String(v).toLowerCase()==="warehouse")){ DB.vendors=DB.vendors||[]; DB.vendors.push("Warehouse"); }
         const it={ id:crypto.randomUUID(), upc:genItemNumber(cat), desc:rec.desc,
           // Scanned stock is the warehouse's own used inventory: vendor Warehouse, condition
@@ -8617,7 +8748,7 @@ async function openImportScans(){
           condition:((s.condition&&(DB.conditions||[]).includes(s.condition))?s.condition:"Used - Good"), section:cat,
           unitCost:"0.00", retail:"0.00", onHand:"1", groups:[],
           category:"", subCategory:"", aspects:{},
-          listing:{status:"none",title:rec.desc,price:(rec.medianPrice||""),qty:"1"},
+          listing:{status:"none",title:rec.desc,price:(roundTo95(rec.medianPrice)||rec.medianPrice||""),qty:"1",descriptionId:(((DB.descriptions||[]).find(x=>x.isDefault)||{}).id||null)},
           images:[], imageFeatured:0, image:"", slot:"", placement:null, sku:"", manualSlot:false,
           sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null,
           caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0],
@@ -8802,7 +8933,12 @@ function openBulkAdd(){
     if(baResearched && !r.researched) return false;
     if(baSearch){
       const q=baSearch.toLowerCase();
-      if(((r.desc||"")+" "+(r.vendor||"")+" "+(r.section||"")+" "+(r.subcat||"")).toLowerCase().indexOf(q)<0) return false;
+      // Search the row's own fields AND, for scan cards, the linked item's title/category/vendor —
+      // so typing part of a title finds the card wherever it lives, across every page.
+      const lit = r.itemId ? (DB.items.find(x=>x.id===r.itemId)||null) : null;
+      const hay=((r.desc||"")+" "+(r.vendor||"")+" "+(r.section||"")+" "+(r.subcat||"")+" "+(r.category||"")+" "+(r.barcode||"")+" "
+        +(lit?((lit.desc||"")+" "+(lit.section||"")+" "+(lit.vendor||"")+" "+(lit.upc||"")):"")).toLowerCase();
+      if(hay.indexOf(q)<0) return false;
     }
     return true;
   };
@@ -8810,7 +8946,7 @@ function openBulkAdd(){
   // (Native <datalist> dropdowns were removed — every combo field now uses wimCombo, which
   // doesn't cover the textbox or swallow keystrokes like the native datalist did.)
   body.innerHTML=`
-    <div style="padding:10px 14px 2px;font-size:12.5px;color:#333;">Add items as cards below. <b>Quantity</b> defaults to 1 — each unit gets its own Warehouse SKU, kept together in a slot. Leave <b>Warehouse SKU</b> on "Auto SKU" to let WIM pick the slot. Click the magnifying glass on a card to pull real eBay category fields.</div>
+    <div style="padding:6px 14px 0;font-size:11.5px;color:#8a95a3;">New Items ready to build. Quantity defaults to 1; leave Warehouse SKU on Auto to let WIM pick the slot.</div>
     <div style="padding:2px 14px;display:flex;align-items:center;gap:10px;font-size:12px;color:#5b6470;border-bottom:1px solid #e2e6ec;flex-wrap:wrap;">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="ba-selall"> Select all</label>
       <input class="txt" id="ba-search" placeholder="Search title / vendor / category…" style="height:26px;font-size:12px;width:210px;">
@@ -8821,15 +8957,15 @@ function openBulkAdd(){
       <select class="cmb" id="ba-sortkey" style="height:26px;font-size:12px;width:150px;"><option value="">(entry order)</option><option value="desc">Title</option><option value="section">Category</option><option value="condition">Condition</option><option value="vendor">Vendor</option><option value="unitCost">Unit Cost</option><option value="qty">Quantity</option></select>
       <button class="btn sm" id="ba-sortdir" title="Toggle ascending/descending">▲</button>
     </div>
-    <div id="ba-scantabs" style="padding:8px 14px 0;border-bottom:1px solid #e2e6ec;display:none;">
-      <div class="tabs" style="margin:0;">
-        <div class="tab" id="ba-tab-main">Manual &amp; Accepted</div>
+    <div id="ba-scantabs" style="padding:6px 14px 0;border-bottom:0.5px solid #e8ebef;display:none;align-items:center;gap:10px;">
+      <div class="tabs" style="margin:0;flex:1;">
+        <div class="tab" id="ba-tab-main">New Items</div>
         <div class="tab" id="ba-tab-research">Needs Research</div>
       </div>
+      <button class="btn sm" id="ba-pullscans" style="margin-bottom:4px;">Pull Scans</button>
     </div>
-    <div id="ba-scanbar" style="padding:6px 14px;display:none;align-items:center;gap:10px;font-size:12px;color:#5b6470;border-bottom:1px solid #f0f2f5;">
-      <button class="btn sm" id="ba-pullscans">Pull Scans</button>
-      <span id="ba-scanbar-msg" style="flex:1;color:#8a95a3;"></span>
+    <div id="ba-scanbar" style="padding:4px 14px;display:none;align-items:center;gap:10px;font-size:11.5px;color:#8a95a3;">
+      <span id="ba-scanbar-msg" style="flex:1;"></span>
       <span id="ba-scanpager"></span>
     </div>
     <div id="ba-cards" style="padding:10px 14px;overflow:auto;flex:1;"></div>
@@ -8912,21 +9048,21 @@ function openBulkAdd(){
     // ---- Scan pipeline visibility (v3.4.4) ----
     const hasScanPipe=WIM_IS_DESKTOP && DB.iqSettings && DB.iqSettings.baseUrl && DB.iqSettings.token;
     const tabsEl=body.querySelector("#ba-scantabs"), barEl=body.querySelector("#ba-scanbar");
-    if(tabsEl) tabsEl.style.display=hasScanPipe?"block":"none";
+    if(tabsEl) tabsEl.style.display=hasScanPipe?"flex":"none";
     if(barEl) barEl.style.display=hasScanPipe?"flex":"none";
     if(hasScanPipe){
       const rCount=researchScans().length, aCount=acceptedScans().length;
       const t1=body.querySelector("#ba-tab-main"), t2=body.querySelector("#ba-tab-research");
-      if(t1){ t1.textContent="Manual & Accepted ("+aCount+")"; t1.className="tab"+(baMainTab==="manual"?" sel":""); }
+      if(t1){ t1.textContent="New Items ("+aCount+")"; t1.className="tab"+(baMainTab==="manual"?" sel":""); }
       if(t2){ t2.textContent="Needs Research ("+rCount+")"; t2.className="tab"+(baMainTab==="research"?" sel":""); }
     }
     // ---- Research tab: render research scan cards only (uses the existing scanCard component). ----
     if(baMainTab==="research" && hasScanPipe){
-      const list=researchScans();
+      const list=researchScans().filter(rowVisible);   // search spans all research pages
       const pages=Math.max(1,Math.ceil(list.length/SCAN_PER_PAGE));
-      if(scanPage>=pages) scanPage=pages-1;
+      if(scanPage>=pages) scanPage=pages-1; if(scanPage<0) scanPage=0;
       const slice=list.slice(scanPage*SCAN_PER_PAGE,(scanPage+1)*SCAN_PER_PAGE);
-      if(!slice.length){ tb.innerHTML=`<div class="note">No items waiting for research. Items scanned without a confident price land here; research one, set a price, then Mark Reviewed to move it to Accepted (its photo folder is created then).</div>`; }
+      if(!slice.length){ tb.innerHTML = baSearch ? `<div class="note">No research items match "${esc(baSearch)}".</div>` : `<div class="note">No items waiting for research. Items scanned without a confident price land here; research one, set a price, then Mark Reviewed to move it to Accepted (its photo folder is created then).</div>`; }
       else { slice.forEach(r=>tb.appendChild(baScanCard(r))); }
       const pager=body.querySelector("#ba-scanpager");
       if(pager) pager.innerHTML = pages>1 ? `Page ${scanPage+1}/${pages} &nbsp;<button class="btn sm" id="ba-sp-prev" ${scanPage<=0?"disabled":""}>‹</button> <button class="btn sm" id="ba-sp-next" ${scanPage>=pages-1?"disabled":""}>›</button>` : "";
@@ -8941,12 +9077,16 @@ function openBulkAdd(){
     let hiddenByFilter=0;
     // Manual/Accepted tab: accepted scan cards first (oldest first), then the typed rows below.
     if(hasScanPipe && baMainTab==="manual"){
-      const acc=acceptedScans();
+      // Search spans EVERY page: filter the whole accepted list first, then paginate the matches.
+      // rowVisible works on scan records too (desc/vendor/section), so a search finds a card no
+      // matter which page it was on.
+      const acc=acceptedScans().filter(rowVisible);
       const pages=Math.max(1,Math.ceil(acc.length/SCAN_PER_PAGE));
-      if(scanPage>=pages) scanPage=pages-1;
+      if(scanPage>=pages) scanPage=pages-1; if(scanPage<0) scanPage=0;
       acc.slice(scanPage*SCAN_PER_PAGE,(scanPage+1)*SCAN_PER_PAGE).forEach(r=>tb.appendChild(baScanCard(r)));
       const pager=body.querySelector("#ba-scanpager");
-      if(pager) pager.innerHTML = pages>1 ? `Accepted page ${scanPage+1}/${pages} &nbsp;<button class="btn sm" id="ba-sp-prev" ${scanPage<=0?"disabled":""}>‹</button> <button class="btn sm" id="ba-sp-next" ${scanPage>=pages-1?"disabled":""}>›</button>` : "";
+      const lbl = baSearch ? "Matches" : "Accepted";
+      if(pager) pager.innerHTML = pages>1 ? `${lbl} page ${scanPage+1}/${pages} &nbsp;<button class="btn sm" id="ba-sp-prev" ${scanPage<=0?"disabled":""}>‹</button> <button class="btn sm" id="ba-sp-next" ${scanPage>=pages-1?"disabled":""}>›</button>` : (baSearch?`${acc.length} match${acc.length===1?"":"es"}`:"");
       const pv=body.querySelector("#ba-sp-prev"), nx=body.querySelector("#ba-sp-next");
       if(pv) pv.onclick=()=>{ scanPage--; render(); }; if(nx) nx.onclick=()=>{ scanPage++; render(); };
       renderScanBar();
@@ -9129,7 +9269,7 @@ function openBulkAdd(){
   { const sa=body.querySelector("#ba-selall"); if(sa) sa.onchange=()=>{ selected.clear(); if(sa.checked) rows.forEach(r=>{ if(!r.created) selected.add(r); }); render(); };
     const sk=body.querySelector("#ba-sortkey"); if(sk) sk.onchange=()=>{ sortKey=sk.value; render(); };
     const srch=body.querySelector("#ba-search"); if(srch){ srch.value=baSearch;
-      srch.oninput=()=>{ baSearch=srch.value.trim(); render();
+      srch.oninput=()=>{ const prev=baSearch; baSearch=srch.value.trim(); if(baSearch!==prev) scanPage=0; render();
         // render() rebuilds the whole screen including this input — put the cursor back where the
         // person was typing, or search becomes one-letter-at-a-time.
         const n=body.querySelector("#ba-search"); if(n){ n.focus(); try{ n.setSelectionRange(n.value.length,n.value.length); }catch(e){} } };
