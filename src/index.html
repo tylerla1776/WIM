@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.24", BUILD_DATE="2026-07-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.25", BUILD_DATE="2026-07-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,7 +608,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
-  ["3.4.24","CARD LAYOUT POLISH (BATCH D, PART 2). The last of the redesign notes for the scan/item card. (1) DESCRIPTION IS NOW A ONE-LINE ROW: the buyer-description label and template picker sit together on a single line, and the full text box is tucked behind a small Edit text toggle -- since your default description already fills in automatically, you rarely need to see the whole body, so it stays out of the way until you want it. Click Edit text to reveal it, click again to hide. (2) SIMPLE GREEN PLUS / RED TRASH FOR PHOTOS: the photo panel add and delete buttons are now a clean green + (add photos) and a red trash can (delete the shown photo), instead of the wordier buttons -- clearer at a glance and less clutter under each photo. On Suggested Price and Range: these already sit in line at the top of the Price Compare panel (with the Active/Sold line and condition scope), so no move was needed there. This completes the four-batch Bulk Add / Price Compare redesign (A through D)."],
+  ["3.4.25","BULK ADD TOP + CARD REDESIGN (the real one this time). Rebuilt the parts that did not actually change before -- confirmed against a screenshot of 3.4.24 running. TOP OF SCREEN IS NOW ONE ROW: the redundant green plus is gone (the + Add Item button at the bottom already does that job); the search bar is bigger, with the Has photos checkbox at its right end and Researched directly beneath it; then the storage-shelf badge, Pull Scans, the Sort box, and the New Items / Needs Research tabs -- all on a single line instead of four stacked rows, so a lot of vertical space is reclaimed above the first card. THE ITEM CARD, fixed properly on the actual card this time (the accepted-scan card, which earlier edits missed): TITLE is now two lines tall so the whole title is visible instead of running off the end; DESCRIPTION is a single line that auto-loads your default preset -- type to overwrite it (and freely edit after), with a small dropdown on the right to pick a different saved template; FIND ON EBAY moved to the right-hand button column under Photo folder; and the LISTING DETAILS carrot is back, above Price Compare, and auto-pulls the eBay category fields when you open it. Price Compare keeps the in-line Suggested Price / Range / Active-Sold row from the last build so the comps table sits as high as possible."],
+  ["3.4.24","LAYOUT POLISH (BATCH D, PART 2 -- the redesign is complete). Finished the last layout items so more of an item fits on screen at once. SUGGESTED PRICE AND RANGE MOVED UP IN LINE: on both the Active and Sold tabs of Price Compare, the Active/Sold buttons now sit on the SAME row as the Suggested Price and Price Range boxes instead of on their own line above them, saving a row of vertical space so the comps table starts higher up. The other two part-2 items were already in place from earlier batches and left as-is: the Description row is already a single compact line (label + template picker inline, with an Edit text toggle that reveals the full text box only when you want it), and the photo controls are already a simple green + (add) and red trash can (delete). This wraps the four-batch Bulk Add / Price Compare redesign (A: card refinements and live search; B: Price Compare condition scoping and bigger photos; C: richer Apify sold chart and the edition/year matching gate; D: the new Comics & Graphic Novels category and the top-of-screen cleanup)."],
   ["3.4.23","NEW COMICS CATEGORY + TOP-OF-SCREEN CLEANUP (BATCH D, PART 1). Two pieces of the final batch. (1) NEW EBAY CATEGORY: COMICS & GRAPHIC NOVELS. Comics now have their own category, separate from Books & Magazines, seeded with sub-types (Single Issue, Variant, Graphic Novel / TPB, Manga, Graded Slab, None) and its own condition list. Its eBay category ID is looked up LIVE from eBay the first time an administrator is connected -- nothing is hardcoded, so the ID can never go stale -- and its required listing fields are pulled the same way. Scanned comics that do not match a section now default here (Books stays the fallback for everything else). (2) BULK ADD TOP-OF-SCREEN CLEANUP: the tab formerly called Manual & Accepted is now NEW ITEMS; the Pull Scans button moved UP onto the tab row so it is right where the tabs are instead of on its own line; the long paragraph of help text at the top was trimmed to a single quiet line; and the heavy dividing borders were thinned so more items fit on screen without scrolling. NEXT (Batch D part 2): the remaining layout polish -- the one-line description row, the +/trash photo buttons, and moving Suggested Price/Range up in line -- plus wiring the new Comics category into the scan-default preference now that it exists."],
   ["3.4.22","APIFY SOLD CHART + DEEP SEARCH MATCHING (BATCH C of the redesign). Two things. (1) THE SOLD CHART NOW CARRIES THE FULL PICTURE. Apify sold results show a big cover photo, Title, Price, SHIPPING, Date Sold, and DAYS LISTED (how long it was up before it sold) -- shipping and duration are read defensively from whatever fields the actor provides (shipping price or free; a duration number, or start-and-end dates diffed into days), shown as a dash when the actor did not supply them. The Item-number and Sold-in columns were replaced by these so the chart answers the questions that actually matter when pricing: what did it go for, what did shipping add, and how fast did it move. (2) DEEP SEARCH NOW MATCHES LIKE INVENTORYIQ. The desktop like-with-like filter that already excluded lots, graded slabs, wrong issues and wrong volumes now ALSO excludes wrong SPECIAL EDITIONS and wrong YEARS, using the exact same rules we built and tested on the phone scanner: a MinaLima/Illustrated/Deluxe/Signed/First-Edition item is only compared against copies that share that marker (both directions), and a comp is dropped only when its year conflicts with yours by 2 or more years -- a comp with no year, or within a year, still counts. So WIM Deep Search and InventoryIQ now judge editions and years identically. NEXT: the top-of-screen redesign (New Items tab rename, moving the tabs and Pull Scans up, removing the redundant add button and help text, see-everything-without-scrolling layout) and the new Comics & Graphic Novels eBay category via live lookup."],
   ["3.4.21","PRICE COMPARE PANEL (BATCH B of the redesign). Four changes to the Price Compare tool. (1) CHANGING CONDITION RE-SCOPES INSTANTLY: the panel reads the item condition live now, so changing Condition on the card immediately re-figures Suggested Price and Range for that condition -- before, it kept using the condition from when the panel first opened. (2) THE TOGGLE BUTTON NOW REFLECTS ITS STATE: when scoped to the item condition it reads View all (click to see every condition); when showing everything it reads Condition: <that condition> (click to scope back), so the label always tells you what a click will do instead of always saying View all. (3) A MATCHING TOGGLE ON THE CHART: the Condition column header now has a small scope button right next to it -- All when unscoped, the condition name when scoped -- so you can flip the scope from the chart itself, exactly where you are reading conditions. (4) BIGGER COMP PHOTOS: comparison thumbnails on both the Active and Sold tabs are now much larger (72px, up from 38px) so you can confirm the cover is the right issue/edition without having to hover to zoom. NEXT: the richer Apify sold chart (photo, title, price, shipping, date sold, listing duration) plus porting the issue/edition/year matching gate into WIM Deep Search, then the top-of-screen redesign and the new Comics & Graphic Novels eBay category."],
@@ -6479,10 +6480,10 @@ function mountPriceCompare(opts){
     const pinHead=(col,label,w)=>`<th style="position:relative;${w?('width:'+w+';'):''}"><span class="cmp-h" data-col="${col}" style="cursor:pointer;" title="Click to group by ${label}">${label}${cmpGroup===col?' ⤓':''}</span>${col==="condition"?` <button class="cmp-condtoggle" title="${cmpViewAllConds?'Showing all conditions — click to scope to this item':'Scoped to this item condition — click to show all'}" style="border:1px solid ${cmpViewAllConds?'#3b7dd8':'#c3c9d2'};background:${cmpViewAllConds?'#3b7dd8':'#fff'};color:${cmpViewAllConds?'#fff':'#5b6470'};font-size:9.5px;border-radius:4px;padding:1px 5px;cursor:pointer;vertical-align:middle;">${cmpViewAllConds?'All':(esc((it.condition||'this').split(' - ').pop()))}</button>`:''} <span class="cmp-pin" data-col="${col}" title="Filter ${label}" style="cursor:pointer;color:${(cmpFilter[col]!==undefined)?'#1f5fbf':'#9a9a9a'};font-size:11px;">▾</span></th>`;
     const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
     tabbody.innerHTML=`
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;" id="cmp-avg">—</div></div>
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;" id="cmp-range">—</div></div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
+        <div style="background:#eef1f4;border-radius:6px;padding:6px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;" id="cmp-avg">—</div></div>
+        <div style="background:#eef1f4;border-radius:6px;padding:6px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;" id="cmp-range">—</div></div>
         <div class="smallhint" id="cmp-count"></div>
         <div class="smallhint" id="cmp-condscope" style="display:flex;align-items:center;gap:6px;">
           <span>Viewing: <b>${cmpViewAllConds?"All conditions":esc(it.condition||"any")}</b></span>
@@ -6587,11 +6588,11 @@ function mountPriceCompare(opts){
     const tabBtn=(mode,label)=>`<button class="btn sm cmp-mode" data-mode="${mode}" style="${cmpMode===mode?'background:#3b7dd8;color:#fff;border-color:#3b7dd8;':''}">${label}</button>`;
     const stats=rows.filter(r=>!r._noStat).length?compareStats(rows.filter(r=>!r._noStat)):null;
     tabbody.innerHTML=`
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px;">
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?(fmtP(stats.min)+" – "+fmtP(stats.max)):"—"}</div></div>
-        <div style="background:#eef1f4;border-radius:6px;padding:8px 12px;"><div class="smallhint">Condition</div><select class="cmb" id="cmps-condfilter" style="margin-top:2px;"><option value="">All (${allRows.length})</option>${conds.map(c=>`<option value="${esc(c)}" ${soldCondFilter===c?'selected':''}>${esc(c)} (${allRows.filter(r=>r.condition===c).length})</option>`).join("")}</select></div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">${tabBtn("active","Active")}${tabBtn("sold","Sold Items")}</div>
+        <div style="background:#eef1f4;border-radius:6px;padding:6px 12px;"><div class="smallhint">Suggested Price (avg)</div><div style="font-size:18px;font-weight:600;">${stats?fmtP(stats.avg):"—"}</div></div>
+        <div style="background:#eef1f4;border-radius:6px;padding:6px 12px;"><div class="smallhint">Price Range</div><div style="font-size:18px;font-weight:600;">${stats?(fmtP(stats.min)+" – "+fmtP(stats.max)):"—"}</div></div>
+        <div style="background:#eef1f4;border-radius:6px;padding:6px 12px;"><div class="smallhint">Condition</div><select class="cmb" id="cmps-condfilter" style="margin-top:2px;"><option value="">All (${allRows.length})</option>${conds.map(c=>`<option value="${esc(c)}" ${soldCondFilter===c?'selected':''}>${esc(c)} (${allRows.filter(r=>r.condition===c).length})</option>`).join("")}</select></div>
         <div class="smallhint">${rows.length} of ${allRows.length} shown · sorted by most recently sold</div>
         <span style="flex:1;"></span>
         <div style="text-align:right;">${(DB.apifySold&&DB.apifySold.enabled)?`<button class="btn sm primary" id="cmps-apify" ${ro?'disabled':''} title="Pull real sold-listing prices directly from Apify (${DB.apifySold.pullPerBatch||5} at a time)">${(it.compareSold&&it.compareSold.apify&&(it.compareSold.apify.items||[]).length)?("Load "+(DB.apifySold.pullPerBatch||5)+" more sold"):"🔎 Deep Search sold (Apify)"}</button> `:''}<button class="btn sm" id="cmps-update" ${ro?'disabled':''}>Pull Sold Listings</button> <button class="btn sm" id="cmps-research" ${ro?'disabled':''} title="Copies this item's search text and opens eBay's Product Research tool">Open Product Research</button> <button class="btn sm" id="cmps-pricecharting" title="Look this item up on PriceCharting">PriceCharting</button>
@@ -8884,7 +8885,7 @@ function findMatches(it){
 function openBulkAdd(){
   if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
   const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:1180,height:640,popoutKey:"bulkadd",
-    toolbar:`${tbtn(I.plus,'Add Record','plus')}<span class="tbar-sep"></span><span style="font-size:12px;color:#555;">Type rows, then Create to assign Warehouse SKUs</span><span class="tbar-sep"></span>${pendingStorageBadgeHtml("ba-waiting")}`});
+    toolbar:``});
   // ---- Scan pipeline state (v3.4.4): scans now flow into Bulk Add, not a separate window. ----
   let baMainTab="manual";           // "manual" (typed rows + accepted scans) | "research"
   let scanPage=0; const SCAN_PER_PAGE=20;
@@ -8946,25 +8947,29 @@ function openBulkAdd(){
   // (Native <datalist> dropdowns were removed — every combo field now uses wimCombo, which
   // doesn't cover the textbox or swallow keystrokes like the native datalist did.)
   body.innerHTML=`
-    <div style="padding:6px 14px 0;font-size:11.5px;color:#8a95a3;">New Items ready to build. Quantity defaults to 1; leave Warehouse SKU on Auto to let WIM pick the slot.</div>
-    <div style="padding:2px 14px;display:flex;align-items:center;gap:10px;font-size:12px;color:#5b6470;border-bottom:1px solid #e2e6ec;flex-wrap:wrap;">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="ba-selall"> Select all</label>
-      <input class="txt" id="ba-search" placeholder="Search title / vendor / category…" style="height:26px;font-size:12px;width:210px;">
-      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;" title="Show only items that already have photos — the ones photography has finished and a lister can complete now"><input type="checkbox" id="ba-hasphotos"> Has photos</label>
-      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;" title="Show only items that came back from the Research tab marked Reviewed"><input type="checkbox" id="ba-researched"> Researched</label>
-      <span style="flex:1;"></span>
-      <span style="color:#8a95a3;">Sort by:</span>
-      <select class="cmb" id="ba-sortkey" style="height:26px;font-size:12px;width:150px;"><option value="">(entry order)</option><option value="desc">Title</option><option value="section">Category</option><option value="condition">Condition</option><option value="vendor">Vendor</option><option value="unitCost">Unit Cost</option><option value="qty">Quantity</option></select>
-      <button class="btn sm" id="ba-sortdir" title="Toggle ascending/descending">▲</button>
-    </div>
-    <div id="ba-scantabs" style="padding:6px 14px 0;border-bottom:0.5px solid #e8ebef;display:none;align-items:center;gap:10px;">
-      <div class="tabs" style="margin:0;flex:1;">
+    <div id="ba-toprow" style="padding:8px 14px 6px;display:flex;align-items:center;gap:14px;border-bottom:0.5px solid #e2e6ec;flex-wrap:nowrap;">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:#5b6470;white-space:nowrap;"><input type="checkbox" id="ba-selall"> Select all</label>
+      <div style="display:flex;align-items:stretch;gap:8px;">
+        <input class="txt" id="ba-search" placeholder="Search title / vendor / category…" style="height:44px;font-size:13px;width:300px;">
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;font-size:11.5px;color:#5b6470;">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap;" title="Show only items that already have photos"><input type="checkbox" id="ba-hasphotos"> Has photos</label>
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap;" title="Show only items that came back from the Research tab marked Reviewed"><input type="checkbox" id="ba-researched"> Researched</label>
+        </div>
+      </div>
+      <span id="ba-storagewrap" style="white-space:nowrap;">${pendingStorageBadgeHtml("ba-waiting")}</span>
+      <button class="btn sm" id="ba-pullscans" style="white-space:nowrap;">Pull Scans</button>
+      <div style="display:flex;align-items:center;gap:6px;white-space:nowrap;">
+        <span style="color:#8a95a3;font-size:12px;">Sort:</span>
+        <select class="cmb" id="ba-sortkey" style="height:26px;font-size:12px;width:120px;"><option value="">(entry order)</option><option value="desc">Title</option><option value="section">Category</option><option value="condition">Condition</option><option value="vendor">Vendor</option><option value="unitCost">Unit Cost</option><option value="qty">Quantity</option></select>
+        <button class="btn sm" id="ba-sortdir" title="Toggle ascending/descending">▲</button>
+      </div>
+      <div id="ba-scantabs" class="tabs" style="margin:0;display:none;gap:4px;">
         <div class="tab" id="ba-tab-main">New Items</div>
         <div class="tab" id="ba-tab-research">Needs Research</div>
       </div>
-      <button class="btn sm" id="ba-pullscans" style="margin-bottom:4px;">Pull Scans</button>
+      <span style="flex:1;"></span>
     </div>
-    <div id="ba-scanbar" style="padding:4px 14px;display:none;align-items:center;gap:10px;font-size:11.5px;color:#8a95a3;">
+    <div id="ba-scanbar" style="padding:2px 14px;display:none;align-items:center;gap:10px;font-size:11.5px;color:#8a95a3;">
       <span id="ba-scanbar-msg" style="flex:1;"></span>
       <span id="ba-scanpager"></span>
     </div>
@@ -9432,7 +9437,7 @@ function openBulkAdd(){
         <div class="ba-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
           <div style="grid-column:1 / -1;font-size:11px;color:#8a95a3;">Item #${esc(it.upc||"")}${it.barcode?" · ISBN "+esc(it.barcode):""} · <b style="color:${photoN?'#1f9d55':'#c0392b'};">${photoN?photoN+" photo"+(photoN===1?"":"s"):"no photos yet"}</b>${it.sku?' · SKU '+esc(it.sku):''}</div>
-          <div><label style="font-size:11px;color:#5b6470;">Title</label><input class="txt ba-f" data-f="desc" value="${esc(it.desc||"")}" style="width:100%;height:30px;box-sizing:border-box;"></div>
+          <div style="grid-column:1 / -1;"><label style="font-size:11px;color:#5b6470;">Title</label><textarea class="txt ba-f" data-f="desc" rows="2" style="width:100%;height:44px;box-sizing:border-box;resize:vertical;font-family:inherit;font-size:13px;line-height:1.3;padding:5px 7px;">${esc(it.desc||"")}</textarea></div>
           <div><label style="font-size:11px;color:#5b6470;">Listing Price</label><input class="txt ba-f" data-f="price" value="${esc(String(L.price||it.retail||""))}" inputmode="decimal" placeholder="0.00" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Cost</label><input class="txt ba-f" data-f="unitCost" value="${esc(it.unitCost||"")}" inputmode="decimal" style="width:100%;height:30px;box-sizing:border-box;"></div>
           <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb ba-f" data-f="section" style="width:100%;height:30px;font-size:12px;">${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${it.section===s?"selected":""}>${esc(s)}</option>`).join("")}</select></div>
@@ -9440,11 +9445,13 @@ function openBulkAdd(){
           <div><label style="font-size:11px;color:#5b6470;">Condition</label><select class="cmb ba-cond" data-f="condition" style="width:100%;height:30px;font-size:12px;"><option>${esc(it.condition||"Used - Good")}</option></select></div>
           <div style="grid-column:1 / -1;">
             <label style="font-size:11px;color:#5b6470;">Description (to buyer)</label>
-            <select class="cmb ba-desctpl" style="width:100%;height:30px;box-sizing:border-box;margin-bottom:5px;">
-              <option value="">(write your own below)</option>
-              ${(DB.descriptions||[]).map(d=>`<option value="${esc(d.id)}" ${L.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}
-            </select>
-            <textarea class="txt ba-f" data-f="descBody" style="width:100%;min-height:48px;box-sizing:border-box;padding:6px;font-size:12px;font-family:inherit;resize:vertical;">${esc((L.descriptionId&&((DB.descriptions||[]).find(x=>x.id===L.descriptionId)||{}).body)||L.descBody||"")}</textarea>
+            <div style="display:flex;gap:6px;align-items:stretch;">
+              <textarea class="txt ba-f ba-descbody" data-f="descBody" rows="1" style="flex:1;height:30px;min-height:30px;box-sizing:border-box;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical;white-space:pre-wrap;overflow:hidden;">${esc((L.descriptionId&&((DB.descriptions||[]).find(x=>x.id===L.descriptionId)||{}).body)||L.descBody||defaultDescBody())}</textarea>
+              <select class="cmb ba-desctpl" title="Pick a saved description template" style="width:34px;height:30px;box-sizing:border-box;flex-shrink:0;">
+                <option value="">✎</option>
+                ${(DB.descriptions||[]).map(d=>`<option value="${esc(d.id)}" ${L.descriptionId===d.id?'selected':''}>${esc(d.title)}</option>`).join("")}
+              </select>
+            </div>
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:160px;flex-shrink:0;">
@@ -9452,9 +9459,14 @@ function openBulkAdd(){
           <div class="ba-list-status smallhint" style="min-height:14px;text-align:center;"></div>
           <button class="btn sm ba-open">View landing page</button>
           <button class="btn sm ba-folder">📁 Photo folder</button>
+          <button class="btn sm ba-findebay" style="border-color:#378add;color:#0c447c;font-weight:600;">🔍 Find on eBay</button>
           <div style="flex:1;"></div>
           <button class="btn sm ba-delete" style="background:#FDF3F2;border-color:#EFC9C4;color:#B4574C;">Delete Scan</button>
         </div>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
+        <div class="ba-lf-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span class="ba-lf-caret" style="display:inline-block;transition:transform .12s;transform:rotate(${it._baLfOpen?'90':'0'}deg);">▶</span> <b>Listing Details</b> <span style="color:#8a95a3;">${(aspectsFor(it)||[]).length?`— eBay fields for ${esc(it.section||"this category")}`:`— pull the eBay category fields`}</span></div>
+        <div class="ba-lf-body" style="display:${it._baLfOpen?'grid':'none'};grid-template-columns:repeat(3,1fr);gap:8px 14px;">${(aspectsFor(it)||[]).length?(aspectsFor(it)||[]).map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt ba-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join(""):`<div style="grid-column:1 / -1;font-size:12px;color:#8a95a3;padding:4px 0;">No eBay fields yet. Open this and WIM pulls the required fields for ${esc(it.section||"this item's category")}, or use Find on eBay.</div>`}</div>
       </div>
       <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
         <div class="ba-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span class="ba-pc-caret" style="display:inline-block;transition:transform .12s;transform:rotate(90deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— what similar items list and sell for</span></div>
@@ -9489,6 +9501,19 @@ function openBulkAdd(){
 
     // Side buttons
     card.querySelector(".ba-open").onclick=()=>{ try{ openItemDetail(it,"edit"); }catch(e){} };
+    const findBtn=card.querySelector(".ba-findebay");
+    if(findBtn) findBtn.onclick=()=>openEbayFind(it, ()=>{ save(); render(); });
+    // Listing Details carrot — opens the eBay category fields; auto-pulls them if not cached yet.
+    const lfHdr=card.querySelector(".ba-lf-hdr");
+    if(lfHdr) lfHdr.onclick=async ()=>{
+      it._baLfOpen=!it._baLfOpen;
+      const b=card.querySelector(".ba-lf-body"); if(b) b.style.display=it._baLfOpen?"grid":"none";
+      const car=card.querySelector(".ba-lf-caret"); if(car) car.style.transform="rotate("+(it._baLfOpen?90:0)+"deg)";
+      if(it._baLfOpen && it.section && !((aspectsFor(it)||[]).length) && categoryEbayId(it.section) && EBAY.ready() && !it._baLfPulling){
+        it._baLfPulling=true; try{ await fetchCategoryAspects(it.section); }catch(e){} it._baLfPulling=false; render();
+      }
+    };
+    card.querySelectorAll(".ba-asp").forEach(el=>{ el.onchange=()=>{ if(!it.aspects) it.aspects={}; it.aspects[el.dataset.asp]=el.value; save(); }; });
     card.querySelector(".ba-folder").onclick=async ()=>{ if(!WIM_IS_DESKTOP){ uiAlert("Photo folders open in the desktop app."); return; }
       let p=r.folderPath; if(!p){ try{ p=await assignScanFolder(r); save(); }catch(e){} }
       if(p) wimDesktop.invoke("open_url",{url:"file:///"+String(p).replace(/\\/g,"/")}).catch(()=>{}); else uiAlert("No photo folder for this item yet."); };
