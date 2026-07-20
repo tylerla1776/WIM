@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.25", BUILD_DATE="2026-07-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.26", BUILD_DATE="2026-07-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.26","BULK ADD: CLICK-TO-SELECT + SPACE TIGHTENING (merge-system phase 1). Cards now work by SELECTION. Clicking anywhere on a card -- including on a field like Condition -- selects it, giving it a light blue highlight, and opens ONLY that card Price Compare while collapsing every other card. So the screen is no longer a wall of open Price Compare panels; exactly one is open at a time -- the one you are working on. SEARCH CAVEAT: when you type in the search box, the TOP result auto-selects and opens its Price Compare, since that is almost always the item you are looking for. SPACE TIGHTENING (from the marked-up screenshot): Price Compare and Listing Details now share one line (Price Compare first); clicking one opens it and collapses the other. The accepted/research page pager moved UP onto the tab row to the right of the tabs. Borders and padding around these sections were thinned. WAITING ON STORAGE TIMING FIXED: an item now appears in Waiting on Storage only once it is actually committed -- listed, or sent to Supervisor Review -- NOT the moment it is created. A scan still being built in Bulk Add no longer clutters the storage queue; it shows up the instant it is listed or sent for review, which is when someone actually needs to go shelve it. This is phase 1 of the duplicate-merge system; the purple match/merge button and the reserve-and-send flow come next."],
   ["3.4.25","BULK ADD TOP + CARD REDESIGN (the real one this time). Rebuilt the parts that did not actually change before -- confirmed against a screenshot of 3.4.24 running. TOP OF SCREEN IS NOW ONE ROW: the redundant green plus is gone (the + Add Item button at the bottom already does that job); the search bar is bigger, with the Has photos checkbox at its right end and Researched directly beneath it; then the storage-shelf badge, Pull Scans, the Sort box, and the New Items / Needs Research tabs -- all on a single line instead of four stacked rows, so a lot of vertical space is reclaimed above the first card. THE ITEM CARD, fixed properly on the actual card this time (the accepted-scan card, which earlier edits missed): TITLE is now two lines tall so the whole title is visible instead of running off the end; DESCRIPTION is a single line that auto-loads your default preset -- type to overwrite it (and freely edit after), with a small dropdown on the right to pick a different saved template; FIND ON EBAY moved to the right-hand button column under Photo folder; and the LISTING DETAILS carrot is back, above Price Compare, and auto-pulls the eBay category fields when you open it. Price Compare keeps the in-line Suggested Price / Range / Active-Sold row from the last build so the comps table sits as high as possible."],
   ["3.4.24","LAYOUT POLISH (BATCH D, PART 2 -- the redesign is complete). Finished the last layout items so more of an item fits on screen at once. SUGGESTED PRICE AND RANGE MOVED UP IN LINE: on both the Active and Sold tabs of Price Compare, the Active/Sold buttons now sit on the SAME row as the Suggested Price and Price Range boxes instead of on their own line above them, saving a row of vertical space so the comps table starts higher up. The other two part-2 items were already in place from earlier batches and left as-is: the Description row is already a single compact line (label + template picker inline, with an Edit text toggle that reveals the full text box only when you want it), and the photo controls are already a simple green + (add) and red trash can (delete). This wraps the four-batch Bulk Add / Price Compare redesign (A: card refinements and live search; B: Price Compare condition scoping and bigger photos; C: richer Apify sold chart and the edition/year matching gate; D: the new Comics & Graphic Novels category and the top-of-screen cleanup)."],
   ["3.4.23","NEW COMICS CATEGORY + TOP-OF-SCREEN CLEANUP (BATCH D, PART 1). Two pieces of the final batch. (1) NEW EBAY CATEGORY: COMICS & GRAPHIC NOVELS. Comics now have their own category, separate from Books & Magazines, seeded with sub-types (Single Issue, Variant, Graphic Novel / TPB, Manga, Graded Slab, None) and its own condition list. Its eBay category ID is looked up LIVE from eBay the first time an administrator is connected -- nothing is hardcoded, so the ID can never go stale -- and its required listing fields are pulled the same way. Scanned comics that do not match a section now default here (Books stays the fallback for everything else). (2) BULK ADD TOP-OF-SCREEN CLEANUP: the tab formerly called Manual & Accepted is now NEW ITEMS; the Pull Scans button moved UP onto the tab row so it is right where the tabs are instead of on its own line; the long paragraph of help text at the top was trimmed to a single quiet line; and the heavy dividing borders were thinned so more items fit on screen without scrolling. NEXT (Batch D part 2): the remaining layout polish -- the one-line description row, the +/trash photo buttons, and moving Suggested Price/Range up in line -- plus wiring the new Comics category into the scan-default preference now that it exists."],
@@ -2297,7 +2298,14 @@ function activeFeedbackSummary(){
 function activeItems(){ return visibleItems().filter(i=>!i.sold && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold"); }
 // Items created but not yet confirmed physically placed in their slot — the shared queue
 // behind both the running count at the top of Add Item/Bulk Add and the Missing Item screen.
-function pendingStorageItems(){ return activeItems().filter(i=>!i.storedAt); }
+// An item only "waits on storage" once it's been COMMITTED — listed on eBay, or sent to Supervisor
+// Review, or otherwise assigned its commit SKU. A freshly-created scan/item that's still being built
+// in Bulk Add does NOT appear here yet; it shows up the moment it's listed or sent for review.
+function isCommittedForStorage(i){
+  const L=i.listing||{};
+  return !!(L.status==="listed" || L.readyToList || L.sentForReviewAt || L.listedAt || i._committedAt);
+}
+function pendingStorageItems(){ return activeItems().filter(i=>!i.storedAt && isCommittedForStorage(i)); }
 // The waiting-to-be-stored icon+count, shared across Add Item, Bulk Add, and every item
 // landing page — same icon everywhere, just greyed out when there's nothing pending.
 function pendingStorageBadgeHtml(id){
@@ -8927,6 +8935,7 @@ function openBulkAdd(){
   const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",vendor:(DB.pinnedVendor||DB.vendors[0]||""),unitCost:"",retail:"",_costAutoFilled:false,qty:"1",slot:"",manualSlot:false,reserve:false,skus:[],created:false,error:"",images:[],_viewIdx:-1,aspects:{},_aspectDefs:[],descTemplateId:"",descBody:defaultDescBody()});
   let rows=[blank()], createdItems=[], phase="edit";
   let baSearch="", baHasPhotos=false, baResearched=false;   // toolbar filters
+  let selectedScanId=null;   // which scan card is "selected" — only its Price Compare is open
   // Which rows survive the filters. Filtering hides rows from VIEW only — they still exist, still
   // get created; a hidden row is never lost.
   const rowVisible=(r)=>{
@@ -8967,6 +8976,7 @@ function openBulkAdd(){
         <div class="tab" id="ba-tab-main">New Items</div>
         <div class="tab" id="ba-tab-research">Needs Research</div>
       </div>
+      <span id="ba-scanpager-top" style="font-size:11.5px;color:#8a95a3;white-space:nowrap;"></span>
       <span style="flex:1;"></span>
     </div>
     <div id="ba-scanbar" style="padding:2px 14px;display:none;align-items:center;gap:10px;font-size:11.5px;color:#8a95a3;">
@@ -9069,7 +9079,7 @@ function openBulkAdd(){
       const slice=list.slice(scanPage*SCAN_PER_PAGE,(scanPage+1)*SCAN_PER_PAGE);
       if(!slice.length){ tb.innerHTML = baSearch ? `<div class="note">No research items match "${esc(baSearch)}".</div>` : `<div class="note">No items waiting for research. Items scanned without a confident price land here; research one, set a price, then Mark Reviewed to move it to Accepted (its photo folder is created then).</div>`; }
       else { slice.forEach(r=>tb.appendChild(baScanCard(r))); }
-      const pager=body.querySelector("#ba-scanpager");
+      const pager=body.querySelector("#ba-scanpager-top");
       if(pager) pager.innerHTML = pages>1 ? `Page ${scanPage+1}/${pages} &nbsp;<button class="btn sm" id="ba-sp-prev" ${scanPage<=0?"disabled":""}>‹</button> <button class="btn sm" id="ba-sp-next" ${scanPage>=pages-1?"disabled":""}>›</button>` : "";
       const pv=body.querySelector("#ba-sp-prev"), nx=body.querySelector("#ba-sp-next");
       if(pv) pv.onclick=()=>{ scanPage--; render(); }; if(nx) nx.onclick=()=>{ scanPage++; render(); };
@@ -9077,7 +9087,7 @@ function openBulkAdd(){
       renderScanBar();
       return;   // research tab shows only research cards
     }
-    if(body.querySelector("#ba-scanpager")) body.querySelector("#ba-scanpager").innerHTML="";
+    if(body.querySelector("#ba-scanpager-top")) body.querySelector("#ba-scanpager-top").innerHTML="";
     const sel=body.querySelector("#ba-delsel"); if(sel) sel.style.display=selected.size?"":"none";
     let hiddenByFilter=0;
     // Manual/Accepted tab: accepted scan cards first (oldest first), then the typed rows below.
@@ -9086,10 +9096,17 @@ function openBulkAdd(){
       // rowVisible works on scan records too (desc/vendor/section), so a search finds a card no
       // matter which page it was on.
       const acc=acceptedScans().filter(rowVisible);
+      // Search caveat: the top result is the most likely item you're after, so auto-select it
+      // (opens its Price Compare). Only do this when a search is active and the current selection
+      // isn't already among the results, so it doesn't fight a deliberate click.
+      if(baSearch && acc.length){
+        const selStillVisible = selectedScanId && acc.some(r=>r.itemId===selectedScanId);
+        if(!selStillVisible) selectedScanId = acc[0].itemId || null;
+      }
       const pages=Math.max(1,Math.ceil(acc.length/SCAN_PER_PAGE));
       if(scanPage>=pages) scanPage=pages-1; if(scanPage<0) scanPage=0;
       acc.slice(scanPage*SCAN_PER_PAGE,(scanPage+1)*SCAN_PER_PAGE).forEach(r=>tb.appendChild(baScanCard(r)));
-      const pager=body.querySelector("#ba-scanpager");
+      const pager=body.querySelector("#ba-scanpager-top");
       const lbl = baSearch ? "Matches" : "Accepted";
       if(pager) pager.innerHTML = pages>1 ? `${lbl} page ${scanPage+1}/${pages} &nbsp;<button class="btn sm" id="ba-sp-prev" ${scanPage<=0?"disabled":""}>‹</button> <button class="btn sm" id="ba-sp-next" ${scanPage>=pages-1?"disabled":""}>›</button>` : (baSearch?`${acc.length} match${acc.length===1?"":"es"}`:"");
       const pv=body.querySelector("#ba-sp-prev"), nx=body.querySelector("#ba-sp-next");
@@ -9365,8 +9382,10 @@ function openBulkAdd(){
       return card;
     }
     const researched=r.researched;
+    const isSelected=selectedScanId===it.id;
     const ringCss = researched ? "border:2px solid #4C86C8;box-shadow:0 0 0 3px rgba(76,134,200,.18);" : "border:0.5px solid #d5dae1;";
-    card.style.cssText="background:#fff;"+ringCss+"border-radius:12px;padding:14px;margin-bottom:12px;";
+    const selCss = isSelected ? "background:#eef4fb;box-shadow:0 0 0 2px rgba(52,124,209,.35);" : "background:#fff;";
+    card.style.cssText=selCss+ringCss+"border-radius:12px;padding:14px;margin-bottom:12px;cursor:default;";
 
     // ---------- RESEARCH-TAB CARD ---------- (only in the Needs Research tab)
     if(baMainTab==="research"){
@@ -9464,13 +9483,13 @@ function openBulkAdd(){
           <button class="btn sm ba-delete" style="background:#FDF3F2;border-color:#EFC9C4;color:#B4574C;">Delete Scan</button>
         </div>
       </div>
-      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
-        <div class="ba-lf-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span class="ba-lf-caret" style="display:inline-block;transition:transform .12s;transform:rotate(${it._baLfOpen?'90':'0'}deg);">▶</span> <b>Listing Details</b> <span style="color:#8a95a3;">${(aspectsFor(it)||[]).length?`— eBay fields for ${esc(it.section||"this category")}`:`— pull the eBay category fields`}</span></div>
-        <div class="ba-lf-body" style="display:${it._baLfOpen?'grid':'none'};grid-template-columns:repeat(3,1fr);gap:8px 14px;">${(aspectsFor(it)||[]).length?(aspectsFor(it)||[]).map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt ba-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join(""):`<div style="grid-column:1 / -1;font-size:12px;color:#8a95a3;padding:4px 0;">No eBay fields yet. Open this and WIM pulls the required fields for ${esc(it.section||"this item's category")}, or use Find on eBay.</div>`}</div>
-      </div>
-      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid #e2e6ec;">
-        <div class="ba-pc-hdr" style="font-size:11px;color:#5b6470;margin-bottom:7px;cursor:pointer;user-select:none;"><span class="ba-pc-caret" style="display:inline-block;transition:transform .12s;transform:rotate(90deg);">▶</span> <b>Price Compare</b> <span style="color:#8a95a3;">— what similar items list and sell for</span></div>
-        <div class="ba-pc-body" style="display:block;"></div>
+      <div style="margin-top:10px;padding-top:10px;border-top:0.5px solid #e2e6ec;">
+        <div style="display:flex;align-items:center;gap:20px;margin-bottom:7px;font-size:11px;color:#5b6470;">
+          <div class="ba-pc-hdr" style="cursor:pointer;user-select:none;"><span class="ba-pc-caret" style="display:inline-block;transition:transform .12s;transform:rotate(0deg);">▶</span> <b>Price Compare</b></div>
+          <div class="ba-lf-hdr" style="cursor:pointer;user-select:none;"><span class="ba-lf-caret" style="display:inline-block;transition:transform .12s;transform:rotate(${it._baLfOpen?'90':'0'}deg);">▶</span> <b>Listing Details</b> <span style="color:#8a95a3;">${(aspectsFor(it)||[]).length?`(${(aspectsFor(it)||[]).length} fields)`:`— pull eBay fields`}</span></div>
+        </div>
+        <div class="ba-lf-body" style="display:${it._baLfOpen?'grid':'none'};grid-template-columns:repeat(3,1fr);gap:8px 14px;margin-bottom:6px;">${(aspectsFor(it)||[]).length?(aspectsFor(it)||[]).map(a=>`<div><label style="font-size:11px;color:#5b6470;">${esc(a.name)}</label><input class="txt ba-asp" data-asp="${esc(a.name)}" value="${esc((it.aspects&&it.aspects[a.name])||"")}" style="width:100%;box-sizing:border-box;height:28px;"></div>`).join(""):`<div style="grid-column:1 / -1;font-size:12px;color:#8a95a3;padding:4px 0;">No eBay fields yet. Open this and WIM pulls the required fields for ${esc(it.section||"this item's category")}, or use Find on eBay.</div>`}</div>
+        <div class="ba-pc-body" style="display:none;"></div>
       </div>`;
 
     // Photo panel
@@ -9505,10 +9524,13 @@ function openBulkAdd(){
     if(findBtn) findBtn.onclick=()=>openEbayFind(it, ()=>{ save(); render(); });
     // Listing Details carrot — opens the eBay category fields; auto-pulls them if not cached yet.
     const lfHdr=card.querySelector(".ba-lf-hdr");
-    if(lfHdr) lfHdr.onclick=async ()=>{
+    if(lfHdr) lfHdr.onclick=async (e)=>{
+      e.stopPropagation();
       it._baLfOpen=!it._baLfOpen;
       const b=card.querySelector(".ba-lf-body"); if(b) b.style.display=it._baLfOpen?"grid":"none";
       const car=card.querySelector(".ba-lf-caret"); if(car) car.style.transform="rotate("+(it._baLfOpen?90:0)+"deg)";
+      // Opening Listing Details collapses Price Compare — they share the same line.
+      if(it._baLfOpen){ const pb=card.querySelector(".ba-pc-body"); if(pb) pb.style.display="none"; const pc=card.querySelector(".ba-pc-caret"); if(pc) pc.style.transform="rotate(0deg)"; }
       if(it._baLfOpen && it.section && !((aspectsFor(it)||[]).length) && categoryEbayId(it.section) && EBAY.ready() && !it._baLfPulling){
         it._baLfPulling=true; try{ await fetchCategoryAspects(it.section); }catch(e){} it._baLfPulling=false; render();
       }
@@ -9530,7 +9552,7 @@ function openBulkAdd(){
         listBtn.disabled=true;
         // Assign the warehouse SKU at commit (before publishing), so the shelf address exists the
         // moment the listing can sell — and tell the lister where to shelve it.
-        const sku=assignSkuForCommit(it); if(sku){ try{ wimToast("Shelve this item at "+sku,"success"); }catch(e){} } save();
+        const sku=assignSkuForCommit(it); if(sku){ try{ wimToast("Shelve this item at "+sku,"success"); }catch(e){} } it._committedAt=new Date().toISOString(); save();
         // queueListItem is fire-and-forget with a status callback: ("done"|"error"|"listing", msg).
         queueListItem(it,(state,msg)=>{
           if(state==="error"){ chip.style.color="#c0392b"; chip.textContent=(msg||"Listing failed").slice(0,60); listBtn.disabled=false; }
@@ -9553,11 +9575,17 @@ function openBulkAdd(){
       }
     };
 
-    // Auto-expanded Price Compare on the card.
+    // Price Compare mounts and opens ONLY when this card is selected. Clicking anywhere on the card
+    // selects it (and collapses every other card's Price Compare), so only one is open at a time.
     const pcBody=card.querySelector(".ba-pc-body");
-    try{ mountPriceCompare({ item:it, container:pcBody, markDirty:()=>save(), save:window.save }); }catch(e){}
     const pcHdr=card.querySelector(".ba-pc-hdr");
-    if(pcHdr) pcHdr.onclick=()=>{ const open=pcBody.style.display!=="none"; pcBody.style.display=open?"none":"block"; const c=card.querySelector(".ba-pc-caret"); if(c) c.style.transform="rotate("+(open?0:90)+"deg)"; };
+    const pcCaret=card.querySelector(".ba-pc-caret");
+    function openPC(){ if(pcBody.dataset.mounted!=="1"){ try{ mountPriceCompare({ item:it, container:pcBody, markDirty:()=>save(), save:window.save }); pcBody.dataset.mounted="1"; }catch(e){} } pcBody.style.display="block"; if(pcCaret) pcCaret.style.transform="rotate(90deg)"; const lb=card.querySelector(".ba-lf-body"); if(lb) lb.style.display="none"; it._baLfOpen=false; const lc=card.querySelector(".ba-lf-caret"); if(lc) lc.style.transform="rotate(0deg)"; }
+    function closePC(){ pcBody.style.display="none"; if(pcCaret) pcCaret.style.transform="rotate(0deg)"; }
+    if(isSelected) openPC(); else closePC();
+    function selectThisCard(){ if(selectedScanId===it.id) return; selectedScanId=it.id; render(); }
+    card.addEventListener("mousedown",()=>{ selectThisCard(); }, true);
+    if(pcHdr) pcHdr.onclick=(e)=>{ e.stopPropagation(); const open=pcBody.style.display!=="none"; if(open) closePC(); else openPC(); };
 
     return card;
   }
