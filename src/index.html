@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.36", BUILD_DATE="2026-07-21", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.37", BUILD_DATE="2026-07-21", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.37","SHARE eBay CONNECTION WITH INVENTORYIQ (cleaner direct-list setup). Instead of signing into eBay separately inside InventoryIQ -- which would have collided with WIM existing eBay sign-in (eBay only allows OAuth on one redirect per app) -- WIM now shares the eBay seller connection it already has with InventoryIQ automatically. Because both use the same eBay App ID and Cert ID, the token WIM already holds is valid for listing from the phone too. It rides along on the same policy sync, so there is nothing new to authorize, no second sign-in, and no risk to WIM current eBay access. Connect eBay once in WIM as you already do, and Single Scan direct listing just works. HTML-only change."],
   ["3.4.36","POLICY + DESCRIPTION SYNC TO INVENTORYIQ (Single Scan direct-list groundwork). WIM now pushes your eBay shipping, payment, and return policies plus your default listing description to InventoryIQ automatically, so when someone lists directly from the phone in Single Scan they never have to pick a policy or type a description -- it is already there. It syncs on startup, whenever you change any of the three policies in eBay Setup, and whenever you change which description is the default. Only sends when something actually changed. This is the WIM side of listing straight to eBay from the phone; the phone-side listing screen and the eBay connection are the remaining pieces. Adds a new backend command, so it is a recompile."],
   ["3.4.35","SINGLE SCAN REVAMP -- NEW ADD ITEM APP. The old Add Item screen (which just opened a blank item page) is retired and replaced with a card-based Add Item app that looks and works exactly like Bulk Add, but shows only the items sent over from InventoryIQ Single Scan mode. Each single-scan item flows in as a card with a photo folder already created, and you can List it directly, Send it to Supervisor Review, or Delete it -- the same actions as Bulk Add. Any field the scanner operator marked as reviewed on the phone (title, price, category, condition) shows a green glow around that field here, so you can see at a glance what was already checked -- the field is still fully editable. Under the hood this reuses the proven Bulk Add card code in an Add Item mode filtered to single-scan items, rather than a separate copy, so it behaves identically and inherits every Bulk Add fix. Bulk Add itself is unchanged and now shows only non-single-scan items, so the two apps do not mix their queues."],
   ["3.4.34","PHOTO MODE PIPELINE, PART 2 -- DUPLICATE PHOTO HANDLING. Finishes the Photo Mode flow on WIMs side: what happens when photos come in for an item that already had photos. If the item is already LISTED or sitting in SUPERVISOR REVIEW, the new photos are not needed and simply FALL OFF -- they are cleared from the phone side without being written, and the pull just notes how many sets fell off. If the item is still in BULK PHOTOS (being built), the new photos ARE written (named with a NEW_ prefix so they never overwrite the originals) and the item is flagged: the new photos show with a RED BORDER in the photo strip so you can see exactly which ones just arrived, and the green List / Send to Supervisor Review button is BLOCKED until you acknowledge, in a popup, that you have reviewed and corrected the duplicates (keep or delete whichever you like -- your call). Once acknowledged the flag clears and you can list/send as normal. The pull status line now reports duplicates flagged and sets fallen off alongside the normal pulled count. HTML-only -- reuses the photo pull commands from the previous build, no recompile."],
@@ -8200,7 +8201,14 @@ async function pushPoliciesToInventoryIq(force){
     paymentPolicyId:e.paymentPolicyId||"",
     returnPolicyId:e.returnPolicyId||"",
     defaultDescription:defDesc||"",
-    location:loc
+    location:loc,
+    // Share WIM's existing eBay seller connection so InventoryIQ can list on the SAME account
+    // without a separate sign-in. Same App ID/Cert ID, so the refresh token is valid for both.
+    ebayRefreshToken:e.refreshToken||"",
+    ebayAppId:e.appId||"",
+    ebayCertId:e.certId||"",
+    ebayMarketplace:e.marketplace||"EBAY_US",
+    ebayEnv:e.env||"production"
   };
   const fp=JSON.stringify(body);
   if(!force && fp===_iqPolicyFingerprint) return;   // nothing changed
