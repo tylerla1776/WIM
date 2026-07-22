@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.40", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.41", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.41","Send eBay inventory LOCATION to InventoryIQ. Direct listing was getting all the way to the offer step and then failing with Location information not found -- eBay requires a merchant inventory location on every offer, and WIM was not sending which one to use. Now the inventory location you have selected in eBay Setup rides along with the policy sync, so InventoryIQ lists from the right location. After updating, click Sync now to InventoryIQ once. HTML-only."],
   ["3.4.40","FIX: eBay token now actually reaches InventoryIQ for direct listing. Direct listing was failing with eBay listing isn\u0027t set up yet because WIM was sending an EMPTY refresh token -- the real token is kept in the secure vault, not in the plain settings object, and the sync was reading the empty plain copy. Now the sync loads the real refresh token and cert from the vault before sending, so InventoryIQ can list on the same eBay account. Click Sync now to InventoryIQ after updating. HTML-only."],
   ["3.4.39","SYNC BUTTON NOW REPORTS THE REAL RESULT. The Sync now to InventoryIQ button used to always say Sent even when the push actually failed (wrong URL, worker not deployed, auth error) -- which made it impossible to tell why policies were not showing up in InventoryIQ. Now it shows the true outcome: a green success, or a red failure WITH the HTTP status code and error text, so you can see exactly what went wrong. If InventoryIQ still shows Last synced: never after clicking this, the message will tell you whether it is a connection problem or that the worker needs deploying. HTML-only."],
   ["3.4.38","MANUAL SYNC BUTTON + easier troubleshooting for InventoryIQ direct listing. Added a Sync now to InventoryIQ button in eBay Setup that force-pushes your shipping, payment, and return policies plus your default description to InventoryIQ on demand -- so you never have to guess whether a change went through. It reports success right there. Pairs with a new panel in InventoryIQ Settings (Direct listing) that shows exactly which policies and the default description are loaded and when they were last received. If listing was not working because the info had not synced, this makes it visible and fixable in one click. HTML-only."],
@@ -8229,7 +8230,8 @@ async function pushPoliciesToInventoryIq(force){
     ebayAppId:e.appId||"",
     ebayCertId:certId,
     ebayMarketplace:e.marketplace||"EBAY_US",
-    ebayEnv:env
+    ebayEnv:env,
+    merchantLocationKey:e.merchantLocationKey||""
   };
   const fp=JSON.stringify(body);
   if(!force && fp===_iqPolicyFingerprint) return {ok:true,skipped:true};   // nothing changed
