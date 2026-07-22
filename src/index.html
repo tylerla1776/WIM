@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.38", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.39", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.39","SYNC BUTTON NOW REPORTS THE REAL RESULT. The Sync now to InventoryIQ button used to always say Sent even when the push actually failed (wrong URL, worker not deployed, auth error) -- which made it impossible to tell why policies were not showing up in InventoryIQ. Now it shows the true outcome: a green success, or a red failure WITH the HTTP status code and error text, so you can see exactly what went wrong. If InventoryIQ still shows Last synced: never after clicking this, the message will tell you whether it is a connection problem or that the worker needs deploying. HTML-only."],
   ["3.4.38","MANUAL SYNC BUTTON + easier troubleshooting for InventoryIQ direct listing. Added a Sync now to InventoryIQ button in eBay Setup that force-pushes your shipping, payment, and return policies plus your default description to InventoryIQ on demand -- so you never have to guess whether a change went through. It reports success right there. Pairs with a new panel in InventoryIQ Settings (Direct listing) that shows exactly which policies and the default description are loaded and when they were last received. If listing was not working because the info had not synced, this makes it visible and fixable in one click. HTML-only."],
   ["3.4.37","SHARE eBay CONNECTION WITH INVENTORYIQ (cleaner direct-list setup). Instead of signing into eBay separately inside InventoryIQ -- which would have collided with WIM existing eBay sign-in (eBay only allows OAuth on one redirect per app) -- WIM now shares the eBay seller connection it already has with InventoryIQ automatically. Because both use the same eBay App ID and Cert ID, the token WIM already holds is valid for listing from the phone too. It rides along on the same policy sync, so there is nothing new to authorize, no second sign-in, and no risk to WIM current eBay access. Connect eBay once in WIM as you already do, and Single Scan direct listing just works. HTML-only change."],
   ["3.4.36","POLICY + DESCRIPTION SYNC TO INVENTORYIQ (Single Scan direct-list groundwork). WIM now pushes your eBay shipping, payment, and return policies plus your default listing description to InventoryIQ automatically, so when someone lists directly from the phone in Single Scan they never have to pick a policy or type a description -- it is already there. It syncs on startup, whenever you change any of the three policies in eBay Setup, and whenever you change which description is the default. Only sends when something actually changed. This is the WIM side of listing straight to eBay from the phone; the phone-side listing screen and the eBay connection are the remaining pieces. Adds a new backend command, so it is a recompile."],
@@ -5131,8 +5132,11 @@ function openEbayConfig(){
       const m=body.querySelector("#eb-syncmsg");
       if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)){ if(m){m.style.color="#c0392b";m.textContent="InventoryIQ isn't connected (set it up in InventoryIQ settings first).";} return; }
       if(m){ m.style.color="#555"; m.textContent="Sending policies + description to InventoryIQ\u2026"; }
-      await pushPoliciesToInventoryIq(true);   // force
-      if(m){ m.style.color="#1f7244"; m.textContent="Sent. Open InventoryIQ Settings \u2192 Direct listing to verify what loaded."; }
+      const res=await pushPoliciesToInventoryIq(true);   // force
+      if(m){
+        if(res&&res.ok){ m.style.color="#1f7244"; m.textContent="\u2713 Sent successfully. Open InventoryIQ Settings \u2192 Direct listing \u2192 Re-check to verify."; }
+        else { m.style.color="#c0392b"; m.textContent="\u2715 Send FAILED (HTTP "+(res?res.status:"?")+"). "+((res&&res.body)?String(res.body).slice(0,180):"")+"  \u2014 Check the InventoryIQ URL/token in Settings, and that the worker is deployed to m28."; }
+      }
     }; }
   locSel.onchange=()=>{ const o=locSel.selectedOptions[0]; DB.ebay.merchantLocationKey=locSel.value; DB.ebay.merchantLocationName=o?o.textContent:""; save(); };
   body.querySelector("#eb-loadpolicies").onclick=async ()=>{
@@ -8220,11 +8224,12 @@ async function pushPoliciesToInventoryIq(force){
     ebayEnv:e.env||"production"
   };
   const fp=JSON.stringify(body);
-  if(!force && fp===_iqPolicyFingerprint) return;   // nothing changed
+  if(!force && fp===_iqPolicyFingerprint) return {ok:true,skipped:true};   // nothing changed
   try{
     const r=await wimDesktop.invoke("iq_push_policies",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, body:fp });
     if(r&&r.ok){ _iqPolicyFingerprint=fp; }
-  }catch(err){}
+    return r||{ok:false,status:0,body:"no response"};
+  }catch(err){ return {ok:false,status:0,body:String(err&&err.message||err)}; }
 }
 async function pullInventoryIqScans(){
   if(!WIM_IS_DESKTOP) return {added:0,skipped:0,error:"desktop only"};
