@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.39", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.40", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.40","FIX: eBay token now actually reaches InventoryIQ for direct listing. Direct listing was failing with eBay listing isn\u0027t set up yet because WIM was sending an EMPTY refresh token -- the real token is kept in the secure vault, not in the plain settings object, and the sync was reading the empty plain copy. Now the sync loads the real refresh token and cert from the vault before sending, so InventoryIQ can list on the same eBay account. Click Sync now to InventoryIQ after updating. HTML-only."],
   ["3.4.39","SYNC BUTTON NOW REPORTS THE REAL RESULT. The Sync now to InventoryIQ button used to always say Sent even when the push actually failed (wrong URL, worker not deployed, auth error) -- which made it impossible to tell why policies were not showing up in InventoryIQ. Now it shows the true outcome: a green success, or a red failure WITH the HTTP status code and error text, so you can see exactly what went wrong. If InventoryIQ still shows Last synced: never after clicking this, the message will tell you whether it is a connection problem or that the worker needs deploying. HTML-only."],
   ["3.4.38","MANUAL SYNC BUTTON + easier troubleshooting for InventoryIQ direct listing. Added a Sync now to InventoryIQ button in eBay Setup that force-pushes your shipping, payment, and return policies plus your default description to InventoryIQ on demand -- so you never have to guess whether a change went through. It reports success right there. Pairs with a new panel in InventoryIQ Settings (Direct listing) that shows exactly which policies and the default description are loaded and when they were last received. If listing was not working because the info had not synced, this makes it visible and fixable in one click. HTML-only."],
   ["3.4.37","SHARE eBay CONNECTION WITH INVENTORYIQ (cleaner direct-list setup). Instead of signing into eBay separately inside InventoryIQ -- which would have collided with WIM existing eBay sign-in (eBay only allows OAuth on one redirect per app) -- WIM now shares the eBay seller connection it already has with InventoryIQ automatically. Because both use the same eBay App ID and Cert ID, the token WIM already holds is valid for listing from the phone too. It rides along on the same policy sync, so there is nothing new to authorize, no second sign-in, and no risk to WIM current eBay access. Connect eBay once in WIM as you already do, and Single Scan direct listing just works. HTML-only change."],
@@ -8209,6 +8210,13 @@ async function pushPoliciesToInventoryIq(force){
   const e=DB.ebay||{};
   const defDesc=(function(){ const d=(DB.descriptions||[]).find(x=>x.isDefault)||(DB.descriptions||[])[0]; return d?d.body:""; })();
   const loc=(e.location||null);
+  // The real eBay refresh token + certId are kept in the OS secret vault, NOT in DB.ebay (which is
+  // deliberately stripped of them). Load them from the vault so InventoryIQ gets a usable token.
+  const env=e.env||"production";
+  let vault={certId:"",refreshToken:""};
+  try{ vault=await vaultLoadEbaySecrets(env); }catch(err){}
+  const refreshToken=(vault.refreshToken||e.refreshToken||(e.creds&&e.creds[env]&&e.creds[env].refreshToken)||"");
+  const certId=(vault.certId||e.certId||(e.creds&&e.creds[env]&&e.creds[env].certId)||"");
   const body={
     shippingPolicyId:e.fulfillmentPolicyId||"",
     paymentPolicyId:e.paymentPolicyId||"",
@@ -8217,11 +8225,11 @@ async function pushPoliciesToInventoryIq(force){
     location:loc,
     // Share WIM's existing eBay seller connection so InventoryIQ can list on the SAME account
     // without a separate sign-in. Same App ID/Cert ID, so the refresh token is valid for both.
-    ebayRefreshToken:e.refreshToken||"",
+    ebayRefreshToken:refreshToken,
     ebayAppId:e.appId||"",
-    ebayCertId:e.certId||"",
+    ebayCertId:certId,
     ebayMarketplace:e.marketplace||"EBAY_US",
-    ebayEnv:e.env||"production"
+    ebayEnv:env
   };
   const fp=JSON.stringify(body);
   if(!force && fp===_iqPolicyFingerprint) return {ok:true,skipped:true};   // nothing changed
