@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.37", BUILD_DATE="2026-07-21", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.38", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.38","MANUAL SYNC BUTTON + easier troubleshooting for InventoryIQ direct listing. Added a Sync now to InventoryIQ button in eBay Setup that force-pushes your shipping, payment, and return policies plus your default description to InventoryIQ on demand -- so you never have to guess whether a change went through. It reports success right there. Pairs with a new panel in InventoryIQ Settings (Direct listing) that shows exactly which policies and the default description are loaded and when they were last received. If listing was not working because the info had not synced, this makes it visible and fixable in one click. HTML-only."],
   ["3.4.37","SHARE eBay CONNECTION WITH INVENTORYIQ (cleaner direct-list setup). Instead of signing into eBay separately inside InventoryIQ -- which would have collided with WIM existing eBay sign-in (eBay only allows OAuth on one redirect per app) -- WIM now shares the eBay seller connection it already has with InventoryIQ automatically. Because both use the same eBay App ID and Cert ID, the token WIM already holds is valid for listing from the phone too. It rides along on the same policy sync, so there is nothing new to authorize, no second sign-in, and no risk to WIM current eBay access. Connect eBay once in WIM as you already do, and Single Scan direct listing just works. HTML-only change."],
   ["3.4.36","POLICY + DESCRIPTION SYNC TO INVENTORYIQ (Single Scan direct-list groundwork). WIM now pushes your eBay shipping, payment, and return policies plus your default listing description to InventoryIQ automatically, so when someone lists directly from the phone in Single Scan they never have to pick a policy or type a description -- it is already there. It syncs on startup, whenever you change any of the three policies in eBay Setup, and whenever you change which description is the default. Only sends when something actually changed. This is the WIM side of listing straight to eBay from the phone; the phone-side listing screen and the eBay connection are the remaining pieces. Adds a new backend command, so it is a recompile."],
   ["3.4.35","SINGLE SCAN REVAMP -- NEW ADD ITEM APP. The old Add Item screen (which just opened a blank item page) is retired and replaced with a card-based Add Item app that looks and works exactly like Bulk Add, but shows only the items sent over from InventoryIQ Single Scan mode. Each single-scan item flows in as a card with a photo folder already created, and you can List it directly, Send it to Supervisor Review, or Delete it -- the same actions as Bulk Add. Any field the scanner operator marked as reviewed on the phone (title, price, category, condition) shows a green glow around that field here, so you can see at a glance what was already checked -- the field is still fully editable. Under the hood this reuses the proven Bulk Add card code in an Add Item mode filtered to single-scan items, rather than a separate copy, so it behaves identically and inherits every Bulk Add fix. Bulk Add itself is unchanged and now shows only non-single-scan items, so the two apps do not mix their queues."],
@@ -5049,7 +5050,8 @@ function openEbayConfig(){
         <div class="smallhint" style="margin-top:6px;">Sandbox and Production each have their own RuName — set the same <code>ebay-callback.html</code> address on both, and use the matching keys above for whichever environment you're testing.</div></fieldset>
       <fieldset class="gb" style="margin-top:14px;"><legend>Listing setup (required once, before Publish to eBay works)</legend>
         <div class="smallhint" style="margin-bottom:8px;">Publishing a listing needs to know which of your eBay <b>business policies</b> (shipping/payment/returns) and which <b>inventory location</b> to use. These already exist on your eBay seller account if you've listed there before — load them below and pick one of each.</div>
-        <div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn sm" id="eb-loadpolicies">Load my business policies</button><button class="btn sm" id="eb-loadlocations">Load my inventory locations</button></div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;"><button class="btn sm" id="eb-loadpolicies">Load my business policies</button><button class="btn sm" id="eb-loadlocations">Load my inventory locations</button><button class="btn sm" id="eb-synciq">Sync now to InventoryIQ</button></div>
+        <div id="eb-syncmsg" style="font-size:12px;color:#555;margin-bottom:8px;"></div>
         <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Shipping policy</label><select class="cmb" id="eb-fulfill"><option value="">— load policies above —</option></select></div>
         <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Payment policy</label><select class="cmb" id="eb-payment"><option value="">— load policies above —</option></select></div>
         <div class="ff" style="grid-template-columns:140px 1fr;margin-bottom:6px;"><label class="fld">Return policy</label><select class="cmb" id="eb-return"><option value="">— load policies above —</option></select></div>
@@ -5125,6 +5127,13 @@ function openEbayConfig(){
   fulfillSel.onchange=()=>{ const o=fulfillSel.selectedOptions[0]; DB.ebay.fulfillmentPolicyId=fulfillSel.value; DB.ebay.fulfillmentPolicyName=o?o.textContent:""; save(); pushPoliciesToInventoryIq(); };
   paymentSel.onchange=()=>{ const o=paymentSel.selectedOptions[0]; DB.ebay.paymentPolicyId=paymentSel.value; DB.ebay.paymentPolicyName=o?o.textContent:""; save(); pushPoliciesToInventoryIq(); };
   returnSel.onchange=()=>{ const o=returnSel.selectedOptions[0]; DB.ebay.returnPolicyId=returnSel.value; DB.ebay.returnPolicyName=o?o.textContent:""; save(); pushPoliciesToInventoryIq(); };
+  { const sb=body.querySelector("#eb-synciq"); if(sb) sb.onclick=async()=>{
+      const m=body.querySelector("#eb-syncmsg");
+      if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)){ if(m){m.style.color="#c0392b";m.textContent="InventoryIQ isn't connected (set it up in InventoryIQ settings first).";} return; }
+      if(m){ m.style.color="#555"; m.textContent="Sending policies + description to InventoryIQ\u2026"; }
+      await pushPoliciesToInventoryIq(true);   // force
+      if(m){ m.style.color="#1f7244"; m.textContent="Sent. Open InventoryIQ Settings \u2192 Direct listing to verify what loaded."; }
+    }; }
   locSel.onchange=()=>{ const o=locSel.selectedOptions[0]; DB.ebay.merchantLocationKey=locSel.value; DB.ebay.merchantLocationName=o?o.textContent:""; save(); };
   body.querySelector("#eb-loadpolicies").onclick=async ()=>{
     if(!EBAY.ready()){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Connect with eBay first (click Connect next to the mode badge)."; return; }
