@@ -688,6 +688,86 @@ async fn iq_mark_imported(base_url: String, token: String, scan_id: String) -> A
     }
 }
 
+// Push WIM's eBay policies + default description to the Worker so Single Scan can list without the
+// operator setting any of them. Body is built on the WIM side and passed through as JSON.
+#[tauri::command]
+async fn iq_push_policies(base_url: String, token: String, body: String) -> ApiResult {
+    let client = http_client();
+    let url = format!("{}/api/wim/policies", base_url.trim_end_matches('/'));
+    match client.post(&url).header("Authorization", format!("Bearer {}", token)).header("Content-Type", "application/json").body(body).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// PHOTO MODE PULL — three passthroughs mirroring iq_fetch_scans/iq_mark_imported. Photos taken on
+// the phone are parked in the Worker's R2 bucket; WIM pulls them into the item's Drive folder, then
+// tells the Worker they're pulled so R2 is cleared. All the folder-writing happens in WIM's JS via
+// the existing wim_write_file command — these just move JSON to/from the Worker.
+
+// Which items have photos waiting to be pulled? Returns { items:[{item_key,n,total_bytes,latest}] }.
+#[tauri::command]
+async fn iq_fetch_pending_photos(base_url: String, token: String) -> ApiResult {
+    let client = http_client();
+    let url = format!("{}/api/photos/pending", base_url.trim_end_matches('/'));
+    match client.get(&url).header("Authorization", format!("Bearer {}", token)).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// All pending photos for ONE item, in order (primary first), each as a base64 data URL.
+#[tauri::command]
+async fn iq_fetch_item_photos(base_url: String, token: String, item_key: String) -> ApiResult {
+    let client = http_client();
+    let url = format!("{}/api/photos/item?itemKey={}", base_url.trim_end_matches('/'), urlencoding_encode(&item_key));
+    match client.get(&url).header("Authorization", format!("Bearer {}", token)).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// Tell the Worker WIM has pulled this item's photos → Worker deletes the R2 bytes + marks pulled.
+#[tauri::command]
+async fn iq_mark_photos_pulled(base_url: String, token: String, item_key: String) -> ApiResult {
+    let client = http_client();
+    let url = format!("{}/api/photos/pulled", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({ "itemKey": item_key }).to_string();
+    match client.post(&url).header("Authorization", format!("Bearer {}", token)).header("Content-Type", "application/json").body(body).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            ApiResult { ok: (200..300).contains(&status), status, body }
+        }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
+// Minimal percent-encoding for the itemKey query param (it's already sanitized to [A-Za-z0-9_-] on
+// the Worker side, but encode defensively so a stray char can't break the URL).
+fn urlencoding_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 // Creates a folder (and any parent folders) if it doesn't already exist. Returns the path.
 #[tauri::command]
 fn wim_ensure_folder(path: String) -> Result<String, String> {
@@ -1575,6 +1655,10 @@ fn main() {
             iq_fetch_scans,
             apify_fetch_sold,
             iq_mark_imported,
+            iq_push_policies,
+            iq_fetch_pending_photos,
+            iq_fetch_item_photos,
+            iq_mark_photos_pulled,
             wim_ensure_folder,
             wim_read_folder_images,
             wim_list_folders,

@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.26", BUILD_DATE="2026-07-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.36", BUILD_DATE="2026-07-21", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,16 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.36","POLICY + DESCRIPTION SYNC TO INVENTORYIQ (Single Scan direct-list groundwork). WIM now pushes your eBay shipping, payment, and return policies plus your default listing description to InventoryIQ automatically, so when someone lists directly from the phone in Single Scan they never have to pick a policy or type a description -- it is already there. It syncs on startup, whenever you change any of the three policies in eBay Setup, and whenever you change which description is the default. Only sends when something actually changed. This is the WIM side of listing straight to eBay from the phone; the phone-side listing screen and the eBay connection are the remaining pieces. Adds a new backend command, so it is a recompile."],
+  ["3.4.35","SINGLE SCAN REVAMP -- NEW ADD ITEM APP. The old Add Item screen (which just opened a blank item page) is retired and replaced with a card-based Add Item app that looks and works exactly like Bulk Add, but shows only the items sent over from InventoryIQ Single Scan mode. Each single-scan item flows in as a card with a photo folder already created, and you can List it directly, Send it to Supervisor Review, or Delete it -- the same actions as Bulk Add. Any field the scanner operator marked as reviewed on the phone (title, price, category, condition) shows a green glow around that field here, so you can see at a glance what was already checked -- the field is still fully editable. Under the hood this reuses the proven Bulk Add card code in an Add Item mode filtered to single-scan items, rather than a separate copy, so it behaves identically and inherits every Bulk Add fix. Bulk Add itself is unchanged and now shows only non-single-scan items, so the two apps do not mix their queues."],
+  ["3.4.34","PHOTO MODE PIPELINE, PART 2 -- DUPLICATE PHOTO HANDLING. Finishes the Photo Mode flow on WIMs side: what happens when photos come in for an item that already had photos. If the item is already LISTED or sitting in SUPERVISOR REVIEW, the new photos are not needed and simply FALL OFF -- they are cleared from the phone side without being written, and the pull just notes how many sets fell off. If the item is still in BULK PHOTOS (being built), the new photos ARE written (named with a NEW_ prefix so they never overwrite the originals) and the item is flagged: the new photos show with a RED BORDER in the photo strip so you can see exactly which ones just arrived, and the green List / Send to Supervisor Review button is BLOCKED until you acknowledge, in a popup, that you have reviewed and corrected the duplicates (keep or delete whichever you like -- your call). Once acknowledged the flag clears and you can list/send as normal. The pull status line now reports duplicates flagged and sets fallen off alongside the normal pulled count. HTML-only -- reuses the photo pull commands from the previous build, no recompile."],
+  ["3.4.33","PHOTO MODE PIPELINE, PART 1 (the pipe). Groundwork for taking listing photos on the phone in InventoryIQ and having them flow straight into the right item -- no manual Google Drive upload. This build adds WIMs half: when you open Manage Inventory -> Import Scans (or hit Refresh Photos), WIM now also pulls any photos that were shot in InventoryIQ Photo Mode, writes them into that items existing Drive photo folder (primary photo first), and tells the Worker to clear them from temporary storage. The normal Refresh Photos step then attaches them to the item exactly like photos a person dropped in by hand. NOTE: this half needs the InventoryIQ Worker photo build deployed AND a Cloudflare R2 bucket bound as PHOTOS -- until that is set up there is simply nothing to pull, so this change sits idle and harms nothing. The phone-side Photo Mode screen (camera, photo reel, editor, reordering) is the next part. This adds new backend commands, so it is a real recompile."],
+  ["3.4.32","Bigger comp photos in Price Compare. The item cover images in both the Active and Sold comparison tables are now 30% larger (72px to 94px), with the photo column widened to match so nothing gets clipped -- easier to eyeball whether a comp is really the same cover without hovering to zoom. The OURS sold-badge square was scaled up to match."],
+  ["3.4.31","LISTED, NO SKU -> ADD TO STORAGE. The Listed, no SKU screen (the eBay listings you already have live but have not filed in WIM) now reads like Bulk Add and speaks the right language for what it actually does. These items are already listed and already priced on eBay -- they do not need listing or pricing, they just need to be filed and shelved -- so: the button now says ADD TO STORAGE instead of Import/File; the price is shown as a LOCKED green pill (it is the real eBay price, not editable here, and there is no Price Compare because there is nothing to price); cards got the larger Bulk Add look with a bigger cover and a two-line title. Set a Category (and slot if you want), hit Add to Storage, and the item files into WIM and immediately shows up in the bookshelf / Waiting on Storage count for someone to shelve -- which it already did under the hood, now the wording matches. The eBay pull, duplicate detection, category auto-map and quantity handling are unchanged."],
+  ["3.4.30","SOLD CHART CLEANUP + OUR-SALES SURFACING. The Price Compare Sold chart drops two columns that never carried real data -- Days Listed and Discounted? -- so it is cleaner and the remaining columns (Title, Price, Shipping, Date Sold) have more room. OUR OWN SALES now stand out properly: a row for something you already sold gets a green GLOW around it and an Item Sold banner centered at the top of the row, and those rows are pinned to the TOP of the chart above all market data. If a sale went for less than the asking price (a markdown or a coupon), the Price column now shows the original struck through followed by the actual sold price -- e.g. $15.99 crossed out, then $11.99 -- instead of a separate discount column. And when you open Price Compare on an item you have sold before, it now opens straight to the Sold tab, since your own past sale is the strongest comp there is."],
+  ["3.4.29","DUPLICATE MERGE -- SUPERVISOR REVIEW (phase 3b, final slice). When a copy is sent to Supervisor Review as a duplicate of an active listing (which happens when someone without listing rights does Merge & Send), the review card now shows a purple DUPLICATE banner naming the live listing it was merged into, with two tabs -- Review and Active item. Review shows this card as usual; Active item opens the live listing so the supervisor can see exactly what this is supposedly a copy of (the card takes a green glow in that context). The supervisor gets two new actions on the banner: ACCEPT MERGE keeps it as a reserved duplicate -- it clears the review flag, confirms Reserve on the active item, and it will list automatically when the live one sells; UNMERGE splits it back into its own standalone item to be listed separately AND records a listing error with the reason Wrong item merged against whoever merged it, logged through the same audit trail the Listing Accuracy report reads, so a bad merge shows up as a miss just like a rejection. The existing Reject action still works too. This completes the duplicate-merge system across all three places an item can live: Bulk Add, Supervisor Review, and Active."],
+  ["3.4.28","DUPLICATE MERGE -- ACTIVE ITEMS (phase 3a). The purple match button now handles matches that are already ACTIVE on eBay or sitting in Supervisor Review, not just ones still in Bulk Add. When those exist, clicking the purple button opens a MATCH PANEL: active matches show with a green glow and an Active tag, review matches show with a purple glow and a Supervisor Review tag. For an active match you get MERGE & SEND: the active listing stays the parent (you cannot demote a live listing), it is marked RESERVE, and this copy is added to its quantity as a reserved unit -- so buyers still see only one at a time and the next copy lists automatically when the current one sells (the existing zero-quantity guard stops it after the last one). If you do NOT have listing rights, Merge & Send instead routes the copy to Supervisor Review flagged as a duplicate of that active item. Either way each copy keeps its own identity and gets its own item number and warehouse SKU at commit, and only shows up in Waiting on Storage once committed. Added the rejection reason Wrong item merged for supervisors. NOTE: the Supervisor Review duplicate view -- the Review / Active tabs on the review card, and supervisor Accept / Unmerge / Reject with unmerge counting as a listing error against the sender -- is the next slice (phase 3b)."],
+  ["3.4.27","DUPLICATE MERGE -- BULK ADD (phase 2). The purple match button is here for items still in Bulk Add. When a scanned card has a likely duplicate also sitting in Bulk Add, a purple Possible match found (N) button appears under the green List button. Click it to enter merge mode: every matching card lights up with a purple dashed outline and becomes clickable. Click whichever card you want to KEEP -- that one becomes the parent (its photos and entered info are what survive) and gets a solid purple outline. Then click Merge: the other matching card(s) fold into the parent and vanish from the list, and the parent shows a non-editable Quantity box counting the copies. You can run it again to add more (the button reads Add more matches). MATCHING RULE as specified: fuzzy title match PLUS an issue-number guard -- a copy that does not state an issue can match one that does (e.g. a plain Spawn matches Spawn #143), but two different stated issues never match (#217 never merges with #143). SAFETY: if you hit List Item / Send to Review while un-merged possible matches remain, WIM asks Have you verified all matched items? -- Cancel takes you back to check them with the purple button; confirm proceeds. Merged copies each keep their own identity and will get their own item number and warehouse SKU at commit. NOTE: matches that are already Active or in Supervisor Review are detected and counted, but the reserve-and-send handling for those is phase 3 (next); this phase folds still-in-Bulk-Add scans."],
   ["3.4.26","BULK ADD: CLICK-TO-SELECT + SPACE TIGHTENING (merge-system phase 1). Cards now work by SELECTION. Clicking anywhere on a card -- including on a field like Condition -- selects it, giving it a light blue highlight, and opens ONLY that card Price Compare while collapsing every other card. So the screen is no longer a wall of open Price Compare panels; exactly one is open at a time -- the one you are working on. SEARCH CAVEAT: when you type in the search box, the TOP result auto-selects and opens its Price Compare, since that is almost always the item you are looking for. SPACE TIGHTENING (from the marked-up screenshot): Price Compare and Listing Details now share one line (Price Compare first); clicking one opens it and collapses the other. The accepted/research page pager moved UP onto the tab row to the right of the tabs. Borders and padding around these sections were thinned. WAITING ON STORAGE TIMING FIXED: an item now appears in Waiting on Storage only once it is actually committed -- listed, or sent to Supervisor Review -- NOT the moment it is created. A scan still being built in Bulk Add no longer clutters the storage queue; it shows up the instant it is listed or sent for review, which is when someone actually needs to go shelve it. This is phase 1 of the duplicate-merge system; the purple match/merge button and the reserve-and-send flow come next."],
   ["3.4.25","BULK ADD TOP + CARD REDESIGN (the real one this time). Rebuilt the parts that did not actually change before -- confirmed against a screenshot of 3.4.24 running. TOP OF SCREEN IS NOW ONE ROW: the redundant green plus is gone (the + Add Item button at the bottom already does that job); the search bar is bigger, with the Has photos checkbox at its right end and Researched directly beneath it; then the storage-shelf badge, Pull Scans, the Sort box, and the New Items / Needs Research tabs -- all on a single line instead of four stacked rows, so a lot of vertical space is reclaimed above the first card. THE ITEM CARD, fixed properly on the actual card this time (the accepted-scan card, which earlier edits missed): TITLE is now two lines tall so the whole title is visible instead of running off the end; DESCRIPTION is a single line that auto-loads your default preset -- type to overwrite it (and freely edit after), with a small dropdown on the right to pick a different saved template; FIND ON EBAY moved to the right-hand button column under Photo folder; and the LISTING DETAILS carrot is back, above Price Compare, and auto-pulls the eBay category fields when you open it. Price Compare keeps the in-line Suggested Price / Range / Active-Sold row from the last build so the comps table sits as high as possible."],
   ["3.4.24","LAYOUT POLISH (BATCH D, PART 2 -- the redesign is complete). Finished the last layout items so more of an item fits on screen at once. SUGGESTED PRICE AND RANGE MOVED UP IN LINE: on both the Active and Sold tabs of Price Compare, the Active/Sold buttons now sit on the SAME row as the Suggested Price and Price Range boxes instead of on their own line above them, saving a row of vertical space so the comps table starts higher up. The other two part-2 items were already in place from earlier batches and left as-is: the Description row is already a single compact line (label + template picker inline, with an Edit text toggle that reveals the full text box only when you want it), and the photo controls are already a simple green + (add) and red trash can (delete). This wraps the four-batch Bulk Add / Price Compare redesign (A: card refinements and live search; B: Price Compare condition scoping and bigger photos; C: richer Apify sold chart and the edition/year matching gate; D: the new Comics & Graphic Novels category and the top-of-screen cleanup)."],
@@ -973,7 +983,7 @@ const POPOUT_APPS={
   managelistings:{ title:"Manage Listings", open:()=>openManageListings() },
   sendoffers:{ title:"Send Offers to Watchers", open:()=>openSendOffers() },
   liveinventory:{ title:"Live Inventory", open:()=>openLiveInventory() },
-  additem:{ title:"Add Inventory", open:()=>openItemDetail(null,"new") },
+  additem:{ title:"Add Item", open:()=>openBulkAdd("additem") },
   sell:{ title:"Sell Inventory", open:()=>openSell() },
   bulksell:{ title:"Bulk Sell", open:()=>openBulkSell() },
   adjust:{ title:"Adjust Inventory", open:()=>openAdjust() },
@@ -2408,7 +2418,7 @@ function createdItems(){ return visibleItems().filter(i=>itemStatus(i)==="create
  *
  * An "error" against a warehouse user is either a REJECT or an OVERRIDE of their submission.
  */
-const REJECT_REASONS=["Photo Quality","Wrong Price","Wrong Description","Incomplete Listing","Other"];
+const REJECT_REASONS=["Photo Quality","Wrong Price","Wrong Description","Incomplete Listing","Wrong item merged","Other"];
 // Fields a supervisor can change on a review card. Overrides are categorized by these so the
 // accuracy report can say WHAT people keep getting wrong, not just that they got it wrong.
 const REVIEW_FIELDS=[
@@ -5111,9 +5121,9 @@ function openEbayConfig(){
     if(DB.ebay.returnPolicyName) returnSel.innerHTML=`<option value="${esc(DB.ebay.returnPolicyId||'')}" selected>${esc(DB.ebay.returnPolicyName)}</option>`;
     if(DB.ebay.merchantLocationKey) locSel.innerHTML=`<option value="${esc(DB.ebay.merchantLocationKey)}" selected>${esc(DB.ebay.merchantLocationName||DB.ebay.merchantLocationKey)}</option>`;
   })();
-  fulfillSel.onchange=()=>{ const o=fulfillSel.selectedOptions[0]; DB.ebay.fulfillmentPolicyId=fulfillSel.value; DB.ebay.fulfillmentPolicyName=o?o.textContent:""; save(); };
-  paymentSel.onchange=()=>{ const o=paymentSel.selectedOptions[0]; DB.ebay.paymentPolicyId=paymentSel.value; DB.ebay.paymentPolicyName=o?o.textContent:""; save(); };
-  returnSel.onchange=()=>{ const o=returnSel.selectedOptions[0]; DB.ebay.returnPolicyId=returnSel.value; DB.ebay.returnPolicyName=o?o.textContent:""; save(); };
+  fulfillSel.onchange=()=>{ const o=fulfillSel.selectedOptions[0]; DB.ebay.fulfillmentPolicyId=fulfillSel.value; DB.ebay.fulfillmentPolicyName=o?o.textContent:""; save(); pushPoliciesToInventoryIq(); };
+  paymentSel.onchange=()=>{ const o=paymentSel.selectedOptions[0]; DB.ebay.paymentPolicyId=paymentSel.value; DB.ebay.paymentPolicyName=o?o.textContent:""; save(); pushPoliciesToInventoryIq(); };
+  returnSel.onchange=()=>{ const o=returnSel.selectedOptions[0]; DB.ebay.returnPolicyId=returnSel.value; DB.ebay.returnPolicyName=o?o.textContent:""; save(); pushPoliciesToInventoryIq(); };
   locSel.onchange=()=>{ const o=locSel.selectedOptions[0]; DB.ebay.merchantLocationKey=locSel.value; DB.ebay.merchantLocationName=o?o.textContent:""; save(); };
   body.querySelector("#eb-loadpolicies").onclick=async ()=>{
     if(!EBAY.ready()){ setupMsg.style.color="#c0392b"; setupMsg.textContent="Connect with eBay first (click Connect next to the mode badge)."; return; }
@@ -6456,7 +6466,10 @@ function mountPriceCompare(opts){
       save(); compareTab();
     }catch(e){ it.compareSold={ pulledAt:new Date().toISOString(), items:[], error:{status:0,body:(e&&e.message)||String(e)} }; save(); compareTab(); }
   }
-  let cmpFilter={}; let cmpGroup=null; let cmpMode="active"; let cmpShowExcluded=false; let cmpViewAllConds=false;
+  // Default to the Sold tab when we already sold this item before — our own sale is the strongest
+  // comp, so surface it immediately. Otherwise default to Active.
+  const _hasOurSale = !!(it.compareOurs && it.compareOurs.items && it.compareOurs.items.length);
+  let cmpFilter={}; let cmpGroup=null; let cmpMode=_hasOurSale?"sold":"active"; let cmpShowExcluded=false; let cmpViewAllConds=false;
   let soldPasteMode=false; let soldPasteRows=null; let soldPasteSource="sellerhub"; let soldCondFilter="";
   function compareTab(){
     if(cmpMode==="sold") return compareSoldTab();
@@ -6502,7 +6515,7 @@ function mountPriceCompare(opts){
           <div class="smallhint" style="margin-top:3px;">${cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet"}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:80px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date Listed","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:104px;"></th><th>Title</th>${pinHead("condition","Condition","110px")}${pinHead("price","Price","80px")}${pinHead("date","Date Listed","110px")}${pinHead("category","Category","")}<th style="width:80px;"></th><th style="width:36px;"></th></tr></thead><tbody id="cmp-tb"></tbody></table></div>`;
     tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
     const upd=tabbody.querySelector("#cmp-update"); if(upd) upd.onclick=pullCompare;
     const clr=tabbody.querySelector("#cmp-clear"); if(clr) clr.onclick=()=>{ cmpFilter={}; cmpGroup=null; compareTab(); };
@@ -6566,7 +6579,7 @@ function mountPriceCompare(opts){
       visible.forEach((row)=>{ const tr=document.createElement("tr");
         const d=row.date?new Date(row.date):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
         const titleCell = row.webUrl ? `<a href="#" class="cmp-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
-        tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:72px;height:72px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:5px;">`:''}</td>
+        tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:94px;height:94px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:5px;">`:''}</td>
           <td style="font-size:12px;">${row._excludeWhy?'<span style="background:#F3E1DE;color:#922B21;font-size:10px;padding:1px 6px;border-radius:5px;font-weight:700;margin-right:5px;">excluded: '+esc(row._excludeWhy)+'</span>':''}${titleCell}${(row._noStat&&!row._excludeWhy)?' <span title="No issue number detected in this title — shown for reference but NOT counted in the average" style="background:#FFF3D6;color:#8A5E10;font-size:10px;padding:1px 6px;border-radius:5px;font-weight:700;">issue?</span>':''}</td><td>${esc(row.condition||"—")}</td><td>${fmtP(row.price)}</td><td>${dStr}</td><td style="font-size:12px;">${esc(row.category||"—")}</td>`;
         const lk=tr.querySelector(".cmp-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
         const tdC=document.createElement("td"); tdC.className="cc"; const cb=document.createElement("button"); cb.className="btn sm"; cb.textContent="Compare"; cb.disabled=ro;
@@ -6607,7 +6620,7 @@ function mountPriceCompare(opts){
           <div class="smallhint" style="margin-top:3px;">${(it.compareSold&&it.compareSold.apify)?("Apify: "+((it.compareSold.apify.items||[]).length)+" sold pulled"):(cmp&&cmp.pulledAt?("Last pulled "+new Date(cmp.pulledAt).toLocaleString()):"Not pulled yet")}</div></div>
       </div>
       <div id="cmp-status" class="smallhint" style="margin-bottom:6px;"></div>
-      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:80px;"></th><th>Title</th><th style="width:76px;">Price</th><th style="width:78px;">Shipping</th><th style="width:92px;">Date Sold</th><th style="width:96px;">Days Listed</th><th style="width:110px;">Discounted?</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0;border:1px solid #b5b5b5;"><table class="res"><thead><tr><th style="width:104px;"></th><th>Title</th><th style="width:110px;">Price</th><th style="width:78px;">Shipping</th><th style="width:92px;">Date Sold</th><th style="width:36px;"></th></tr></thead><tbody id="cmps-tb"></tbody></table></div>`;
     tabbody.querySelectorAll(".cmp-mode").forEach(b=>b.onclick=()=>{ cmpMode=b.dataset.mode; compareTab(); });
     const cf=tabbody.querySelector("#cmps-condfilter"); if(cf) cf.onchange=()=>{ soldCondFilter=cf.value; compareTab(); };
     const apBtn=tabbody.querySelector("#cmps-apify");
@@ -6637,16 +6650,16 @@ function mountPriceCompare(opts){
     };
     if(!cmp && !it._compareSoldAutoTried && EBAY.ready() && (it.desc||(it.listing&&it.listing.title))){ it._compareSoldAutoTried=true; pullSoldCompare(); return; }
     const tb=tabbody.querySelector("#cmps-tb");
-    if(cmp&&cmp.error && !((it.compareOurs&&it.compareOurs.items)||[]).length){ tb.innerHTML=`<tr><td colspan="8" style="color:#c0392b;">eBay's market-wide sold data isn't available on this connection (HTTP ${cmp.error.status}), and you haven't sold anything similar yet.<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.<br><br><button class="btn sm" id="cmps-gomanual" style="margin-top:6px;">Research &amp; paste sold listings manually instead</button></td></tr>`;
+    if(cmp&&cmp.error && !((it.compareOurs&&it.compareOurs.items)||[]).length){ tb.innerHTML=`<tr><td colspan="6" style="color:#c0392b;">eBay's market-wide sold data isn't available on this connection (HTTP ${cmp.error.status}), and you haven't sold anything similar yet.<br><br>${esc((cmp.error.body||"").slice(0,400))}<br><br>This usually means the eBay account hasn't been approved for the Marketplace Insights API yet — that's a separate approval process with eBay (their "Application Growth Check"), not a WIM setting.<br><br><button class="btn sm" id="cmps-gomanual" style="margin-top:6px;">Research &amp; paste sold listings manually instead</button></td></tr>`;
       const gm=tb.querySelector("#cmps-gomanual"); if(gm) gm.onclick=()=>{ soldPasteMode=true; soldPasteRows=null; soldPasteSource="sellerhub"; try{ navigator.clipboard && navigator.clipboard.writeText(qText()); }catch(_){} openExternal("https://www.ebay.com/sh/research?marketplace=EBAY-US&tabName=SOLD"); compareTab(); };
       return; }
     const oursCount=((it.compareOurs&&it.compareOurs.items)||[]).length;
-    if(!allRows.length && !oursCount){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold data yet. Click <b>Pull Sold Listings</b> — it searches what <b>you</b> have already sold (shown in green), and pulls eBay's market data if your account has access to it.</td></tr>`; return; }
-    if(!rows.length && !oursCount){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No sold listings match condition “${esc(soldCondFilter)}”.</td></tr>`; return; }
+    if(!allRows.length && !oursCount){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">No sold data yet. Click <b>Pull Sold Listings</b> — it searches what <b>you</b> have already sold (shown in green), and pulls eBay's market data if your account has access to it.</td></tr>`; return; }
+    if(!rows.length && !oursCount){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">No sold listings match condition “${esc(soldCondFilter)}”.</td></tr>`; return; }
     tb.innerHTML="";
     if(qSold.excluded.length){
       const tr0=document.createElement("tr");
-      tr0.innerHTML=`<td colspan="8" class="smallhint" style="background:#FBF6EC;">Excluded <b>${qSold.excluded.length}</b> sold comp(s) that would skew the average — ${[...new Set(qSold.excluded.map(r=>r._excludeWhy))].join(", ")}.</td>`;
+      tr0.innerHTML=`<td colspan="6" class="smallhint" style="background:#FBF6EC;">Excluded <b>${qSold.excluded.length}</b> sold comp(s) that would skew the average — ${[...new Set(qSold.excluded.map(r=>r._excludeWhy))].join(", ")}.</td>`;
       tb.appendChild(tr0);
     }
     // OUR OWN SALES FIRST, tinted green. These are the strongest comps you have — you actually sold
@@ -6654,18 +6667,22 @@ function mountPriceCompare(opts){
     const ours=(it.compareOurs && it.compareOurs.items) || [];
     ours.forEach(o=>{
       const tr=document.createElement("tr");
-      tr.style.background="#EFF7F1"; // light green = we sold this one
+      // Green GLOW + "Item Sold" banner for our own sales. If it sold below the asking price
+      // (discount/coupon), show the original struck through then the actual sold price.
+      tr.style.background="#EFF7F1";
+      tr.style.boxShadow="inset 0 0 0 2px #1F9D55";
       const d=o.soldAt?new Date(o.soldAt):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
-      const disc = o.discount
-        ? `<span style="color:#B03A2E;font-weight:600;">−${o.discount.pct}%</span><div class="smallhint">asked $${o.discount.asked.toFixed(2)}</div>`
-        : `<span style="color:#1F7244;">full price</span>`;
-      tr.innerHTML=`<td><span title="You sold this" style="display:inline-block;width:72px;height:72px;line-height:72px;text-align:center;background:#1F9D55;color:#fff;font-size:11px;font-weight:700;border-radius:5px;">OURS</span></td>
-        <td style="font-size:12px;"><a href="#" class="cmps-ourlink" data-id="${esc(o.itemRef)}" style="color:#1F7244;font-weight:600;text-decoration:none;border-bottom:1px dotted #9AD3AE;">${esc(o.desc)}</a></td>
-        <td style="font-weight:700;">${fmtP(o.price)}</td>
+      let priceCell;
+      if(o.discount && o.discount.asked && o.discount.asked > o.price){
+        priceCell=`<span style="text-decoration:line-through;color:#9aa3ad;font-weight:500;">${fmtP(o.discount.asked)}</span> <span style="font-weight:700;color:#1F7244;">${fmtP(o.price)}</span>`;
+      } else {
+        priceCell=`<span style="font-weight:700;">${fmtP(o.price)}</span>`;
+      }
+      tr.innerHTML=`<td><span title="You sold this" style="display:inline-block;width:94px;height:94px;line-height:94px;text-align:center;background:#1F9D55;color:#fff;font-size:11px;font-weight:700;border-radius:5px;">OURS</span></td>
+        <td style="font-size:12px;"><div style="text-align:center;font-size:10px;font-weight:800;letter-spacing:.06em;color:#1F7244;text-transform:uppercase;margin-bottom:2px;">Item Sold</div><a href="#" class="cmps-ourlink" data-id="${esc(o.itemRef)}" style="color:#1F7244;font-weight:600;text-decoration:none;border-bottom:1px dotted #9AD3AE;">${esc(o.desc)}</a></td>
+        <td>${priceCell}</td>
         <td style="font-size:11.5px;"><span class="smallhint">—</span></td>
-        <td style="font-size:11.5px;">${dStr}</td>
-        <td style="font-size:12px;">${o.took?esc(o.took):'<span class="smallhint">—</span>'}</td>
-        <td style="font-size:11.5px;">${disc}</td><td></td>`;
+        <td style="font-size:11.5px;">${dStr}</td><td></td>`;
       const ol=tr.querySelector(".cmps-ourlink");
       if(ol) ol.onclick=(e)=>{ e.preventDefault(); const t=(DB.items||[]).find(x=>x.id===ol.dataset.id); if(t) openItemDetail(t,"edit"); };
       tb.appendChild(tr);
@@ -6674,9 +6691,8 @@ function mountPriceCompare(opts){
       const d=row.soldDate?new Date(row.soldDate):null; const dStr=d&&!isNaN(d)?d.toLocaleDateString():"—";
       const titleCell = row.webUrl ? `<a href="#" class="cmps-titlelink" data-url="${esc(row.webUrl)}" style="color:#28313f;text-decoration:none;border-bottom:1px dotted #9aa3ad;">${esc(row.title)}</a>` : esc(row.title);
       const shipCell = (row.shipping===""||row.shipping==null) ? '<span class="smallhint">—</span>' : (row.shipping==="Free"?'<span style="color:#1F7244;">Free</span>':("$"+row.shipping));
-      const durCell = (row.durationDays===""||row.durationDays==null) ? '<span class="smallhint">—</span>' : (row.durationDays+" day"+(row.durationDays==1?"":"s"));
-      tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:72px;height:72px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:5px;">`:''}</td>
-        <td style="font-size:12px;">${titleCell}<div class="smallhint" style="color:#8a95a3;">market</div></td><td>${fmtP(row.price)}</td><td style="font-size:11.5px;">${shipCell}</td><td style="font-size:11.5px;">${dStr}</td><td style="font-size:11.5px;">${durCell}</td><td><span class="smallhint">—</span></td>`;
+      tr.innerHTML=`<td>${row.thumb?`<img class="hz" src="${esc(row.thumb)}" style="width:94px;height:94px;object-fit:contain;border:1px solid #eee;background:#fafafa;border-radius:5px;">`:''}</td>
+        <td style="font-size:12px;">${titleCell}<div class="smallhint" style="color:#8a95a3;">market</div></td><td><span style="font-weight:600;">${fmtP(row.price)}</span></td><td style="font-size:11.5px;">${shipCell}</td><td style="font-size:11.5px;">${dStr}</td>`;
       const lk=tr.querySelector(".cmps-titlelink"); if(lk) lk.onclick=(e)=>{ e.preventDefault(); openExternal(lk.dataset.url); };
       const tdX=document.createElement("td"); tdX.className="cc"; const x=document.createElement("button"); x.className="btn sm"; x.textContent="✕"; x.title="Remove from comparison"; x.disabled=ro;
       x.onclick=()=>{ const i=it.compareSold.items.indexOf(row); if(i>=0) it.compareSold.items.splice(i,1); save(); compareTab(); }; tdX.appendChild(x); tr.appendChild(tdX);
@@ -7116,8 +7132,9 @@ function itemPhotoPanel(it, onChange){
   const strip=document.createElement("div"); strip.style.cssText="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;";
   it.images.forEach((src,idx)=>{
     const feat=idx===0;
+    const isNew=Array.isArray(it._newPhotoIdx)&&it._newPhotoIdx.includes(idx);
     const t=document.createElement("div");
-    t.style.cssText=`width:38px;height:38px;background:#fff center/cover no-repeat;border:${idx===it._viewIdx?'2px solid #378add':'0.5px solid #ccc'};border-radius:5px;position:relative;cursor:pointer;flex-shrink:0;`;
+    t.style.cssText=`width:38px;height:38px;background:#fff center/cover no-repeat;border:${isNew?'2px solid #C0392B':(idx===it._viewIdx?'2px solid #378add':'0.5px solid #ccc')};border-radius:5px;position:relative;cursor:pointer;flex-shrink:0;${isNew?'box-shadow:0 0 0 1px #C0392B44;':''}`;
     t.style.backgroundImage=`url(${src})`;
     const tag=document.createElement("span"); tag.textContent=feat?"F":"S";
     tag.style.cssText=`position:absolute;top:-6px;right:-4px;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;border:0.5px solid ${feat?'#0c447c':'#b9c2cf'};background:${feat?'#e6f1fb':'#fff'};color:${feat?'#0c447c':'#5f6b7a'};cursor:pointer;`;
@@ -8168,6 +8185,30 @@ function openIqConfig(){
 // items only), marks them imported on the Worker. Returns {added,skipped,error} and never
 // throws. This is the single source of truth for bringing scans in; the old Import Scans window
 // is gone as of v3.4.4 and Bulk Add calls this on open + on a light poll.
+// Push WIM's eBay policies + default listing description to InventoryIQ so Single Scan can list
+// directly without the operator ever setting them. Safe to call often; only sends when configured
+// and when something actually changed (fingerprint guard).
+let _iqPolicyFingerprint="";
+async function pushPoliciesToInventoryIq(force){
+  if(!WIM_IS_DESKTOP) return;
+  if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)) return;
+  const e=DB.ebay||{};
+  const defDesc=(function(){ const d=(DB.descriptions||[]).find(x=>x.isDefault)||(DB.descriptions||[])[0]; return d?d.body:""; })();
+  const loc=(e.location||null);
+  const body={
+    shippingPolicyId:e.fulfillmentPolicyId||"",
+    paymentPolicyId:e.paymentPolicyId||"",
+    returnPolicyId:e.returnPolicyId||"",
+    defaultDescription:defDesc||"",
+    location:loc
+  };
+  const fp=JSON.stringify(body);
+  if(!force && fp===_iqPolicyFingerprint) return;   // nothing changed
+  try{
+    const r=await wimDesktop.invoke("iq_push_policies",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, body:fp });
+    if(r&&r.ok){ _iqPolicyFingerprint=fp; }
+  }catch(err){}
+}
 async function pullInventoryIqScans(){
   if(!WIM_IS_DESKTOP) return {added:0,skipped:0,error:"desktop only"};
   if(!DB.iqSettings || !DB.iqSettings.baseUrl || !DB.iqSettings.token) return {added:0,skipped:0,error:"not configured"};
@@ -8192,6 +8233,9 @@ async function pullInventoryIqScans(){
         scannedBy:(s.user||s.scannedBy||s.username||""),
         thumb:(s.thumbnail||""),
         needsResearch: !(s.medianPrice!=null || s.price!=null),
+        // Single Scan revamp: mark where it came from and which fields were reviewed on the phone.
+        sourceKind:(s.sourceKind||s.source_kind||null),
+        reviewed:(s.reviewed||null),
         importedAt:new Date().toISOString(), photoCount:0, listed:false, itemId:null };
       // If InventoryIQ already ran Apify on this item (the rare no-active-listing case), carry its
       // sold examples through so the card's Sold tab shows them without paying for another pull.
@@ -8317,6 +8361,146 @@ async function openImportScans(){
       if(!sold && (st==="sold"||st==="inactive") && x.fulfillment && x.fulfillment.soldAt) sold=x;
     });
     return { listed, sold };
+  }
+  // Merge candidates for the purple button: every OTHER item that plausibly is the same product,
+  // split by where it currently lives. Uses the same fuzzy text match as findMatches PLUS an issue
+  // guard: if BOTH titles carry an issue number and they differ, they never match (a #217 never
+  // matches a #143); but a copy with no issue number CAN match a numbered one (your rule).
+  function findMergeCandidates(it){
+    const bc=(it.barcode||"").replace(/[^0-9X]/gi,"");
+    const norm=(x)=>((x&&x.desc)||"").toLowerCase();
+    const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
+    const words=norm(it).split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
+    const myIssue=titleCompInfo(it.desc||"").issue;
+    const sameThing=(x)=>{
+      if(x.id===it.id) return false;
+      if(x._mergedInto) return false;                 // already merged away — skip
+      // Issue guard first: if both have an issue number and they differ, not a match.
+      const xIssue=titleCompInfo(x.desc||"").issue;
+      if(myIssue!=null && xIssue!=null && myIssue!==xIssue) return false;
+      const xbc=(x.barcode||"").replace(/[^0-9X]/gi,"");
+      if(bc && xbc) return bc===xbc && (myIssue==null||xIssue==null||myIssue===xIssue);
+      if(!words.length) return false;
+      const hay=norm(x)+" "+(((x.listing&&x.listing.title)||"").toLowerCase());
+      let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
+      return (hits/words.length) >= 0.6;
+    };
+    const inBulk=[], inReview=[], active=[];
+    (DB.items||[]).forEach(x=>{
+      if(!sameThing(x)) return;
+      const st=itemStatus(x); const L=x.listing||{};
+      if(L.status==="listed" && st!=="sold" && st!=="inactive"){ active.push(x); return; }
+      if(L.readyToList && !L.listedAt){ inReview.push(x); return; }
+      // "in bulk add" = an un-listed, un-review scan/item still being built
+      if(x.fromScan && st!=="sold" && st!=="inactive" && !L.listedAt && !L.readyToList){ inBulk.push(x); return; }
+    });
+    return { inBulk, inReview, active, total:inBulk.length+inReview.length+active.length };
+  }
+  // Is candidateId one of anchorId's merge candidates? (used to know which cards are pickable)
+  function isMergeCandidateOf(anchorId, candidateId){
+    const anchor=(DB.items||[]).find(x=>x.id===anchorId); if(!anchor) return false;
+    const mc=findMergeCandidates(anchor);
+    return mc.inBulk.concat(mc.inReview, mc.active).some(x=>x.id===candidateId);
+  }
+  // Merge: fold the non-parent bulk-add matches into the picked parent as extra quantity units.
+  // Each folded unit keeps its own identity (its own item number + SKU get assigned at commit), but
+  // it disappears from the card list and shows on the parent as Quantity N. Active/review matches
+  // are handled by the send flow (phase 3), not here — this only folds still-in-bulk scans.
+  function doMerge(){
+    if(!mergeMode) return;
+    const parent=(DB.items||[]).find(x=>x.id===mergeMode.pickedId); if(!parent){ mergeMode=null; render(); return; }
+    const anchor=(DB.items||[]).find(x=>x.id===mergeMode.anchorId);
+    const mc=anchor?findMergeCandidates(anchor):{inBulk:[]};
+    // Everything still-in-bulk that isn't the parent folds in. (Active/review need the send flow.)
+    const foldIds=new Set();
+    mc.inBulk.forEach(x=>{ if(x.id!==parent.id) foldIds.add(x.id); });
+    if(anchor && anchor.id!==parent.id) foldIds.add(anchor.id);   // if parent was a candidate, fold the anchor too
+    if(!parent._mergedUnits) parent._mergedUnits=[];
+    foldIds.forEach(id=>{
+      const child=(DB.items||[]).find(x=>x.id===id); if(!child||child._mergedInto) return;
+      child._mergedInto=parent.id;                 // hidden from the list
+      parent._mergedUnits.push({ id:child.id, desc:child.desc, at:new Date().toISOString() });
+    });
+    selectedScanId=parent.id;   // keep the parent selected
+    mergeMode=null;
+    save(); render();
+  }
+  // Merge a still-in-bulk scan INTO an item that's already Active (listed). Per the spec: the active
+  // item stays the parent (you can't demote a live listing), it's marked Reserve, and the new copy
+  // joins its group as extra quantity. If the user can list directly, we reserve-and-add now; if not,
+  // it goes to Supervisor Review flagged as a duplicate of the active item. Each copy keeps its own
+  // identity and gets its own SKU at commit. The existing reserve auto-relist then lists the next
+  // copy when one sells, and the zero-quantity guard stops it after the last one.
+  function mergeIntoActive(newItem, activeItem){
+    if(!newItem||!activeItem) return;
+    const canList = (typeof canListDirect==="function") ? canListDirect() : (SESSION.user && (SESSION.user.role==="admin"||SESSION.user.role==="lister"));
+    // Make the new copy join the active item's group: adopt its groupKey fields so unitsOf() counts
+    // them together (fuzzy titles could differ; the group needs them identical to link).
+    newItem.desc=activeItem.desc; newItem.section=activeItem.section; newItem.subCategory=activeItem.subCategory; newItem.condition=activeItem.condition;
+    // Mark the active item's listing as Reserve so only one shows at a time.
+    if(!activeItem.listing) activeItem.listing={status:"none"};
+    activeItem.listing.reserveItem=true;
+    // Link the new copy to the active parent for traceability.
+    newItem._reserveParentId=activeItem.id;
+    if(canList){
+      // Reserve-and-add: assign this copy its SKU/commit now; it becomes an active reserved unit that
+      // will list automatically when the current live one sells.
+      const sku=assignSkuForCommit(newItem); newItem._committedAt=new Date().toISOString();
+      if(!newItem.listing) newItem.listing={status:"none"};
+      newItem.listing.reserveItem=true; newItem.listing.status="none";   // reserved, not yet live
+      addHistory(newItem,"Merged into active listing as a reserved copy of "+(activeItem.desc||"item"));
+      addHistory(activeItem,"Marked Reserve; a merged copy was added to its quantity");
+      // Mark the originating scan as handled so it drops out of Bulk Add.
+      const r=(DB.importedScans||[]).find(x=>x.itemId===newItem.id); if(r){ r.listed=true; r.listedAt=new Date().toISOString(); }
+      save(); try{ wimToast(sku?("Reserved copy added — shelve at "+sku):"Reserved copy added to the active listing","success"); }catch(e){}
+      render();
+    } else {
+      // No listing rights → send to Supervisor Review flagged as a duplicate of the active item.
+      if(!newItem.listing) newItem.listing={status:"none"};
+      const sku=assignSkuForCommit(newItem); newItem._committedAt=new Date().toISOString();
+      newItem.listing.readyToList=true; newItem.listing.readyToListAt=new Date().toISOString(); newItem.listing.readyToListBy=(SESSION.user?SESSION.user.id:null);
+      newItem.listing.duplicateOfActiveId=activeItem.id;   // review card shows the Active tab
+      addHistory(newItem,"Sent to Supervisor Review as a duplicate of active listing "+(activeItem.desc||"item"));
+      const r=(DB.importedScans||[]).find(x=>x.itemId===newItem.id); if(r){ r.listed=true; r.listedAt=new Date().toISOString(); }
+      save(); try{ wimToast(sku?("Sent to Review as duplicate — shelve at "+sku):"Sent to Review as a duplicate","success"); }catch(e){}
+      render();
+    }
+  }
+  // Match panel: shows the Active (green) and Supervisor-Review (purple) matches for an item, plus
+  // any still-in-Bulk matches, and lets the user act. Active matches get "Merge & Send" (reserve +
+  // add quantity, per privileges). Review matches can be opened. In-bulk matches route to in-list merge.
+  function openMatchPanel(it, mc){
+    mc=mc||findMergeCandidates(it);
+    const glowCard=(x,kind)=>{
+      const isActive=kind==="active";
+      const glow=isActive?"#1F9D55":"#7C3AED";
+      const label=isActive?"Active":"Supervisor Review";
+      return `<div style="border:2px solid ${glow};box-shadow:0 0 0 3px ${isActive?'rgba(31,157,85,.18)':'rgba(124,58,237,.18)'};border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div><span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${glow};">${label}</span>
+            <div style="font-size:13px;font-weight:600;color:#28313f;">${esc(x.desc||"item")}</div>
+            <div class="smallhint">Qty in group: ${groupQty(x)} · ${esc((x.listing&&x.listing.status)||"")}</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${isActive?`<button class="mp-mergeactive btn sm primary" data-id="${esc(x.id)}" style="background:#1F9D55;border-color:#1a8c4a;font-weight:700;white-space:nowrap;">Merge &amp; Send</button>`:``}
+            <button class="mp-open btn sm" data-id="${esc(x.id)}" style="white-space:nowrap;">Open</button>
+          </div>
+        </div></div>`;
+    };
+    const bodyHtml=`
+      <div style="max-height:60vh;overflow:auto;">
+        ${mc.active.length?`<div style="font-size:12px;font-weight:700;color:#1F9D55;margin:2px 0 6px;">Already active (${mc.active.length}) — merging adds this copy as reserved quantity</div>${mc.active.map(x=>glowCard(x,"active")).join("")}`:``}
+        ${mc.inReview.length?`<div style="font-size:12px;font-weight:700;color:#7C3AED;margin:8px 0 6px;">In Supervisor Review (${mc.inReview.length})</div>${mc.inReview.map(x=>glowCard(x,"review")).join("")}`:``}
+        ${mc.inBulk.length?`<div style="font-size:12px;font-weight:700;color:#5b6470;margin:8px 0 6px;">Still in Bulk Add (${mc.inBulk.length})</div><div class="smallhint" style="margin-bottom:8px;">Close this and use the purple button on the cards to merge in-progress items together.</div>`:``}
+      </div>`;
+    const modal=uiModal("Possible matches for "+((it.desc||"this item").slice(0,50)), bodyHtml, [{label:"Close"}]);
+    const root=modal.box;
+    root.querySelectorAll(".mp-mergeactive").forEach(b=>b.onclick=()=>{
+      const active=(DB.items||[]).find(x=>x.id===b.dataset.id); if(!active) return;
+      uiConfirm(`Merge this copy into the ACTIVE listing "${(active.desc||"item").slice(0,40)}"? It will be marked Reserve and this copy added as extra quantity (or sent to Review if you can't list).`, ()=>{
+        mergeIntoActive(it, active); modal.close();
+      });
+    });
+    root.querySelectorAll(".mp-open").forEach(b=>b.onclick=()=>{ const x=(DB.items||[]).find(y=>y.id===b.dataset.id); if(x) openItemDetail(x,"edit"); });
   }
   // "23d 7h" — how long a listing took to sell.
   function soldDuration(x){
@@ -8806,9 +8990,16 @@ async function openImportScans(){
         if(count>0 && r.itemId){
           const it=DB.items.find(x=>x.id===r.itemId);
           if(it && (it.images||[]).length!==count){
-            const scaled=[];
-            for(const im of (imgs||[])){ scaled.push(await downscaleDataUrl(im.dataUrl)); }
+            const scaled=[]; const newIdx=[];
+            let si=0;
+            for(const im of (imgs||[])){ scaled.push(await downscaleDataUrl(im.dataUrl));
+              // Photos written by the duplicate-photo pull are prefixed NEW_ — remember their index
+              // so the card can outline them in red until the user resolves the duplicates.
+              if(/^NEW_/i.test(im.name||"")) newIdx.push(si);
+              si++;
+            }
             it.images=scaled;
+            it._newPhotoIdx=newIdx;
             if(scaled.length) it.image=scaled[0];
             // Folder contents changed → any previously uploaded EPS URLs are stale.
             if(it.listing && Array.isArray(it.listing.ebayImageUrls)) it.listing.ebayImageUrls=[];
@@ -8852,15 +9043,97 @@ async function openImportScans(){
     if(!it){ uiAlert("This scan's item record couldn't be found — it may have been deleted."); return; }
     openItemDetail(it,"edit");
   }
+
+  // PHOTO MODE PULL — photos shot on the phone in InventoryIQ's Photo Mode are parked in the Worker's
+  // R2 bucket, keyed by the InventoryIQ scanId. This pulls each item's photos down and writes them
+  // into that item's existing Drive photo folder (the same folder Refresh Photos reads), then tells
+  // the Worker they're pulled so R2 is cleared. After this, the normal Refresh Photos attaches them.
+  async function pullPhotoModePhotos(){
+    const msg=win.querySelector("#is-msg");
+    if(!WIM_IS_DESKTOP){ if(msg){ msg.style.color="#c0392b"; msg.textContent="Photo pull runs in the desktop app."; } return 0; }
+    if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)){ return 0; }
+    const base=(DB.iqSettings.photoBasePath||"").replace(/[\\/]+$/,"");
+    let pulledItems=0, wrote=0, fellOff=0, dupItems=0;
+    try{
+      const pend=await wimDesktop.invoke("iq_fetch_pending_photos",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token });
+      if(!pend||!pend.ok) return 0;
+      const data=JSON.parse(pend.body||"{}"); const items=(data&&data.items)||[];
+      for(const row of items){
+        const itemKey=row.item_key; if(!itemKey) continue;
+        // item_key is the InventoryIQ scanId. Find the matching imported scan → its WIM item + folder.
+        const rec=(DB.importedScans||[]).find(r=>String(r.scanId)===String(itemKey));
+        if(!rec){ continue; }   // not imported into WIM yet — leave the photos in R2 for a later pull
+        const it=rec.itemId?DB.items.find(x=>x.id===rec.itemId):null;
+        // DUPLICATE-PHOTO RULE. If this item already had photos, decide by its stage:
+        //  - Listed OR in Supervisor Review (readyToList): the new photos are not needed → fall off.
+        //    We still tell the Worker they were pulled so R2 clears; we just don't write them.
+        //  - Still in Bulk Photos: write them, but flag as NEW (red border) and block List/Send until
+        //    the user acknowledges they've resolved the duplicates.
+        const hadPhotos = !!(it && ((it.images&&it.images.length) || (Array.isArray(it._photoFiles)&&it._photoFiles.length)));
+        // Count photos already sitting in the folder (covers the case where images aren't attached yet).
+        let existingInFolder=0;
+        try{ const cur=await wimDesktop.invoke("wim_read_folder_images",{ path:(rec.folderPath||importScanFolderPath(rec)) }); existingInFolder=(cur||[]).length; }catch(e){}
+        const isDuplicateSituation = (hadPhotos || existingInFolder>0);
+        const stageListed = !!(it && it.listing && it.listing.status==="listed");
+        const stageReview = !!(it && it.listing && it.listing.readyToList && !(it.listing.status==="listed"));
+        if(isDuplicateSituation && (stageListed || stageReview)){
+          // Fall off — clear from R2 without writing to disk.
+          try{ await wimDesktop.invoke("iq_mark_photos_pulled",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, itemKey:String(itemKey) }); }catch(e){}
+          fellOff++;
+          continue;
+        }
+        // Make sure the item has a folder to receive photos.
+        let folder=rec.folderPath||importScanFolderPath(rec);
+        if(!folder) continue;
+        try{ await wimDesktop.invoke("wim_ensure_folder",{ path:folder }); }catch(e){}
+        // Fetch this item's photos (ordered, primary first) and write each into the folder.
+        const res=await wimDesktop.invoke("iq_fetch_item_photos",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, itemKey:String(itemKey) });
+        if(!res||!res.ok) continue;
+        const pj=JSON.parse(res.body||"{}"); const photos=(pj&&pj.photos)||[];
+        if(!photos.length) continue;
+        let idx=0; let anyWritten=false; const newFiles=[];
+        for(const ph of photos){
+          const b64=(ph.dataUrl||"").split(",")[1]||""; if(!b64) continue;
+          // Name so the primary sorts first, then by sequence: 00_primary.jpg, 01.jpg, 02.jpg…
+          // In a duplicate situation, prefix NEW so these files are distinguishable and never
+          // collide with the originals already in the folder.
+          const n=String(idx).padStart(2,"0");
+          const stem=(ph.isPrimary?("00_primary_"+n):(n));
+          const fname=(isDuplicateSituation?("NEW_"+stem):stem)+".jpg";
+          const jpgPath=folder+"\\"+fname;
+          try{
+            const ok=await wimDesktop.invoke("wim_write_file",{ path:jpgPath, base64Data:b64, mustBeUnder:base });
+            if(ok){ wrote++; anyWritten=true; newFiles.push(fname); }
+          }catch(e){}
+          idx++;
+        }
+        // If this was a duplicate situation in Bulk Photos, flag the item so List/Send is blocked
+        // until the user acknowledges, and record which files are new (red border in the UI).
+        if(anyWritten && isDuplicateSituation && it){
+          it._duplicatePhotos=true;
+          it._newPhotoFiles=(it._newPhotoFiles||[]).concat(newFiles);
+          addHistory(it,"Duplicate photos added via Photo Mode ("+newFiles.length+") — needs review");
+          dupItems++;
+        }
+        // Only tell the Worker to clear R2 once we've actually written this item's photos to disk.
+        if(anyWritten){
+          try{ await wimDesktop.invoke("iq_mark_photos_pulled",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, itemKey:String(itemKey) }); }catch(e){}
+          pulledItems++;
+        }
+      }
+    }catch(e){}
+    if(msg && (pulledItems||fellOff)){ msg.style.color=dupItems?"#b06000":"#1f7244"; msg.textContent="Pulled Photo-Mode photos for "+pulledItems+" item(s) ("+wrote+" photo(s))."+(dupItems?(" "+dupItems+" item(s) have DUPLICATE photos flagged for review."):"")+(fellOff?(" "+fellOff+" set(s) fell off (already listed/in review)."):"")+" Click Refresh Photos to attach them."; }
+    return pulledItems;
+  }
   // Toolbar buttons live OUTSIDE body — wire them from the window element, once.
   const importBtn=win.querySelector("#is-import"); if(importBtn) importBtn.onclick=importNewScans;
-  const refreshBtn=win.querySelector("#is-refresh"); if(refreshBtn) refreshBtn.onclick=refreshPhotos;
+  const refreshBtn=win.querySelector("#is-refresh"); if(refreshBtn) refreshBtn.onclick=async()=>{ await pullPhotoModePhotos(); await refreshPhotos(); };
   render();
   // Zero-click default: opening this screen pulls new scans and then refreshes photos on its
   // own (the buttons stay for re-runs mid-session). Sequential on purpose - a freshly imported
   // record should be checked for photos in the same pass. Any failure just lands in the
   // message line exactly as if the button was clicked.
-  (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await refreshPhotos(); } }catch(e){} })();
+  (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await pullPhotoModePhotos(); await refreshPhotos(); pushPoliciesToInventoryIq(); } }catch(e){} })();
 }
 // Top-level: finds an existing listed / previously-sold copy of the same item (by ISBN/barcode,
 // else strong title overlap). Used by Bulk Add's rich scan card for the ALREADY LISTED / SOLD
@@ -8890,19 +9163,26 @@ function findMatches(it){
   return { listed, sold };
 }
 
-function openBulkAdd(){
-  if(openWindows["bulk-add"]){ focusWin(openWindows["bulk-add"].el); return; }
-  const {body,close}=buildWindow({id:"bulk-add",title:"Bulk Add Inventory",width:1180,height:640,popoutKey:"bulkadd",
+function openBulkAdd(mode){
+  const isAddItem=(mode==="additem");
+  const winId=isAddItem?"add-item":"bulk-add";
+  if(openWindows[winId]){ focusWin(openWindows[winId].el); return; }
+  const {body,close}=buildWindow({id:winId,title:isAddItem?"Add Item":"Bulk Add Inventory",width:1180,height:640,popoutKey:isAddItem?"additem":"bulkadd",
     toolbar:``});
   // ---- Scan pipeline state (v3.4.4): scans now flow into Bulk Add, not a separate window. ----
+  // Add Item mode reuses this whole screen but filters to SINGLE-SCAN items (source_kind 'single'
+  // from InventoryIQ Single Scan) and green-glows the fields the phone operator marked reviewed.
+  const isSingleScan=(r)=> (r && (r.sourceKind==="single" || r.source_kind==="single"));
+  const inThisApp=(r)=> isAddItem ? isSingleScan(r) : !isSingleScan(r);
   let baMainTab="manual";           // "manual" (typed rows + accepted scans) | "research"
   let scanPage=0; const SCAN_PER_PAGE=20;
   let pollTimer=null, pollIdleCount=0, pollMsg="";
   const scanPollSeconds=()=> (DB.iqSettings && parseInt(DB.iqSettings.pollSeconds,10)) || 5;
   // Accepted scans (priced, or research items that were reviewed) vs research (unpriced, unreviewed).
-  const acceptedScans=()=> (DB.importedScans||[]).filter(r=>!r.listed && !(r.needsResearch && !r.researched))
+  const isMergedAway=(r)=>{ if(!r.itemId) return false; const it=(DB.items||[]).find(x=>x.id===r.itemId); return !!(it && it._mergedInto); };
+  const acceptedScans=()=> (DB.importedScans||[]).filter(r=>!r.listed && !(r.needsResearch && !r.researched) && !isMergedAway(r) && inThisApp(r))
     .sort((a,b)=> new Date(a.importedAt||0)-new Date(b.importedAt||0));   // OLDEST FIRST — never shift the card you're on
-  const researchScans=()=> (DB.importedScans||[]).filter(r=>!r.listed && r.needsResearch && !r.researched)
+  const researchScans=()=> (DB.importedScans||[]).filter(r=>!r.listed && r.needsResearch && !r.researched && !isMergedAway(r) && inThisApp(r))
     .sort((a,b)=> new Date(a.importedAt||0)-new Date(b.importedAt||0));
   async function doScanPull(reason){
     const res=await pullInventoryIqScans();
@@ -8925,17 +9205,18 @@ function openBulkAdd(){
     const el=body.querySelector("#ba-scanbar-msg"); if(el) el.textContent=pollMsg;
   }
   function refreshWaitingBadge(){
-    const btn=openWindows["bulk-add"] && openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(!btn) return;
+    const btn=openWindows[winId] && openWindows[winId].el.querySelector("#ba-waiting"); if(!btn) return;
     btn.outerHTML=pendingStorageBadgeHtml("ba-waiting");
-    const fresh=openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(fresh) fresh.onclick=()=>openMissingItem();
+    const fresh=openWindows[winId].el.querySelector("#ba-waiting"); if(fresh) fresh.onclick=()=>openMissingItem();
   }
-  { const wb=openWindows["bulk-add"].el.querySelector("#ba-waiting"); if(wb) wb.onclick=()=>openMissingItem(); }
+  { const wb=openWindows[winId].el.querySelector("#ba-waiting"); if(wb) wb.onclick=()=>openMissingItem(); }
   refreshWaitingBadge();
   const defaultDescBody=()=>{ const d=(DB.descriptions||[]).find(x=>x.isDefault); return d?d.body:""; };
   const blank=()=>({upc:"",desc:"",section:"",subcat:"",condition:"",vendor:(DB.pinnedVendor||DB.vendors[0]||""),unitCost:"",retail:"",_costAutoFilled:false,qty:"1",slot:"",manualSlot:false,reserve:false,skus:[],created:false,error:"",images:[],_viewIdx:-1,aspects:{},_aspectDefs:[],descTemplateId:"",descBody:defaultDescBody()});
   let rows=[blank()], createdItems=[], phase="edit";
   let baSearch="", baHasPhotos=false, baResearched=false;   // toolbar filters
   let selectedScanId=null;   // which scan card is "selected" — only its Price Compare is open
+  let mergeMode=null;        // { anchorId, pickedId } — active purple-button merge selection, or null
   // Which rows survive the filters. Filtering hides rows from VIEW only — they still exist, still
   // get created; a hidden row is never lost.
   const rowVisible=(r)=>{
@@ -9133,6 +9414,16 @@ function openBulkAdd(){
           lb.onclick=(e)=>{ e.stopPropagation();
             if(!cit.listing) cit.listing={status:"none",title:cit.desc,price:"",qty:"1"};
             if(cit.listing.status==="listed"){ paintChip("done","Already listed."); return; }
+            // DUPLICATE PHOTOS GUARD: if new Photo-Mode photos landed on top of existing ones while
+            // this item was still in Bulk Photos, block List/Send until the user acknowledges they've
+            // sorted out the duplicates (kept or deleted whichever they want).
+            if(cit._duplicatePhotos){
+              uiConfirm("This item has DUPLICATE PHOTOS — a new set of photos was added while it already had photos (the new ones are outlined in red). Review them and delete any you don't want to keep. Have you corrected the duplicate photos?",()=>{
+                cit._duplicatePhotos=false; cit._newPhotoFiles=[]; addHistory(cit,"Duplicate photos acknowledged as resolved"); save();
+                paintChip("","Duplicates cleared — click again to list/send.");
+              },{title:"Duplicate photos"});
+              return;
+            }
             if(!(parseFloat(cit.listing.price)>0)){ paintChip("error","Set a price on the item first."); return; }
             if(!cit.condition){ paintChip("error","Pick a condition first."); return; }
             if(canListDirect()){ lb.disabled=true; queueListItem(cit,(state,msg)=>{ paintChip(state,msg); if(state==="done") lb.textContent="Listed ✓"; if(state==="error") lb.disabled=false; }); }
@@ -9287,7 +9578,7 @@ function openBulkAdd(){
     rows.push(blank()); render();
     const last=tb.querySelector("div:last-child input[data-f='desc']"); if(last){ last.focus(); last.scrollIntoView({block:"nearest"}); } }
   addBtn.onclick=addRow;
-  const tbTopPlus=openWindows["bulk-add"].el.querySelector('[data-act="Add Record"]'); if(tbTopPlus) tbTopPlus.onclick=addRow;
+  const tbTopPlus=openWindows[winId].el.querySelector('[data-act="Add Record"]'); if(tbTopPlus) tbTopPlus.onclick=addRow;
   { const sa=body.querySelector("#ba-selall"); if(sa) sa.onchange=()=>{ selected.clear(); if(sa.checked) rows.forEach(r=>{ if(!r.created) selected.add(r); }); render(); };
     const sk=body.querySelector("#ba-sortkey"); if(sk) sk.onchange=()=>{ sortKey=sk.value; render(); };
     const srch=body.querySelector("#ba-search"); if(srch){ srch.value=baSearch;
@@ -9475,6 +9766,8 @@ function openBulkAdd(){
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;width:160px;flex-shrink:0;">
           <button class="btn sm primary ba-list" style="font-weight:700;background:#1f9d55;border-color:#1a8c4a;" title="${canDirect?"Runs the whole listing chain in the background — photos, offer, publish":"Sends this item to Supervisor Review to be listed"}">${canDirect?"⚡ List Item":"Send to Review"}</button>
+          ${(function(){ const mc=findMergeCandidates(it); const mergedCount=(it._mergedUnits||[]).length; const inMerge=mergeMode&&mergeMode.anchorId===it.id; if(inMerge){ const pickedIsSelf=mergeMode.pickedId===it.id; return `<button class="ba-matchbtn" data-mode="merge" style="cursor:pointer;background:#5B21B6;border:none;color:#fff;font-size:11.5px;font-weight:700;padding:7px 10px;border-radius:6px;">Merge into ${pickedIsSelf?"this":"picked"} item</button><button class="ba-matchcancel" style="cursor:pointer;background:#eee;border:none;color:#555;font-size:10.5px;padding:4px 8px;border-radius:5px;">Cancel</button>`; } return (mc.total>0||mergedCount>0)?`<button class="ba-matchbtn" data-mode="show" style="cursor:pointer;background:#7C3AED;border:none;color:#fff;font-size:11.5px;font-weight:700;padding:7px 10px;border-radius:6px;">${mergedCount>0?("Add more matches ("+mc.total+")"):("● Possible match found ("+mc.total+")")}</button>`:``; })()}
+          ${(it._mergedUnits&&it._mergedUnits.length)?`<div style="background:#F1ECFB;border:1px solid #D6C6F5;border-radius:6px;padding:6px 10px;text-align:center;"><div style="font-size:10px;color:#6D4AB8;text-transform:uppercase;letter-spacing:.04em;">Quantity</div><div style="font-size:18px;font-weight:700;color:#4A2E86;">${1+it._mergedUnits.length}</div></div>`:``}
           <div class="ba-list-status smallhint" style="min-height:14px;text-align:center;"></div>
           <button class="btn sm ba-open">View landing page</button>
           <button class="btn sm ba-folder">📁 Photo folder</button>
@@ -9495,7 +9788,36 @@ function openBulkAdd(){
     // Photo panel
     card.querySelector(".ba-photo-slot").replaceWith(itemPhotoPanel(it, ()=>render()));
     // Match indicators
+    const matchCancel=card.querySelector(".ba-matchcancel");
+    if(matchCancel) matchCancel.onclick=(e)=>{ e.stopPropagation(); mergeMode=null; render(); };
     const li=card.querySelector(".ba-ind-listed"); if(li) li.onclick=()=>openItemDetail(mt.listed,"edit");
+    // Purple match button. Click once → enter merge mode (matches highlight, become pickable).
+    // Click a highlighted match card → it's picked (that card becomes the parent). Button → "Merge".
+    // Click Merge → the OTHER card(s) fold into the picked parent as quantity.
+    const matchBtn=card.querySelector(".ba-matchbtn");
+    if(matchBtn) matchBtn.onclick=(e)=>{
+      e.stopPropagation();
+      const mode=matchBtn.dataset.mode;
+      if(mode==="merge"){ doMerge(); return; }
+      // "show" mode: if any match is Active or in Review, open the match panel (those need the
+      // reserve-and-send / duplicate flow). If matches are only in-Bulk-Add, use the in-list merge.
+      const mc=findMergeCandidates(it);
+      if(mc.active.length || mc.inReview.length){ openMatchPanel(it, mc); }
+      else { mergeMode={ anchorId:it.id, pickedId:it.id }; render(); }
+    };
+    // If we're in merge mode and THIS card is one of the candidates (or the anchor), make it pickable.
+    if(mergeMode && (mergeMode.anchorId===it.id || isMergeCandidateOf(mergeMode.anchorId, it.id))){
+      card.style.outline = (mergeMode.pickedId===it.id) ? "3px solid #7C3AED" : "2px dashed #B79AE8";
+      card.style.outlineOffset="2px";
+      // Clicking a candidate card in merge mode picks it as the parent (don't also select/price it).
+      card.addEventListener("mousedown",(e)=>{
+        if(!mergeMode) return;
+        if(mergeMode.anchorId===it.id || isMergeCandidateOf(mergeMode.anchorId, it.id)){
+          e.stopPropagation(); e.preventDefault();
+          mergeMode.pickedId=it.id; render();
+        }
+      }, true);
+    }
     const so=card.querySelector(".ba-ind-sold"); if(so) so.onclick=()=>openItemDetail(mt.sold,"edit");
 
     // Field save (on change)
@@ -9509,6 +9831,16 @@ function openBulkAdd(){
       save();
     }
     card.querySelectorAll(".ba-f").forEach(el=>{ el.onchange=saveFields; });
+    // Single-scan reviewed-field green glow: any field the phone operator marked reviewed shows a
+    // green ring here (still editable). Map the InventoryIQ reviewed keys to this card's fields.
+    (function(){
+      const rv=r.reviewed||{};
+      const glow=(sel)=>{ const el=card.querySelector(sel); if(el){ el.style.boxShadow="0 0 0 2px #1F9D55"; el.style.borderColor="#1F9D55"; el.title=(el.title?el.title+" · ":"")+"Reviewed on the scanner"; } };
+      if(rv.title) glow('.ba-f[data-f="desc"]');
+      if(rv.price) glow('.ba-f[data-f="price"]');
+      if(rv.category) glow('.ba-f[data-f="section"]');
+      if(rv.condition) glow('.ba-cond');
+    })();
     const catSel=card.querySelector('.ba-f[data-f="section"]');
     const condSel=card.querySelector(".ba-cond");
     if(catSel) catSel.addEventListener("change",()=>{ baFillConditionSelect(condSel,it).then(()=>{ it.condition=condSel.value; save(); }); });
@@ -9548,6 +9880,15 @@ function openBulkAdd(){
     listBtn.onclick=()=>{
       saveFields();
       if(!(parseFloat((it.listing&&it.listing.price))>0)){ chip.style.color="#c0392b"; chip.textContent="Set a price first."; return; }
+      // If there are still un-merged possible matches, confirm the person checked them first.
+      const rem=findMergeCandidates(it).total;
+      if(rem>0){
+        uiConfirm(`${rem} possible match${rem===1?"":"es"} still not merged. Have you verified all matched items? Choose Cancel to go back and check them with the purple match button.`, ()=>{ proceedList(); });
+        return;
+      }
+      proceedList();
+    };
+    function proceedList(){
       if(canDirect){
         listBtn.disabled=true;
         // Assign the warehouse SKU at commit (before publishing), so the shelf address exists the
@@ -13577,7 +13918,7 @@ function openDescriptionManager(){
       if(wantDefault){ DB.descriptions.forEach(x=>{ x.isDefault = (x.id===d.id); }); }
       else if(d.isDefault){ d.isDefault=false; }
       const affected = changed ? DB.items.filter(it=>it.listing&&it.listing.status==="listed"&&it.listing.descriptionId===d.id) : [];
-      const finish=()=>{ save(); det.querySelector("#dm-msg").style.color="#1f7244"; det.querySelector("#dm-msg").textContent="Saved."; render(); };
+      const finish=()=>{ save(); pushPoliciesToInventoryIq(); det.querySelector("#dm-msg").style.color="#1f7244"; det.querySelector("#dm-msg").textContent="Saved."; render(); };
       if(affected.length){ uiChoose("This description is on "+affected.length+" active listing(s). What would you like to do?",
         [ {label:"View affected listings",onClick:()=>{ openManageListings(); finish(); }},
           {label:"Push through to live listings",primary:true,onClick:()=>{ affected.forEach(it=>addHistory(it,"Listing description updated (pushed): "+d.title)); finish(); uiAlert("Marked "+affected.length+" listing(s) to update. The actual eBay revise call runs in the publishing update."); }},
@@ -13661,7 +14002,25 @@ function openSupervisorReview(){
     }
     const subs=subcatsOf(it.section||"");
     const dyn=aspectsFor(it)||[];
-    // WHY THIS IS HERE: a supervisor should not have to click List and then decode an eBay API
+    // Duplicate-of-active banner + tabs: when this review item was merged as a duplicate of an
+    // active listing, show a purple banner with two tabs — Review (this card) and Active item.
+    // Supervisors can Accept (keep the merge) or Unmerge (split it; counts as a listing error).
+    let dupBanner="";
+    const dupActive = L.duplicateOfActiveId ? (DB.items||[]).find(x=>x.id===L.duplicateOfActiveId) : null;
+    if(tab==="waiting" && dupActive){
+      const at=it._dupTab||"review";
+      dupBanner=`<div style="background:#F1ECFB;border:1px solid #D6C6F5;border-left:5px solid #7C3AED;border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+        <div style="font-size:12.5px;font-weight:700;color:#5B21B6;">Duplicate of an active listing</div>
+        <div style="font-size:12px;color:#4A2E86;margin-top:2px;">This copy was merged as a reserved duplicate of the live listing "${esc((dupActive.desc||"item").slice(0,50))}".</div>
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center;">
+          <button class="sr-duptab btn sm" data-t="review" style="${at==='review'?'background:#7C3AED;color:#fff;border-color:#7C3AED;':''}">Review</button>
+          <button class="sr-duptab btn sm" data-t="active" style="${at==='active'?'background:#1F9D55;color:#fff;border-color:#1F9D55;':''}">Active item</button>
+          <span style="flex:1;"></span>
+          <button class="sr-dup-accept btn sm primary" style="background:#1F9D55;border-color:#1a8c4a;">Accept merge</button>
+          <button class="sr-dup-unmerge btn sm" style="border-color:#c0392b;color:#c0392b;">Unmerge</button>
+        </div>
+      </div>`;
+    }
     // error to find out the item was never listable. Everything eBay requires is knowable up
     // front — so say it up front, on the card, before anyone wastes a click.
     const blockers = (tab==="waiting") ? (ebayListingPrereqs(it)||[]) : [];
@@ -13669,7 +14028,7 @@ function openSupervisorReview(){
         <b style="color:#8A5E10;font-size:12.5px;">eBay won't accept this item yet — ${blockers.length} thing${blockers.length===1?'':'s'} missing:</b>
         <ul style="margin:6px 0 0;padding-left:20px;color:#8A5E10;font-size:12px;line-height:1.6;">${blockers.map(b=>`<li>${esc(b)}</li>`).join("")}</ul>
       </div>` : ``;
-    card.innerHTML=`${banner}${blockerBanner}
+    card.innerHTML=`${dupBanner}${banner}${blockerBanner}
       <div style="display:flex;gap:16px;align-items:flex-start;">
         <div class="sr-photo-slot" style="flex-shrink:0;width:130px;"></div>
         <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;">
@@ -13715,6 +14074,50 @@ function openSupervisorReview(){
 
     // Photo panel — same Featured/Secondary strip + Find on eBay as Bulk Add.
     card.querySelector(".sr-photo-slot").replaceWith(itemPhotoPanel(it, ()=>render()));
+
+    // Duplicate-of-active controls.
+    if(dupActive){
+      // Green glow when viewing the Active tab (you're looking at the live listing's context).
+      if((it._dupTab||"review")==="active"){ card.style.boxShadow="0 0 0 3px rgba(31,157,85,.25)"; card.style.borderColor="#1F9D55"; }
+      card.querySelectorAll(".sr-duptab").forEach(b=>b.onclick=()=>{
+        it._dupTab=b.dataset.t;
+        if(it._dupTab==="active"){ openItemDetail(dupActive,"edit"); it._dupTab="review"; }  // open the active listing, keep review card on Review
+        render();
+      });
+      const acc=card.querySelector(".sr-dup-accept");
+      if(acc) acc.onclick=()=>{
+        // Accept the merge: this reserved duplicate is approved. It joins the active item's group
+        // (already reserved) and lists automatically when the live one sells. Just clear the review flag.
+        uiConfirm(`Accept this as a reserved duplicate of "${(dupActive.desc||"item").slice(0,40)}"? It will list automatically when the active one sells.`, ()=>{
+          if(!it.listing) it.listing={status:"none"};
+          it.listing.readyToList=false;
+          it.listing.reserveItem=true;
+          dupActive.listing=dupActive.listing||{status:"none"}; dupActive.listing.reserveItem=true;
+          addHistory(it,"Supervisor accepted merge as reserved duplicate of "+(dupActive.desc||"item"));
+          save(); wimRefreshAll(); render();
+        });
+      };
+      const unm=card.querySelector(".sr-dup-unmerge");
+      if(unm) unm.onclick=()=>{
+        // Unmerge: this was NOT actually the same item. Split it back into a standalone item to be
+        // listed on its own, and record a listing error ("Wrong item merged") against whoever sent it,
+        // so it shows in Listing Accuracy — same path as a rejection override.
+        uiConfirm(`Unmerge this from "${(dupActive.desc||"item").slice(0,40)}"? It becomes its own item to list separately, and this counts as a listing error against the person who merged it.`, ()=>{
+          if(!it.listing) it.listing={status:"none"};
+          delete it.listing.duplicateOfActiveId;
+          it._reserveParentId=null;
+          // Log the listing error through the same audit trail Listing Accuracy reads (reject-shaped).
+          try{
+            logReview({ type:"reject", itemId:it.id, sku:it.sku, reason:"Wrong item merged",
+              comment:"Unmerged from "+((dupActive.desc||"active item").slice(0,50))+" by supervisor",
+              submittedBy:(it.listing.readyToListBy||it.listing.submittedBy||null) });
+          }catch(e){}
+          addHistory(it,"Supervisor unmerged this from "+(dupActive.desc||"item")+" — logged as a listing error");
+          // Leave it in review as a normal item to be listed on its own.
+          save(); wimRefreshAll(); render();
+        });
+      };
+    }
 
     // --- editing: a supervisor override is an ERROR against whoever submitted it ---
     const before=reviewSnapshot(it);
@@ -15365,7 +15768,7 @@ function createItemFromListing(c, section, subCategory, manualSlotValue){
 function openListedNoSku(){
   const id="listed-no-sku"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
   const {body}=buildWindow({id,title:"Listed, no SKU",width:1060,height:640,popoutKey:"listednosku",
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">eBay listings you've created that aren't filed in WIM yet</span>`});
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Already-listed eBay items to file into storage \u2014 price is locked; just set a category and add to storage</span>`});
   let picked=new Set(); let rowChoices={}; // id -> { section, subCategory, manualSlot, manualSlotValue }
   let lastPullInfo=null; // { scanned, skipped, morePages } from the last pull
   function render(){
@@ -15377,9 +15780,9 @@ function openListedNoSku(){
     const allHaveCategory = list.length>0 && Array.from(picked).every(id=>rowChoices[id]&&rowChoices[id].section);
     body.innerHTML=`<div style="padding:12px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="btn primary" id="pnl-pull" ${WIM_IS_DESKTOP?'':'disabled'}>Pull New Listings</button>
-        <span class="smallhint">${DB.ebay&&DB.ebay.lastPullAt?("Last pulled "+new Date(DB.ebay.lastPullAt).toLocaleString()+" · "):""}${list.length} listing(s) waiting to be filed</span>
+        <span class="smallhint">${DB.ebay&&DB.ebay.lastPullAt?("Last pulled "+new Date(DB.ebay.lastPullAt).toLocaleString()+" · "):""}${list.length} listing(s) waiting to be added to storage</span>
         ${list.length?`<label class="chkrow"><span class="chk ${picked.size===list.length&&list.length?'on':''}" id="pnl-selall"></span> Select All</label>
-        <button class="btn primary" id="pnl-import" ${(!picked.size||!allHaveCategory)?"disabled":""} title="${!picked.size?"Select at least one row":!allHaveCategory?"Every selected row needs a Category set first":""}">Import Listing${picked.size===1?"":"s"}${picked.size?" ("+picked.size+")":""}</button>`:``}
+        <button class="btn primary" id="pnl-import" ${(!picked.size||!allHaveCategory)?"disabled":""} title="${!picked.size?"Select at least one row":!allHaveCategory?"Every selected row needs a Category set first":""}">Add to Storage${picked.size?" ("+picked.size+")":""}</button>`:``}
         <span style="flex:1;"></span><span class="smallhint">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span></div>
       <div id="pnl-msg" class="smallhint" style="padding:0 14px 6px;"></div>
       <div id="pnl-cards" style="padding:0 14px 14px;overflow:auto;"></div>`;
@@ -15387,7 +15790,7 @@ function openListedNoSku(){
       rowChoices={}; lastPullInfo=info||null; render();
     }, false, { count:PNL_PAGE_SIZE, append:false });
     const tb=body.querySelector("#pnl-cards");
-    if(!list.length){ tb.innerHTML=`<div style="color:#888;padding:20px 4px;">Nothing waiting. Click <b>Pull New Listings</b> to fetch active eBay listings that haven't been filed in WIM yet.</div>`; return; }
+    if(!list.length){ tb.innerHTML=`<div style="color:#888;padding:20px 4px;">Nothing waiting. Click <b>Pull New Listings</b> to fetch active eBay listings that aren't in WIM yet, so you can add them to storage.</div>`; return; }
     // "Load 20 older" — only needed while the back-catalogue is still being brought in. Once
     // everything historical is filed, a normal pull finds only what's genuinely new and this
     // button stops mattering.
@@ -15418,33 +15821,36 @@ function openListedNoSku(){
       });
       save(); wimRefreshAll(); refreshSearchWindows&&refreshSearchWindows();
       msg.style.color=errs.length?"#c0392b":"#1f7244";
-      msg.textContent=okCount+" item(s) imported."+(errs.length?(" "+errs.length+" failed: "+errs.join(" · ")):"");
+      msg.textContent=okCount+" item(s) added to storage \u2014 find them in the bookshelf (Waiting on Storage) to shelve."+(errs.length?(" "+errs.length+" failed: "+errs.join(" \u00b7 ")):"");
       render();
     };
     list.forEach((c)=>{ const ch=rowChoices[c.ebaySku];
       const card=document.createElement("div");
-      card.style.cssText="background:#fff;border:0.5px solid #d5dae1;border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;gap:14px;align-items:flex-start;";
+      card.style.cssText="background:#fff;border:1px solid #d5dae1;border-radius:12px;padding:14px 16px;margin-bottom:12px;display:flex;gap:16px;align-items:flex-start;box-shadow:0 1px 2px rgba(20,30,50,.04);";
       card.innerHTML=`
-        <span class="chk ${picked.has(c.ebaySku)?'on':''}" data-pick="${esc(c.ebaySku)}" style="margin-top:38px;"></span>
-        <div style="width:88px;height:88px;flex-shrink:0;border:0.5px solid #e2e6ec;border-radius:8px;background:#fafafa center/contain no-repeat;${c.thumb?'':'display:flex;align-items:center;justify-content:center;color:#b9c2cf;'}" ${c.thumb?`data-bg="${esc(c.thumb)}" data-hz="${esc(c.thumb)}"`:''}>${c.thumb?'':'—'}</div>
+        <span class="chk ${picked.has(c.ebaySku)?'on':''}" data-pick="${esc(c.ebaySku)}" style="margin-top:44px;"></span>
+        <div style="width:104px;height:104px;flex-shrink:0;border:1px solid #e2e6ec;border-radius:10px;background:#fafafa center/contain no-repeat;${c.thumb?'':'display:flex;align-items:center;justify-content:center;color:#b9c2cf;'}" ${c.thumb?`data-bg="${esc(c.thumb)}" data-hz="${esc(c.thumb)}"`:''}>${c.thumb?'':'\u2014'}</div>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:600;margin-bottom:2px;">${esc(c.title)}</div>
-          <div class="smallhint" style="margin-bottom:4px;">${esc(c.condLabel||"—")} · <b style="color:#1B2A41;">${c.price?("$"+esc(c.price)):"no price"}</b> · Qty ${esc(c.qty||"1")}${c.images&&c.images.length>1?` · ${c.images.length} photos`:``}</div>
-          <div class="smallhint" style="margin-bottom:10px;">
+          <div style="font-size:14px;font-weight:600;line-height:1.35;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(c.title)}</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+            <span style="display:inline-flex;align-items:center;gap:6px;background:#eef7f1;border:1px solid #cdead8;border-radius:20px;padding:3px 12px;font-weight:700;color:#1B2A41;font-size:13px;" title="Listed price on eBay \u2014 locked">${c.price?("$"+esc(c.price)):"no price"} <span style="font-size:10px;font-weight:600;color:#1F7244;text-transform:uppercase;letter-spacing:.04em;">locked</span></span>
+            <span class="smallhint">${esc(c.condLabel||"\u2014")} \u00b7 Qty ${esc(c.qty||"1")}${c.images&&c.images.length>1?` \u00b7 ${c.images.length} photos`:``}</span>
+          </div>
+          <div class="smallhint" style="margin-bottom:12px;">
             ${c.ebayListingId?`eBay # <a href="#" data-ebaylink="${esc(c.ebayListingId)}" style="color:#2F6FB3;">${esc(c.ebayListingId)}</a>`:``}
-            ${c.listedAt?` · listed ${esc(fmtDay(c.listedAt))}`:``}
-            ${c.categoryId?` · eBay category ${(function(){ const m=findSubcatByEbayId(c.categoryId); return m?esc(m.section+" › "+m.subCategory):("#"+esc(c.categoryId)); })()}`:``}
-            · Vendor: <b>Warehouse</b>
+            ${c.listedAt?` \u00b7 listed ${esc(fmtDay(c.listedAt))}`:``}
+            ${c.categoryId?` \u00b7 eBay category ${(function(){ const m=findSubcatByEbayId(c.categoryId); return m?esc(m.section+" \u203a "+m.subCategory):("#"+esc(c.categoryId)); })()}`:``}
+            \u00b7 Vendor: <b>Warehouse</b>
           </div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px 14px;">
-            <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb" data-sec="${esc(c.ebaySku)}" style="width:100%;font-size:12px;height:30px;"><option value="">— select —</option>${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${ch.section===s?'selected':''}>${esc(s)}</option>`).join("")}</select></div>
-            <div><label style="font-size:11px;color:#5b6470;">Sub Category</label><select class="cmb" data-sub="${esc(c.ebaySku)}" style="width:100%;font-size:12px;height:30px;"></select></div>
+            <div><label style="font-size:11px;color:#5b6470;">Category</label><select class="cmb" data-sec="${esc(c.ebaySku)}" style="width:100%;font-size:12px;height:32px;"><option value="">\u2014 select \u2014</option>${(DB.sections||[]).map(s=>`<option value="${esc(s)}" ${ch.section===s?'selected':''}>${esc(s)}</option>`).join("")}</select></div>
+            <div><label style="font-size:11px;color:#5b6470;">Sub Category</label><select class="cmb" data-sub="${esc(c.ebaySku)}" style="width:100%;font-size:12px;height:32px;"></select></div>
             <div><label style="font-size:11px;color:#5b6470;">Warehouse slot</label>
-              <label class="chkrow" style="font-size:11px;display:flex;align-items:center;gap:5px;height:30px;"><span class="chk ${ch.manualSlot?'on':''}" data-manual="${esc(c.ebaySku)}"></span> Manually slot
+              <label class="chkrow" style="font-size:11px;display:flex;align-items:center;gap:5px;height:32px;"><span class="chk ${ch.manualSlot?'on':''}" data-manual="${esc(c.ebaySku)}"></span> Manually slot
               <input class="txt" data-slotval="${esc(c.ebaySku)}" placeholder="e.g. A.6" style="width:70px;font-size:11px;display:${ch.manualSlot?'inline-block':'none'};" value="${esc(ch.manualSlotValue||'')}"></label></div>
           </div>
         </div>
-        <button class="btn sm" data-file="${esc(c.ebaySku)}" title="File one at a time, with duplicate detection" style="flex-shrink:0;margin-top:38px;">File…</button>`;
+        <button class="btn sm primary" data-file="${esc(c.ebaySku)}" title="Add this one to storage, with duplicate detection" style="flex-shrink:0;margin-top:40px;white-space:nowrap;">Add to Storage</button>`;
       const bgEl=card.querySelector("[data-bg]"); if(bgEl) bgEl.style.backgroundImage=`url(${bgEl.dataset.bg})`;
       const eblk=card.querySelector("[data-ebaylink]"); if(eblk) eblk.onclick=(e)=>{ e.preventDefault(); openExternal("https://www.ebay.com/itm/"+eblk.dataset.ebaylink); };
       card.querySelector(`[data-pick="${c.ebaySku}"]`).onclick=()=>{ if(picked.has(c.ebaySku)) picked.delete(c.ebaySku); else picked.add(c.ebaySku); render(); };
