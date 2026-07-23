@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.41", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.42", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.42","PHONE AND DESKTOP LISTING NOW STAY IN SYNC (no double-listing). Two-way reconciliation with InventoryIQ. When someone lists an item from their phone in Review \u0026 List, WIM finds that item, marks it Listed with the eBay item number, and removes it from the desktop review queue automatically. And when you list an item on the desktop, WIM tells InventoryIQ so it drops out of the phone queue too -- so the same item can never be listed twice from two places. Matched by the scan the item came from. HTML-only."],
   ["3.4.41","Send eBay inventory LOCATION to InventoryIQ. Direct listing was getting all the way to the offer step and then failing with Location information not found -- eBay requires a merchant inventory location on every offer, and WIM was not sending which one to use. Now the inventory location you have selected in eBay Setup rides along with the policy sync, so InventoryIQ lists from the right location. After updating, click Sync now to InventoryIQ once. HTML-only."],
   ["3.4.40","FIX: eBay token now actually reaches InventoryIQ for direct listing. Direct listing was failing with eBay listing isn\u0027t set up yet because WIM was sending an EMPTY refresh token -- the real token is kept in the secure vault, not in the plain settings object, and the sync was reading the empty plain copy. Now the sync loads the real refresh token and cert from the vault before sending, so InventoryIQ can list on the same eBay account. Click Sync now to InventoryIQ after updating. HTML-only."],
   ["3.4.39","SYNC BUTTON NOW REPORTS THE REAL RESULT. The Sync now to InventoryIQ button used to always say Sent even when the push actually failed (wrong URL, worker not deployed, auth error) -- which made it impossible to tell why policies were not showing up in InventoryIQ. Now it shows the true outcome: a green success, or a red failure WITH the HTTP status code and error text, so you can see exactly what went wrong. If InventoryIQ still shows Last synced: never after clicking this, the message will tell you whether it is a connection problem or that the worker needs deploying. HTML-only."],
@@ -5764,6 +5765,8 @@ async function publishToEbay(it,onStep){
   const listingId=pd.listingId||"";
   if(!it.listing) it.listing={status:"none"};
   it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); it.listing.offerId=offerId; it.listing.ebayListingId=listingId; it.listing.publishMethod="api";
+  it.listing.ebayItemId=it.listing.ebayItemId||listingId;
+  reportDesktopListedToIq(it);   // tell InventoryIQ so its phone Review & List queue drops this item
   anEvent("listed",{id:it.id},it);
   if(!it.listing.listedBy) it.listing.listedBy=(SESSION.user?SESSION.user.id:null); // for Recently Listed attribution
   addHistory(it,"Published to eBay (offer "+offerId+(listingId?(", listing "+listingId):"")+")"); save();
@@ -8241,6 +8244,75 @@ async function pushPoliciesToInventoryIq(force){
     return r||{ok:false,status:0,body:"no response"};
   }catch(err){ return {ok:false,status:0,body:String(err&&err.message||err)}; }
 }
+// Pull accuracy dings from InventoryIQ (field changes a reviewer made before listing) and record
+// them in the Listing Accuracy report as override events against the responsible person's WIM id.
+// Batched: runs alongside the scan poll. Only dings carrying a WIM id arrive here (scanner dings
+// stay inside IQ). Marks them sent so they are not double-counted.
+async function pullInventoryIqDings(){
+  if(!WIM_IS_DESKTOP) return;
+  if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)) return;
+  let res=null;
+  try{ res=await wimDesktop.invoke("iq_fetch_json",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, path:"/api/accuracy/pending" }); }catch(e){ return; }
+  if(!res||!res.ok) return;
+  let data={}; try{ data=JSON.parse(res.body||"{}"); }catch(e){ return; }
+  const dings=(data&&data.dings)||[]; if(!dings.length) return;
+  const fieldLabels={ condition:"Condition", title:"Title", price:"Price", photos:"Photos" };
+  const sentIds=[];
+  dings.forEach(d=>{
+    // Map the IQ WIM id to a WIM user id. WIM users carry a numeric login id; match on that.
+    const wimUser=(DB.users||[]).find(u=>String(u.loginId||u.id)===String(d.blame_wim_id));
+    const submittedBy=wimUser?wimUser.id:null;
+    logReview({ type:"override", source:"inventoryiq", submittedBy,
+      submittedByWimId:d.blame_wim_id, field:d.field, fieldLabel:fieldLabels[d.field]||d.field,
+      oldValue:d.old_value, newValue:d.new_value, caughtBy:d.caught_by, at:d.created_at||new Date().toISOString() });
+    sentIds.push(d.id);
+  });
+  save();
+  if(sentIds.length){ try{ await wimDesktop.invoke("iq_post_json",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, path:"/api/accuracy/mark-sent", body:JSON.stringify({ids:sentIds}) }); }catch(e){} }
+}
+// RECONCILIATION direction 1: items listed to eBay FROM THE PHONE (Review & List). Pull them, mark
+// the matching WIM inventory item Listed with the eBay id so it leaves the desktop review queue and
+// can't be double-listed. Matched by the scanId the item was imported from.
+async function pullInventoryIqListed(){
+  if(!WIM_IS_DESKTOP) return;
+  if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)) return;
+  let res=null;
+  try{ res=await wimDesktop.invoke("iq_fetch_json",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, path:"/api/reconcile/listed" }); }catch(e){ return; }
+  if(!res||!res.ok) return;
+  let data={}; try{ data=JSON.parse(res.body||"{}"); }catch(e){ return; }
+  const listed=(data&&data.listed)||[]; if(!listed.length) return;
+  const syncedIds=[];
+  listed.forEach(L=>{
+    // Find the WIM item imported from this scan (or matching the scanned code).
+    let it=(DB.items||[]).find(x=>String(x.scanId||"")===String(L.scanId));
+    if(!it && L.code) it=(DB.items||[]).find(x=>String(x.upc||x.barcode||"")===String(L.code) && (!x.listing||x.listing.status!=="listed"));
+    if(it){
+      if(!it.listing||typeof it.listing!=="object") it.listing={ status:"none", title:"", price:"", qty:"1" };
+      it.listing.status="listed";
+      it.listing.ebayItemId=L.ebayItemId||it.listing.ebayItemId||null;
+      it.listing.listedAt=it.listing.listedAt||new Date().toISOString();
+      it.listing.listedVia="inventoryiq";
+      if(L.price!=null && !it.listing.price) it.listing.price=String(L.price);
+      if(L.condition && !it.condition) it.condition=L.condition;
+    }
+    // Also flip the imported-scan record so the desktop review queue drops it.
+    const rec=(DB.importedScans||[]).find(x=>String(x.scanId||"")===String(L.scanId));
+    if(rec){ rec.listed=true; rec.listedVia="inventoryiq"; }
+    syncedIds.push(L.scanId);
+  });
+  save();
+  if(syncedIds.length){ try{ await wimDesktop.invoke("iq_post_json",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, path:"/api/reconcile/mark-synced", body:JSON.stringify({scanIds:syncedIds}) }); }catch(e){} }
+}
+// RECONCILIATION direction 2: WIM listed an item on the DESKTOP -> tell the worker so the phone
+// Review & List queue drops it. Call this wherever an item becomes listed in WIM.
+async function reportDesktopListedToIq(item){
+  if(!WIM_IS_DESKTOP) return;
+  if(!(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token)) return;
+  if(!item) return;
+  const body={ scanId:(item.scanId||null), code:(item.upc||item.barcode||""), ebayItemId:((item.listing&&item.listing.ebayItemId)||"") };
+  if(!body.scanId && !body.code) return;
+  try{ await wimDesktop.invoke("iq_post_json",{ baseUrl:DB.iqSettings.baseUrl, token:DB.iqSettings.token, path:"/api/reconcile/desktop-listed", body:JSON.stringify(body) }); }catch(e){}
+}
 async function pullInventoryIqScans(){
   if(!WIM_IS_DESKTOP) return {added:0,skipped:0,error:"desktop only"};
   if(!DB.iqSettings || !DB.iqSettings.baseUrl || !DB.iqSettings.token) return {added:0,skipped:0,error:"not configured"};
@@ -9165,7 +9237,7 @@ async function openImportScans(){
   // own (the buttons stay for re-runs mid-session). Sequential on purpose - a freshly imported
   // record should be checked for photos in the same pass. Any failure just lands in the
   // message line exactly as if the button was clicked.
-  (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await pullPhotoModePhotos(); await refreshPhotos(); pushPoliciesToInventoryIq(); } }catch(e){} })();
+  (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await pullPhotoModePhotos(); await refreshPhotos(); pushPoliciesToInventoryIq(); pullInventoryIqDings(); pullInventoryIqListed(); } }catch(e){} })();
 }
 // Top-level: finds an existing listed / previously-sold copy of the same item (by ISBN/barcode,
 // else strong title overlap). Used by Bulk Add's rich scan card for the ALREADY LISTED / SOLD
@@ -9218,6 +9290,7 @@ function openBulkAdd(mode){
     .sort((a,b)=> new Date(a.importedAt||0)-new Date(b.importedAt||0));
   async function doScanPull(reason){
     const res=await pullInventoryIqScans();
+    try{ await pullInventoryIqDings(); }catch(e){} try{ await pullInventoryIqListed(); }catch(e){}
     if(res.error==="rate-limited"){ pollMsg="InventoryIQ hit its daily request cap — auto-refresh paused. Use Pull Scans to retry."; if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } renderScanBar(); return res; }
     if(res.added>0){ pollIdleCount=0; pollMsg="Pulled "+res.added+" new scan(s)."; render(); }
     else { pollIdleCount++; if(reason==="manual") pollMsg=res.error?("Pull issue: "+res.error):"Nothing new to pull."; renderScanBar(); }

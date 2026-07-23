@@ -710,6 +710,27 @@ async fn iq_push_policies(base_url: String, token: String, body: String) -> ApiR
 // the existing wim_write_file command — these just move JSON to/from the Worker.
 
 // Which items have photos waiting to be pulled? Returns { items:[{item_key,n,total_bytes,latest}] }.
+// Generic authenticated GET/POST passthroughs to InventoryIQ, so new endpoints don't each need
+// their own Rust command. path is like "/api/accuracy/pending".
+#[tauri::command]
+async fn iq_fetch_json(base_url: String, token: String, path: String) -> ApiResult {
+    let client = http_client();
+    let url = format!("{}{}", base_url.trim_end_matches('/'), path);
+    match client.get(&url).header("Authorization", format!("Bearer {}", token)).send().await {
+        Ok(resp) => { let status = resp.status().as_u16(); let body = resp.text().await.unwrap_or_default(); ApiResult { ok: (200..300).contains(&status), status, body } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+#[tauri::command]
+async fn iq_post_json(base_url: String, token: String, path: String, body: String) -> ApiResult {
+    let client = http_client();
+    let url = format!("{}{}", base_url.trim_end_matches('/'), path);
+    match client.post(&url).header("Authorization", format!("Bearer {}", token)).header("Content-Type", "application/json").body(body).send().await {
+        Ok(resp) => { let status = resp.status().as_u16(); let body = resp.text().await.unwrap_or_default(); ApiResult { ok: (200..300).contains(&status), status, body } }
+        Err(e) => ApiResult { ok: false, status: 0, body: e.to_string() },
+    }
+}
+
 #[tauri::command]
 async fn iq_fetch_pending_photos(base_url: String, token: String) -> ApiResult {
     let client = http_client();
@@ -1656,6 +1677,8 @@ fn main() {
             apify_fetch_sold,
             iq_mark_imported,
             iq_push_policies,
+            iq_fetch_json,
+            iq_post_json,
             iq_fetch_pending_photos,
             iq_fetch_item_photos,
             iq_mark_photos_pulled,
