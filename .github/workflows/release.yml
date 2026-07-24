@@ -29,8 +29,13 @@ on:
 # The duplicate file is gone. This guard makes sure a second run can never quietly corrupt a
 # release again: if one somehow starts, it is cancelled rather than allowed to overwrite.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  # GLOBAL group (not per-tag). Two release runs were firing for every tag at the same
+  # instant, each building and signing its own installer. One run's release assets won,
+  # the other run's latest.json won -- so the published signature described a binary that
+  # no longer existed, and every auto-update failed with "signature didn't match".
+  # A single global group means a second run is cancelled instead of racing.
+  group: release
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -99,12 +104,32 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          echo "Downloading latest.json from the release..."
+          echo "Downloading latest.json AND the signature asset from the release..."
           mkdir -p "$RUNNER_TEMP/upd"
           gh release download "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
-            --pattern "latest.json" \
+            --pattern "latest.json" --pattern "*.sig" \
             --dir "$RUNNER_TEMP/upd" --clobber
+
+          # THE GUARANTEE: rewrite every platform signature in latest.json using the .sig file
+          # that is actually attached to this release. Even if another run raced us, what we
+          # publish always describes the binary sitting on the release right now.
+          SIGFILE=$(ls "$RUNNER_TEMP/upd"/*.sig | head -n1)
+          echo "Using signature file: $SIGFILE"
+          SIG=$(tr -d '\r\n' < "$SIGFILE")
+          if [ -z "$SIG" ]; then echo "::error::No signature asset found on the release."; exit 1; fi
+          jq --arg sig "$SIG" '.platforms |= with_entries(.value.signature = $sig)' \
+            "$RUNNER_TEMP/upd/latest.json" > "$RUNNER_TEMP/upd/latest.fixed.json"
+          mv "$RUNNER_TEMP/upd/latest.fixed.json" "$RUNNER_TEMP/upd/latest.json"
+
+          # Sanity: the installer named in latest.json must exist on the release.
+          EXE=$(jq -r '.platforms["windows-x86_64"].url' "$RUNNER_TEMP/upd/latest.json" | sed 's#.*/##')
+          if ! gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets \
+               --jq '.assets[].name' | grep -qx "$EXE"; then
+            echo "::error::latest.json points at $EXE but that asset is not on the release."
+            exit 1
+          fi
+          echo "Verified: latest.json signature matches the release .sig, and $EXE exists."
 
           echo "Cloning repo to publish to updater branch..."
           cd "$RUNNER_TEMP"
@@ -128,3 +153,11 @@ jobs:
           git commit -m "latest.json for ${{ github.ref_name }}" || echo "no changes to commit"
           git push origin updater
           echo "Published latest.json to updater branch."
+
+          # Final proof: what is now on the updater branch must match the release signature.
+          PUBLISHED=$(jq -r '.platforms["windows-x86_64"].signature' latest.json)
+          if [ "$PUBLISHED" != "$SIG" ]; then
+            echo "::error::Published latest.json does not match the release signature."
+            exit 1
+          fi
+          echo "Verified after push: updater feed and release signature agree."
