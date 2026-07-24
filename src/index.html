@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.42", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.48", BUILD_DATE="2026-07-22", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,12 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.48","SHIPPING BY WEIGHT INSTEAD OF A FLAT GUESS. Books and comics ship Media Mail, which is priced almost purely by weight -- so a flat per-category assumption was always going to be rough. Turn on Estimate shipping by weight in the InventoryIQ settings and the app works out each item\u0027s weight from its page count and format, then prices it as Media Mail using rates you can edit here when USPS changes them. If the listing someone picked happens to publish a real package weight, that is used instead of the estimate -- many sellers leave it blank on free shipping, so treat it as a bonus rather than the rule. The phone shows the weight it used right next to the shipping line, marked est. or listed, so nobody is guessing where the number came from. The old flat prices are still there and still the default; this is a switch, not a replacement. HTML-only."],
+  ["3.4.47","SELLER STATUS NOW COMES FROM eBAY. Your eBay standards level -- Top Rated, Above Standard or Below Standard -- changes what eBay charges you, so it changes the profit numbers the phone shows. Instead of setting it by hand you can now pull it straight from eBay: press the refresh arrow next to Seller status in the InventoryIQ settings, and WIM reads your current level and sends it to the app. It also re-checks once a day on its own, and if your level ever changes it pushes the new one to InventoryIQ immediately so the fee estimate follows. Change the dropdown yourself at any time and WIM stops auto-updating it until you press refresh again. No new permission is needed -- WIM already asks for the analytics scope; if it returns a permission error, reconnect eBay once in Configuration. HTML-only."],
+  ["3.4.46","THE STORAGE QUEUE NOW WATCHES eBAY BY ITSELF (storage rework part 3, final). While the Storage Queue is open it checks eBay every 30 seconds for listings you have created that are not filed in WIM yet. Anything whose eBay category maps cleanly onto one of your categories is imported and given its warehouse SKU automatically -- it simply appears in the queue, pending storage, ready to shelve. Listings whose category is ambiguous are deliberately left alone in Pull from eBay so a person decides where they belong rather than the app guessing. Anything that cannot be slotted lands in the queue with the no-available-slot treatment from the last update. The watcher only runs while the screen is open and stops the moment you close it, so it never polls in the background. This completes the storage rework: Storage Queue, Origin column, automatic SKUs, the no-slot workflow, and now the eBay watcher. HTML-only."],
+  ["3.4.45","AUTOMATIC WAREHOUSE SKUs + THE NO-SLOT WORKFLOW (storage rework part 2). Items no longer wait around for someone to assign them a shelf address. Anything landing in the Storage Queue is slotted automatically the moment it arrives -- including items listed from a phone, which now get their SKU as soon as WIM reconciles the listing. WHEN THERE IS NO ROOM: instead of failing quietly, the item shows in the queue in red as NO AVAILABLE SLOT with its tick box withheld so it cannot be stored, plus a banner saying how many are stuck. Each blocked row gets two buttons -- Fix storage, which pops Warehouse Maintenance open in its own window so you can add storage or change capacity, and a retry arrow that tries slotting it again the moment you are done. Select All and Move to storage skip blocked items entirely. LISTED, NO SKU IS RETIRED as a separate screen -- under Discrepancies you now go straight to the Storage Queue, and pulling your live eBay listings in is a Pull from eBay button inside it, which is where those items were always headed anyway. HTML-only."],
+  ["3.4.44","STORAGE QUEUE (part 1 of the storage rework). Waiting on Storage is now called the STORAGE QUEUE, and anything sitting in it reads as PENDING STORAGE -- in the system, but not yet on a shelf. That is the language everywhere now: the tree, the window, the dashboard tile and the status column. NEW ORIGIN COLUMN: every item in the queue shows where it came from -- eBay.com (a live listing pulled in), Inventory IQ (scanned on the phone), Bulk Add, or Manual (typed into Item Maintenance) -- as a colored tag, so you can tell at a glance how something entered the building. Origin is stamped at creation going forward; older items fall back to a sensible guess. FIND BY PHOTO IS RETIRED -- it was legacy and served no purpose, so it is gone from both trees. NEXT in this rework: folding Listed-no-SKU into the Storage Queue with automatic warehouse SKUs, the no-available-slot workflow, and the 30-second eBay auto-pull. HTML-only."],
+  ["3.4.43","PROFIT MATH ON THE PHONE. InventoryIQ Connection now has a Pricing \u0026 Costing section that drives a live breakdown under the price field in the app -- unit cost, estimated eBay fees, shipping, total profit and gross margin, all recalculating as the price is typed. Unit cost comes from your real Warehouse price bands (or a vendor pool average -- you pick which). eBay fees use your store tier and seller status with editable category rates and per-order fees; they are an ESTIMATE since eBay charges its own, so verify the media rate against a real invoice line. Shipping has four fields: a default for Books and one for Comics ($5.99 each), plus real averages computed from the last 50 sold in each category using the ACTUAL label cost from eBay Finances -- not what the buyer was charged. The real-average option unlocks at 50 sold and you can switch back to the default any time. Below the breakdown the app also shows the comps the median came from, grouped by condition. HTML-only."],
   ["3.4.42","PHONE AND DESKTOP LISTING NOW STAY IN SYNC (no double-listing). Two-way reconciliation with InventoryIQ. When someone lists an item from their phone in Review \u0026 List, WIM finds that item, marks it Listed with the eBay item number, and removes it from the desktop review queue automatically. And when you list an item on the desktop, WIM tells InventoryIQ so it drops out of the phone queue too -- so the same item can never be listed twice from two places. Matched by the scan the item came from. HTML-only."],
   ["3.4.41","Send eBay inventory LOCATION to InventoryIQ. Direct listing was getting all the way to the offer step and then failing with Location information not found -- eBay requires a merchant inventory location on every offer, and WIM was not sending which one to use. Now the inventory location you have selected in eBay Setup rides along with the policy sync, so InventoryIQ lists from the right location. After updating, click Sync now to InventoryIQ once. HTML-only."],
   ["3.4.40","FIX: eBay token now actually reaches InventoryIQ for direct listing. Direct listing was failing with eBay listing isn\u0027t set up yet because WIM was sending an EMPTY refresh token -- the real token is kept in the secure vault, not in the plain settings object, and the sync was reading the empty plain copy. Now the sync loads the real refresh token and cert from the vault before sending, so InventoryIQ can list on the same eBay account. Click Sync now to InventoryIQ after updating. HTML-only."],
@@ -1016,7 +1022,7 @@ const POPOUT_APPS={
   cancelledorders:{ title:"Cancelled Orders", open:()=>openCancelledOrders() },
   crr:{ title:"Cancellations, Refunds, Returns", open:()=>openCancellationsRefundsReturns() },
   refunds:{ title:"Refunds", open:()=>openRefunds() },
-  missingitem:{ title:"Waiting on Storage", open:()=>openMissingItem() },
+  missingitem:{ title:"Storage Queue", open:()=>openMissingItem() },
   // RETIRED in v3.3.56 — Recently Sold was a middle screen that existed only to be clicked
   // through: sold items now land straight in Shipping → Ready to Ship. No tree entry or route
   // points here any more; the function is left in place only so nothing that might still reference
@@ -1374,7 +1380,7 @@ function migrate(d){
       { key:"rejected_items", label:"Rejected", category:"Warehouse" },
       { key:"delisted_items", label:"Delisted", category:"Warehouse" },
       { key:"cancelled_orders", label:"Cancelled Orders", category:"Product Lister" },
-      { key:"missing_item", label:"Waiting on Storage", category:"Warehouse" },
+      { key:"missing_item", label:"Storage Queue", category:"Warehouse" },
       { key:"refunds", label:"Refunds", category:"Product Lister" },
       { key:"listing_functions", label:"Listing Functions (push to eBay)", category:"Product Lister" },
       { key:"communication", label:"Communication", category:"Product Lister" },
@@ -1407,6 +1413,24 @@ function migrate(d){
   if(!Array.isArray(d.pulledOrderIds)) d.pulledOrderIds=[];
   if(!d.fulfillmentSettings) d.fulfillmentSettings={ autoCompleteDays:14 };
   if(!d.iqSettings) d.iqSettings={ baseUrl:"https://inventoryiq.tylerla17.workers.dev", token:"", photoBasePath:"G:\\My Drive\\WIM", autoDeleteAfterPublish:true };
+  // Pricing/costing config pushed to InventoryIQ so the phone can show unit cost, eBay fees,
+  // shipping, profit and margin live under the price field.
+  if(!d.iqSettings.pricing) d.iqSettings.pricing={
+    costSource:"Warehouse",        // "Warehouse" (price bands) or a vendor name (pool average)
+    storeTier:"Basic",
+    feeStandardPct:12.7,           // Basic Store, standard categories
+    feeMediaPct:15.3,              // books/media run higher -- confirm off a real eBay invoice
+    perOrderUnder:0.30,            // orders $10.00 or less
+    perOrderOver:0.40,             // orders over $10.00
+    sellerStatus:"ABOVE_STANDARD", // manual for now; can be pulled from eBay later
+    topRatedDiscountPct:10,
+    belowStandardPenaltyPct:5,
+    shipBooksDefault:5.99, shipComicsDefault:5.99,
+    shipBooksUseCalc:false, shipComicsUseCalc:false,
+    shipMode:"flat",            // "flat" = the fixed per-category prices; "weight" = Media Mail by weight
+    mediaMailBase:4.63,         // USPS Media Mail, first pound
+    mediaMailPerLb:0.68         // each additional pound
+  };
   // Direct-from-WIM Apify sold-listings (admin sets the token; listers only use it). pullPerBatch
   // is how many results one "Load more" fetches; maxPerItem caps total results per item BY the
   // user's security level so a lister can't run an item up. Spend is tracked in apiUsage like the
@@ -3238,7 +3262,7 @@ const TREE_LABEL_FEATURE={
   "Change Password":"change_password","Force Log Out":"force_logout",
   "Aging Inventory":"aging_inventory_report","Stale Listings":"stale_listings_report","Low Stock":"low_stock_report","Listing Traffic":"listing_traffic_report","Item Report":"item_report","Movement Report":"movement_report","Active Summary":"active_summary","Item Rank":"item_rank","Listing Efficiency":"listing_efficiency",
   "Records":"records","Manage Listings":"manage_listings","Send Offers to Watchers":"manage_listings","View Live Inventory":"view_live_inventory","Add Item":"add_item","Bulk Add Items":"bulk_add_items",
-  "Discrepancies":"listed_no_sku","SKU not Listed":"sku_not_listed","Supervisor Review":"ready_to_list","Listing Accuracy":"listing_report","Rejected":"rejected_items","Delisted":"delisted_items","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Waiting on Storage":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","WIM Analytics":"wim_analytics","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
+  "Discrepancies":"listed_no_sku","Storage Queue":"missing_item","SKU not Listed":"sku_not_listed","Supervisor Review":"ready_to_list","Listing Accuracy":"listing_report","Rejected":"rejected_items","Delisted":"delisted_items","Cancelled Orders":"cancelled_orders","Refunds":"refunds","Storage Queue":"missing_item","Recently Sold":"recently_sold","Recently Listed":"recently_listed","Shipping":"shipping","Shipping Historical Comparison":"shipping","Cancellations, Refunds, Returns":"refunds","True Net Profit":"financials","Vendor ROI Report":"financials","WIM Analytics":"wim_analytics","Communication":"communication","Reviews":"reviews","Listing Report":"listing_report","Fulfillment Accuracy":"fulfillment_accuracy","About / Version":null
 };
 // An action with no mapping (null/undefined) is always shown — only labels explicitly
 // tied to a feature get filtered, so nothing accidentally vanishes just because it was
@@ -3272,16 +3296,16 @@ function nodeActionsRaw(node){
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
-  if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory","Find by Photo"];
+  if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory"];
   if(node.key==="fulfillment") return ["Recently Listed","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
   if(node.key==="financials") return ["True Net Profit","Vendor ROI Report","WIM Analytics"];
-  if(node.key==="whdiscrep") return ["Listed, no SKU"];
+  if(node.key==="whdiscrep") return ["Storage Queue"];
   if(node.key==="reports") return ["Aging Inventory","Stale Listings","Low Stock","Listing Traffic","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
   if(node.key==="listings") return ["Manage Listings","Send Offers to Watchers"];
-  if(node.key==="additems") return ["Add Item","Bulk Add Items","Find by Photo"];
+  if(node.key==="additems") return ["Add Item","Bulk Add Items"];
   if(node.key==="productivity") return ["Listing Accuracy"];
-  if(node.key==="discrepancies") return ["Supervisor Review","SKU not Listed","Rejected","Delisted","Cancelled Orders","Refunds","Waiting on Storage"];
+  if(node.key==="discrepancies") return ["Supervisor Review","SKU not Listed","Rejected","Delisted","Cancelled Orders","Refunds","Storage Queue"];
   if(node.key==="comm") return isLive() ? ["Communication","Reviews"] : ["Communication"];
   if(node.key==="livereports") return ["Fulfillment Accuracy","Stale Listings","Listing Traffic","Listing Report","Item Rank","Listing Efficiency"];
   return [];
@@ -3382,9 +3406,9 @@ const DASH_WIDGETS={
     render:c=>c.tile("Inventory Value","$"+c.invValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}),"#1f9d57")},
   highestSku:{title:"Highest Value SKU *",desc:"The single highest-value unit currently on hand. Leadership only.",role:"leadership",modes:["warehouse"],previewKind:"tile",
     render:c=>{ const h=c.highest; return c.tile("Highest Value SKU", h?("$"+h.val.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})):"—","#1f9d57", h?(esc(h.sku)+" · "+esc((h.desc||"").slice(0,22))):""); }},
-  waitingStorage:{title:"Waiting on Storage",desc:"Items created but not yet confirmed physically stored.",role:"all",modes:["warehouse"],previewKind:"tile",
+  waitingStorage:{title:"Storage Queue",desc:"Items pending storage — in the system but not yet shelved.",role:"all",modes:["warehouse"],previewKind:"tile",
     render:c=>{ const n=pendingStorageItems().length; const accent=n?"#e08a1f":"#1f9d57";
-      return c.tile("Waiting on Storage",String(n),accent,n?"to be stored →":"all stored",()=>launchApp("missingitem")); }},
+      return c.tile("Storage Queue",String(n),accent,n?"to be stored →":"all stored",()=>launchApp("missingitem")); }},
   itemsNeedingSku:{title:"Items Needing SKU",desc:"Active eBay listings not yet filed in WIM (refreshes automatically while connected).",role:"all",modes:["warehouse","live"],previewKind:"tile",
     render:c=>{ const simCount = DB.simulationMode ? (DB.pulledListings||[]).filter(p=>p.simulated && p.simProfileId===DB.activeSimulationProfileId).length : null;
       const notReady=!EBAY.ready() && simCount==null;
@@ -4228,9 +4252,9 @@ function actionCountBadge(label){
   else if(label==="Delisted") n=delistedCount();
   else if(label==="Shipping") n=fulfillmentItems("readyToShip").length;
   else if(label==="Fulfillment Accuracy" && SESSION.user) n=unreadViolationCount(SESSION.user.id, null);
-  else if(label==="Listed, no SKU") n=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId)).length;
+  else if(label==="Listed, no SKU") n=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId)).length;   // legacy label, no longer in the tree
   else if(label==="Cancelled Orders") n=cancelledOrderItems().length;
-  else if(label==="Waiting on Storage") n=pendingStorageItems().length;
+  else if(label==="Storage Queue") n=pendingStorageItems().length;
   else if(label==="Refunds") n=refundedOrderItems().length;
   else if(label==="Cancellations, Refunds, Returns") n=cancelledOrderItems().length+refundedOrderItems().length+returnedOrderItems().length;
   else if(label==="SKU not Listed") n=unlistedActive().length;
@@ -4283,8 +4307,8 @@ function handleAction(k,a){
   if(k==="addsell"&&a==="Add Inventory") return launchApp("additem");
   if(k==="addsell"&&a==="Bulk Add Inventory") return launchApp("bulkadd");
   if(k==="addsell"&&a==="Adjust Inventory") return launchApp("adjust");
-  if(k==="addsell"&&a==="Find by Photo") return launchApp("findbyphoto");
-  if(k==="whdiscrep"&&a==="Listed, no SKU") return launchApp("listednosku");
+  // RETIRED: Find by Photo (legacy) -- removed from the tree in 3.4.44.
+  if(k==="whdiscrep"&&a==="Storage Queue") return launchApp("missingitem");   // Listed-no-SKU folded in here
   if(k==="reports"&&a==="Aging Inventory") return launchApp("aging");
   if((k==="reports"||k==="livereports")&&a==="Stale Listings") return launchApp("stalelistings");
   if((k==="reports"||k==="livereports")&&a==="Listing Traffic") return launchApp("listingtraffic");
@@ -4297,7 +4321,7 @@ function handleAction(k,a){
   if(k==="listings"&&a==="Send Offers to Watchers") return launchApp("sendoffers");
   if(k==="additems"&&a==="Add Item") return launchApp("additem");
   if(k==="additems"&&a==="Bulk Add Items") return launchApp("bulkadd");
-  if(k==="additems"&&a==="Find by Photo") return launchApp("findbyphoto");
+  // RETIRED: Find by Photo (legacy) -- removed from the tree in 3.4.44.
   if(k==="discrepancies"&&a==="Discrepancies") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="SKU not Listed") return launchApp("discrepancies");
   if(k==="discrepancies"&&a==="Ready to List") return launchApp("readytolist");
@@ -4307,7 +4331,7 @@ function handleAction(k,a){
   if(k==="discrepancies"&&a==="Delisted") return launchApp("delisteditems");
   if(k==="discrepancies"&&a==="Cancelled Orders") return launchApp("cancelledorders");
   if(k==="discrepancies"&&a==="Refunds") return launchApp("refunds");
-  if(k==="discrepancies"&&a==="Waiting on Storage") return launchApp("missingitem");
+  if(k==="discrepancies"&&a==="Storage Queue") return launchApp("missingitem");
   if(k==="fulfillment"&&a==="Recently Listed") return launchApp("recentlylisted");
   if(k==="fulfillment"&&a==="Shipping") return launchApp("shipping");
   if(k==="fulfillment"&&a==="Shipping Historical Comparison") return launchApp("shipcompare");
@@ -8158,10 +8182,61 @@ function openApifyConfig(){
     save(); const m=body.querySelector("#ap-msg"); m.style.color="#1f7244"; m.textContent="Saved.";
   };
 }
+// Average REAL shipping cost for a category from the last N sold. Uses ebayActualCost (the actual
+// label charge pulled from eBay Finances) -- deliberately NOT what the buyer was charged, which is
+// $0 on free shipping. Only records that actually have a cost fetched are counted.
+function iqShippingAvg(sectionName, limit){
+  const N=limit||50;
+  const rows=(DB.shippingComparisons||[]).filter(c=>{
+    const cost=parseFloat(c.ebayActualCost);
+    if(!isFinite(cost)||cost<=0) return false;
+    const it=(DB.items||[]).find(x=>x.id===c.itemId);
+    return it ? String(it.section||"")===sectionName : false;
+  }).sort((a,b)=>new Date(b.soldAt||0)-new Date(a.soldAt||0)).slice(0,N);
+  if(!rows.length) return { avg:null, count:0 };
+  const sum=rows.reduce((t,r)=>t+parseFloat(r.ebayActualCost),0);
+  return { avg:Math.round((sum/rows.length)*100)/100, count:rows.length };
+}
+// Pull the seller's eBay standards level (Top Rated / Above Standard / Below Standard) so the
+// profit estimate on the phone uses the right fee adjustment. Uses the analytics scope WIM already
+// requests for traffic reports. Returns {ok, level, error}.
+async function fetchSellerStandards(){
+  if(!WIM_IS_DESKTOP) return { ok:false, error:"Desktop only." };
+  if(!(typeof EBAY!=="undefined" && EBAY.ready && EBAY.ready())) return { ok:false, error:"eBay is not connected." };
+  const path="/sell/analytics/v1/seller_standards_profile";
+  try{
+    const r=await EBAY.user(path, EBAY_SCOPE_ANALYTICS);
+    if(!r.ok){
+      let hint=""; if(r.status===403||/scope|insufficient/i.test(r.body||"")) hint=" The analytics permission may not be granted yet -- reconnect eBay in Configuration and try again.";
+      return { ok:false, error:"HTTP "+r.status+"."+hint };
+    }
+    const j=JSON.parse(r.body||"{}");
+    const profiles=j.standardsProfiles||[];
+    // Prefer the CURRENT cycle for the marketplace we sell on; fall back to whatever came back.
+    const pick=profiles.find(p=>p&&p.cycle&&String(p.cycle.cycleType||"").toUpperCase()==="CURRENT")||profiles[0];
+    const level=pick&&pick.standardsLevel?String(pick.standardsLevel).toUpperCase():null;
+    if(!level) return { ok:false, error:"eBay returned no standards level." };
+    return { ok:true, level };
+  }catch(e){ return { ok:false, error:String(e&&e.message||e) }; }
+}
+// Refresh the stored seller status; if it changed, push it straight to InventoryIQ.
+async function refreshSellerStatusForIq(silent){
+  const P=(DB.iqSettings&&DB.iqSettings.pricing); if(!P) return null;
+  const r=await fetchSellerStandards();
+  if(!r.ok) return r;
+  const changed=(P.sellerStatus!==r.level);
+  P.sellerStatus=r.level; P.sellerStatusAuto=true; P.sellerStatusAt=new Date().toISOString();
+  save();
+  if(changed) pushPoliciesToInventoryIq(true);
+  return r;
+}
 function openIqConfig(){
   if(openWindows["iq-config"]){ focusWin(openWindows["iq-config"].el); return; }
-  const {body}=buildWindow({id:"iq-config",title:"InventoryIQ Connection",width:640,height:520});
+  const {body}=buildWindow({id:"iq-config",title:"InventoryIQ Connection",width:660,height:820});
   const s=DB.iqSettings;
+  const P=s.pricing;
+  const bAvg=iqShippingAvg("Books & Magazines");
+  const cAvg=iqShippingAvg("Comics & Graphic Novels");
   body.innerHTML=`<div style="padding:18px;max-width:580px;">
     <div style="font-size:13px;color:#5b6470;margin-bottom:14px;">Connects WIM to your InventoryIQ scanning app so accepted scans can be imported under Manage Inventory → Import Scans.</div>
     <label style="display:block;font-size:12px;font-weight:600;margin-bottom:3px;">InventoryIQ Worker URL</label>
@@ -8172,6 +8247,75 @@ function openIqConfig(){
     <input class="txt" id="iq-path" value="${esc(s.photoBasePath||"")}" style="width:100%;box-sizing:border-box;margin-bottom:6px;" placeholder="G:\\My Drive\\WIM">
     <div class="smallhint" style="margin-bottom:12px;">WIM creates a dated folder per item here. The photo person drops photos into each item's folder; a refresh pulls them into WIM.</div>
     <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:16px;cursor:pointer;"><input type="checkbox" id="iq-autodel" ${s.autoDeleteAfterPublish?"checked":""}> Auto-delete an item's photo folder after its listing publishes (EPS keeps the photos)</label>
+    <div style="border-top:1px solid #dfe3e8;margin:18px 0 14px;"></div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px;">Pricing &amp; Costing (shown on the phone under Price)</div>
+    <div class="smallhint" style="margin-bottom:12px;">Drives the live Unit cost / eBay fees / Shipping / Profit / Margin breakdown in InventoryIQ. Changes sync automatically.</div>
+
+    <label style="display:block;font-size:12px;font-weight:600;margin-bottom:3px;">Unit costing source</label>
+    <select class="cmb" id="iq-costsrc" style="width:100%;box-sizing:border-box;margin-bottom:12px;">
+      <option value="Warehouse" ${P.costSource==="Warehouse"?"selected":""}>Warehouse — cost from the item's price bands</option>
+      ${(DB.vendors||[]).filter(v=>String(v).toLowerCase()!=="warehouse").map(v=>{
+        const avg=vendorAvgCost(v);
+        return `<option value="${esc(v)}" ${P.costSource===v?"selected":""}>${esc(v)}${avg!=null?` — $${avg.toFixed(2)}/unit`:" — no active pool"}</option>`;
+      }).join("")}
+    </select>
+
+    <div style="font-size:12.5px;font-weight:600;margin:10px 0 6px;">eBay fees</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Store subscription</label>
+        <select class="cmb" id="iq-store" style="width:100%;box-sizing:border-box;">
+          ${["None","Starter","Basic","Premium","Anchor","Enterprise"].map(t=>`<option ${P.storeTier===t?"selected":""}>${t}</option>`).join("")}
+        </select></div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Seller status</label>
+        <div style="display:flex;gap:6px;">
+          <select class="cmb" id="iq-sellerstatus" style="flex:1;min-width:0;">
+            <option value="TOP_RATED" ${P.sellerStatus==="TOP_RATED"?"selected":""}>Top Rated</option>
+            <option value="ABOVE_STANDARD" ${P.sellerStatus==="ABOVE_STANDARD"?"selected":""}>Above Standard</option>
+            <option value="BELOW_STANDARD" ${P.sellerStatus==="BELOW_STANDARD"?"selected":""}>Below Standard</option>
+          </select>
+          <button class="btn sm" id="iq-pullstatus" title="Pull the current level from eBay">&#8635;</button>
+        </div>
+        <div class="smallhint" id="iq-statushint" style="margin-top:2px;">${P.sellerStatusAuto&&P.sellerStatusAt?("From eBay "+new Date(P.sellerStatusAt).toLocaleDateString()):"Set manually — press &#8635; to pull from eBay"}</div>
+      </div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Books/media rate %</label>
+        <input class="txt" id="iq-feemedia" value="${P.feeMediaPct}" inputmode="decimal" style="width:100%;box-sizing:border-box;"></div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Standard rate %</label>
+        <input class="txt" id="iq-feestd" value="${P.feeStandardPct}" inputmode="decimal" style="width:100%;box-sizing:border-box;"></div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Per-order fee (≤ $10)</label>
+        <input class="txt" id="iq-poun" value="${P.perOrderUnder}" inputmode="decimal" style="width:100%;box-sizing:border-box;"></div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Per-order fee (&gt; $10)</label>
+        <input class="txt" id="iq-poov" value="${P.perOrderOver}" inputmode="decimal" style="width:100%;box-sizing:border-box;"></div>
+    </div>
+    <div class="smallhint" style="margin-bottom:12px;">Fees are an ESTIMATE — eBay calculates its own. The percentage applies to the item price plus buyer-paid shipping and tax. Verify the media rate against a real eBay invoice line.</div>
+
+    <div style="font-size:12.5px;font-weight:600;margin:10px 0 6px;">Shipping cost assumptions</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px;">
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Books &amp; Magazines — default</label>
+        <input class="txt" id="iq-shipbooks" value="${P.shipBooksDefault}" inputmode="decimal" style="width:100%;box-sizing:border-box;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;margin-top:4px;cursor:pointer;">
+          <input type="checkbox" id="iq-shipbookscalc" ${P.shipBooksUseCalc?"checked":""} ${bAvg.count>=50?"":"disabled"}>
+          Use real average${bAvg.avg!=null?` ($${bAvg.avg.toFixed(2)})`:""} — ${bAvg.count}/50 sold
+        </label></div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Comics &amp; Graphic Novels — default</label>
+        <input class="txt" id="iq-shipcomics" value="${P.shipComicsDefault}" inputmode="decimal" style="width:100%;box-sizing:border-box;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;margin-top:4px;cursor:pointer;">
+          <input type="checkbox" id="iq-shipcomicscalc" ${P.shipComicsUseCalc?"checked":""} ${cAvg.count>=50?"":"disabled"}>
+          Use real average${cAvg.avg!=null?` ($${cAvg.avg.toFixed(2)})`:""} — ${cAvg.count}/50 sold
+        </label></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:8px 0 6px;cursor:pointer;">
+      <input type="checkbox" id="iq-shipweight" ${P.shipMode==="weight"?"checked":""}>
+      <b>Estimate shipping by weight instead</b> (USPS Media Mail — usually far more accurate for books)
+    </label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Media Mail — first pound</label>
+        <input class="txt" id="iq-mmbase" value="${P.mediaMailBase}" inputmode="decimal" style="width:100%;box-sizing:border-box;"></div>
+      <div><label style="display:block;font-size:11.5px;color:#5b6470;">Each additional pound</label>
+        <input class="txt" id="iq-mmper" value="${P.mediaMailPerLb}" inputmode="decimal" style="width:100%;box-sizing:border-box;"></div>
+    </div>
+    <div class="smallhint" style="margin-bottom:14px;">With weight mode on, InventoryIQ works out each item's weight from its page count and format (and uses the seller's published weight when the listing has one), then prices it as Media Mail. The phone shows the weight it used next to the shipping line. Update these rates when USPS changes them.</div>
+    <div class="smallhint" style="margin-bottom:14px;">Real averages come from the last 50 sold in each category using the ACTUAL label cost from eBay Finances (not what the buyer was charged). The checkbox unlocks at 50; untick it any time to go back to the default and that choice sticks.</div>
+
     <div style="display:flex;gap:8px;align-items:center;">
       <button class="btn primary" id="iq-save">Save</button>
       <button class="btn" id="iq-test">Test Connection</button>
@@ -8183,8 +8327,38 @@ function openIqConfig(){
     s.token=body.querySelector("#iq-token").value.trim();
     s.photoBasePath=body.querySelector("#iq-path").value.trim().replace(/[\\/]+$/,"");
     s.autoDeleteAfterPublish=body.querySelector("#iq-autodel").checked;
-    save(); const m=body.querySelector("#iq-msg"); m.style.color="#1f7244"; m.textContent="Saved.";
+    // Pricing/costing
+    const num=(id,fb)=>{ const v=parseFloat((body.querySelector(id)||{}).value); return isFinite(v)?v:fb; };
+    P.costSource=body.querySelector("#iq-costsrc").value;
+    P.storeTier=body.querySelector("#iq-store").value;
+    P.sellerStatus=body.querySelector("#iq-sellerstatus").value;
+    P.feeMediaPct=num("#iq-feemedia",P.feeMediaPct);
+    P.feeStandardPct=num("#iq-feestd",P.feeStandardPct);
+    P.perOrderUnder=num("#iq-poun",P.perOrderUnder);
+    P.perOrderOver=num("#iq-poov",P.perOrderOver);
+    P.shipBooksDefault=num("#iq-shipbooks",P.shipBooksDefault);
+    P.shipComicsDefault=num("#iq-shipcomics",P.shipComicsDefault);
+    P.shipMode=((body.querySelector("#iq-shipweight")||{}).checked)?"weight":"flat";
+    P.mediaMailBase=num("#iq-mmbase",P.mediaMailBase);
+    P.mediaMailPerLb=num("#iq-mmper",P.mediaMailPerLb);
+    P.shipBooksUseCalc=!!(body.querySelector("#iq-shipbookscalc")||{}).checked;
+    P.shipComicsUseCalc=!!(body.querySelector("#iq-shipcomicscalc")||{}).checked;
+    save(); pushPoliciesToInventoryIq(true);
+    const m=body.querySelector("#iq-msg"); m.style.color="#1f7244"; m.textContent="Saved and synced to InventoryIQ.";
   };
+  { const ss=body.querySelector("#iq-sellerstatus");
+    if(ss) ss.onchange=()=>{ const P2=DB.iqSettings.pricing; P2.sellerStatusAuto=false;
+      const hint=body.querySelector("#iq-statushint"); if(hint){ hint.style.color="#5b6470"; hint.textContent="Set manually \u2014 press \u21bb to pull from eBay"; } }; }
+  { const psb=body.querySelector("#iq-pullstatus");
+    if(psb) psb.onclick=async()=>{
+      const hint=body.querySelector("#iq-statushint");
+      if(hint){ hint.style.color="#5b6470"; hint.textContent="Checking eBay\u2026"; }
+      const r=await refreshSellerStatusForIq(true);
+      if(!hint) return;
+      if(r&&r.ok){ const sel=body.querySelector("#iq-sellerstatus"); if(sel) sel.value=r.level;
+        hint.style.color="#1f7244"; hint.textContent="From eBay "+new Date().toLocaleDateString()+" \u2014 "+r.level.replace("_"," ").toLowerCase(); }
+      else { hint.style.color="#c0392b"; hint.textContent=(r&&r.error)||"Could not read seller status."; }
+    }; }
   body.querySelector("#iq-test").onclick=async ()=>{
     const m=body.querySelector("#iq-msg");
     if(!WIM_IS_DESKTOP){ m.style.color="#c0392b"; m.textContent="Test runs in the desktop app."; return; }
@@ -8234,7 +8408,30 @@ async function pushPoliciesToInventoryIq(force){
     ebayCertId:certId,
     ebayMarketplace:e.marketplace||"EBAY_US",
     ebayEnv:env,
-    merchantLocationKey:e.merchantLocationKey||""
+    merchantLocationKey:e.merchantLocationKey||"",
+    // Pricing/costing so the phone can show unit cost, fees, shipping, profit and margin live.
+    pricing:(function(){
+      const P=(DB.iqSettings&&DB.iqSettings.pricing)||{};
+      const bA=iqShippingAvg("Books & Magazines"), cA=iqShippingAvg("Comics & Graphic Novels");
+      const src=P.costSource||"Warehouse";
+      const costMode=(src==="Warehouse")?"bands":"flat";
+      return {
+        costMode,
+        bands:(costMode==="bands")?(DB.warehouseTiers||[]).map(t=>({maxUnder:t.maxUnder,cost:t.cost})):null,
+        flatCost:(costMode==="flat")?(vendorAvgCost(src)||0):null,
+        costSourceName:src,
+        storeTier:P.storeTier||"Basic",
+        sellerStatus:P.sellerStatus||"ABOVE_STANDARD",
+        feeMediaPct:P.feeMediaPct, feeStandardPct:P.feeStandardPct,
+        perOrderUnder:P.perOrderUnder, perOrderOver:P.perOrderOver,
+        topRatedDiscountPct:P.topRatedDiscountPct, belowStandardPenaltyPct:P.belowStandardPenaltyPct,
+        shipBooks:(P.shipBooksUseCalc&&bA.avg!=null)?bA.avg:P.shipBooksDefault,
+        shipComics:(P.shipComicsUseCalc&&cA.avg!=null)?cA.avg:P.shipComicsDefault,
+        shipMode:P.shipMode||"flat", mediaMailBase:P.mediaMailBase, mediaMailPerLb:P.mediaMailPerLb,
+        shipBooksIsReal:!!(P.shipBooksUseCalc&&bA.avg!=null),
+        shipComicsIsReal:!!(P.shipComicsUseCalc&&cA.avg!=null)
+      };
+    })()
   };
   const fp=JSON.stringify(body);
   if(!force && fp===_iqPolicyFingerprint) return {ok:true,skipped:true};   // nothing changed
@@ -8294,6 +8491,9 @@ async function pullInventoryIqListed(){
       it.listing.listedVia="inventoryiq";
       if(L.price!=null && !it.listing.price) it.listing.price=String(L.price);
       if(L.condition && !it.condition) it.condition=L.condition;
+      // Listed from the phone -> it enters the Storage Queue and needs a shelf address. Auto-slot it
+      // now; if there's no room it shows up blocked in the queue with the no-available-slot workflow.
+      try{ assignSkuForCommit(it); }catch(e){}
     }
     // Also flip the imported-scan record so the desktop review queue drops it.
     const rec=(DB.importedScans||[]).find(x=>String(x.scanId||"")===String(L.scanId));
@@ -8356,7 +8556,7 @@ async function pullInventoryIqScans(){
         images:[], imageFeatured:0, image:"", slot:"", placement:null, sku:"", manualSlot:false,
         sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null,
         caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0],
-        barcode: barcode, fromScan:true, scanId:scanId };
+        barcode: barcode, fromScan:true, scanId:scanId, origin:"Inventory IQ" };
       it.history=[{at:it.createdAt,desc:"Imported from InventoryIQ scan",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
       DB.items.push(it); rec.itemId=it.id;
       // Seed the sold cache from the phone's Apify pull, if it came with one.
@@ -9050,7 +9250,7 @@ async function openImportScans(){
           sold:false, createdAt:new Date().toISOString(), soldAt:null, soldBy:null, storedAt:null,
           caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0],
           barcode: barcode,   // the ISBN/UPC actually scanned — NOT the same as `upc` (WIM's item number)
-          fromScan:true, scanId:scanId };
+          fromScan:true, scanId:scanId, origin:"Inventory IQ" };
         it.history=[{at:it.createdAt,desc:"Imported from InventoryIQ scan",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
         DB.items.push(it); rec.itemId=it.id;
         // Create the photo folder in the shared drive.
@@ -9237,7 +9437,13 @@ async function openImportScans(){
   // own (the buttons stay for re-runs mid-session). Sequential on purpose - a freshly imported
   // record should be checked for photos in the same pass. Any failure just lands in the
   // message line exactly as if the button was clicked.
-  (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await pullPhotoModePhotos(); await refreshPhotos(); pushPoliciesToInventoryIq(); pullInventoryIqDings(); pullInventoryIqListed(); } }catch(e){} })();
+  (async()=>{ try{ if(DB.iqSettings&&DB.iqSettings.baseUrl&&DB.iqSettings.token&&WIM_IS_DESKTOP){ await importNewScans(); await pullPhotoModePhotos(); await refreshPhotos(); pushPoliciesToInventoryIq(); pullInventoryIqDings(); pullInventoryIqListed();
+        // Seller status drives the fee estimate; refresh it from eBay at most once a day.
+        try{ const P3=DB.iqSettings.pricing;
+          if(P3 && P3.sellerStatusAuto!==false){
+            const last=P3.sellerStatusAt?Date.parse(P3.sellerStatusAt):0;
+            if(!last || (Date.now()-last)>24*60*60*1000) refreshSellerStatusForIq(true);
+          } }catch(e){} } }catch(e){} })();
 }
 // Top-level: finds an existing listed / previously-sold copy of the same item (by ISBN/barcode,
 // else strong title overlap). Used by Bulk Add's rich scan card for the ALREADY LISTED / SOLD
@@ -9700,7 +9906,7 @@ function openBulkAdd(mode){
   function doCreate(){
    try{
     let made=0, errors=0; const batch=[]; const _bulkItn=new Set();
-    const storageBatchId=null; // batch now forms at the shelving moment (Waiting on Storage → Move to storage), not at Create
+    const storageBatchId=null; // batch now forms at the shelving moment (Storage Queue → Move to storage), not at Create
     rows.forEach(r=>{ if(r.created) return; r.error=""; r.skus=[]; r._items=[];
       if(!r.desc.trim() && !r.upc.trim() && !r.section.trim() && !r.slot.trim()) return; // skip empty rows
       if(!r.desc.trim()){ r.error="needs description"; errors++; return; }
@@ -9715,7 +9921,7 @@ function openBulkAdd(mode){
       else { alloc=allocateMulti(qty,null,cat); if(alloc.length<qty){ r.error="no "+cat+" space ("+alloc.length+")"; errors++; return; } }
       const listPrice=(r.retail!=null&&String(r.retail).trim())?String(r.retail).trim():"0.00";
       alloc.forEach(pl=>{ const rowVendor=r.vendor.trim(), rowCost=r.unitCost||(vendorAvgCost(rowVendor)!=null?vendorAvgCost(rowVendor).toFixed(2):"0.00");
-        const it={ id:crypto.randomUUID(), upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
+        const it={ id:crypto.randomUUID(), origin:"Bulk Add", upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
         vendor:rowVendor, condition:r.condition.trim(),
         section:cat,
         unitCost:rowCost, retail:listPrice, onHand:"1", groups:[],
@@ -14891,12 +15097,43 @@ function openCancellationsRefundsReturns(){
   render();
 }
 
+// Where an item entered WIM. Set at creation; older items fall back to a sensible guess.
+//   eBay.com     = a live eBay listing scraped in (Listed-no-SKU / Storage Queue eBay pull)
+//   Inventory IQ = created from an InventoryIQ scan (Single Scan / Review & List / Photo pipeline)
+//   Bulk Add     = created through the Bulk Add process
+//   Manual       = typed in by hand in Item Maintenance
+function itemOrigin(it){
+  if(!it) return "Manual";
+  if(it.origin) return it.origin;
+  if(it.fromScan || it.scanId) return "Inventory IQ";
+  if(it.listing && it.listing.ebayItemId && !it.scanId) return "eBay.com";
+  return "Manual";
+}
+function originPill(it){
+  const o=itemOrigin(it);
+  const col={"eBay.com":"#0b64c8","Inventory IQ":"#7a3fc0","Bulk Add":"#1f7244","Manual":"#5b6470"}[o]||"#5b6470";
+  return '<span style="display:inline-block;padding:1px 7px;border-radius:20px;background:'+col+'18;color:'+col+';font-size:11px;font-weight:600;white-space:nowrap;">'+o+'</span>';
+}
+// Every item entering the Storage Queue should get its warehouse SKU automatically. This walks the
+// queue and slots anything still missing one. Items it cannot place (no room in their category) come
+// back as "blocked" and are shown with the no-available-slot treatment instead of being stored.
+function autoSlotPending(){
+  let assigned=0, blocked=0, changed=false;
+  pendingStorageItems().forEach(it=>{
+    if(it.sku) return;
+    const sku=assignSkuForCommit(it);
+    if(sku){ assigned++; changed=true; } else { blocked++; }
+  });
+  if(changed) save();
+  return { assigned, blocked };
+}
 function openMissingItem(){
   if(openWindows["missing-item"]){ focusWin(openWindows["missing-item"].el); return; }
-  const {body}=buildWindow({id:"missing-item",title:"Waiting on Storage",width:1040,height:640,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Everything waiting to be confirmed stored — search any item to see what else it was added with, for checking nearby spots if something's been swapped</span>`});
-  let picked=new Set(); let q="";
+  const {body}=buildWindow({id:"missing-item",title:"Storage Queue",width:1040,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Everything <b>pending storage</b> — in the system but not yet on a shelf. Search any item to see what else it was stored with, for checking nearby spots if something's been swapped.</span>`});
+  let picked=new Set(); let q=""; let autoPullTimer=null;
   function render(){
+    autoSlotPending();   // anything new in the queue gets its warehouse SKU automatically
     const pending=pendingStorageItems().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
     const searchResults = q ? activeItems().filter(i=>(i.desc||"").toLowerCase().includes(q.toLowerCase()) || (i.upc||"").toLowerCase().includes(q.toLowerCase()) || (i.sku||"").toLowerCase().includes(q.toLowerCase())).slice(0,25) : null;
     body.innerHTML=`<div style="padding:10px 14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
@@ -14904,12 +15141,15 @@ function openMissingItem(){
         <input class="txt" id="mi-search" placeholder="Search any item by description, Item Number, or Warehouse SKU…" style="flex:1;max-width:420px;" value="${esc(q)}">
         ${q?'<button class="btn sm" id="mi-clearsearch">Clear search</button>':''}
         <span style="flex:1;"></span>
-        ${!q&&pending.length?`<label class="chkrow"><span class="chk ${picked.size===pending.length&&pending.length?'on':''}" id="mi-selall"></span> Select All</label>
+        <button class="btn sm" id="mi-ebaypull" title="Pull live eBay listings that aren't filed in WIM yet and add them to storage">Pull from eBay${(DB.pulledListings||[]).length?` (${(DB.pulledListings||[]).length})`:''}</button>
+        ${!q&&pending.length?`<label class="chkrow"><span class="chk ${picked.size&&picked.size===pending.filter(i=>!!i.sku).length?'on':''}" id="mi-selall"></span> Select All</label>
         <button class="btn primary" id="mi-store" ${!picked.size?"disabled":""}>Move to storage${picked.size?" ("+picked.size+")":""}</button>`:''}
       </div>
-      ${q?`<div class="col-title" style="text-align:left;">Search results</div>`:`<div class="col-title" style="text-align:left;">Waiting to be stored (${pending.length})</div>`}
+      ${q?`<div class="col-title" style="text-align:left;">Search results</div>`:`<div class="col-title" style="text-align:left;">Pending storage (${pending.length})</div>`}
+      ${(!q && pending.some(i=>!i.sku))?`<div style="background:#fdecea;border:1px solid #f5c2bd;color:#a1291c;border-radius:6px;padding:7px 10px;font-size:12px;margin-bottom:4px;">
+        ${pending.filter(i=>!i.sku).length} item(s) have <b>no available slot</b> and can't be stored yet. Use <b>Fix storage…</b> on the row to add storage or change capacity, then hit the retry arrow.</div>`:''}
       <div class="resultwrap" style="margin:6px 0;flex:1;overflow:auto;"><table class="res"><thead><tr>
-        ${q?'':'<th style="width:30px;"></th>'}<th>Title</th><th style="width:120px;">Warehouse SKU</th><th style="width:90px;">Status</th><th style="width:90px;"></th>
+        ${q?'':'<th style="width:30px;"></th>'}<th>Title</th><th style="width:120px;">Warehouse SKU</th><th style="width:110px;">Origin</th><th style="width:90px;">Status</th><th style="width:90px;"></th>
       </tr></thead><tbody id="mi-tb"></tbody></table></div>
       <div id="mi-batch" style="border-top:1px solid var(--line,#dfe3ea);padding-top:10px;max-height:220px;overflow:auto;display:none;"></div>
     </div>`;
@@ -14917,6 +15157,7 @@ function openMissingItem(){
     const search=body.querySelector("#mi-search");
     search.oninput=()=>{ q=search.value.trim(); render(); setTimeout(()=>{ const s2=body.querySelector("#mi-search"); if(s2){ s2.focus(); s2.setSelectionRange(s2.value.length,s2.value.length); } },0); };
     const clr=body.querySelector("#mi-clearsearch"); if(clr) clr.onclick=()=>{ q=""; render(); };
+    const ep=body.querySelector("#mi-ebaypull"); if(ep) ep.onclick=()=>{ openListedNoSku(); };
     function showBatch(it){
       const mates=batchMates(it);
       if(!it.storageBatchId || !mates.length){ batchWrap.style.display="block"; batchWrap.innerHTML=`<div class="smallhint">Nothing else was stored in the same batch as "${esc(it.desc)}".</div>`; return; }
@@ -14930,18 +15171,36 @@ function openMissingItem(){
     }
     if(q){
       batchWrap.style.display="none";
-      if(!searchResults.length){ tb.innerHTML=`<tr><td colspan="4" style="color:#888;">No matches.</td></tr>`; }
+      if(!searchResults.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">No matches.</td></tr>`; }
       searchResults.forEach(it=>{ const tr=document.createElement("tr");
-        tr.innerHTML=`<td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td>${it.storedAt?'<span style="color:#1f7244;">Stored</span>':'<span style="color:#c0392b;">Pending</span>'}</td><td class="cc"><button class="btn sm">Show batch</button></td>`;
+        tr.innerHTML=`<td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td>${originPill(it)}</td><td>${it.storedAt?'<span style="color:#1f7244;">Stored</span>':'<span style="color:#c0392b;">Pending storage</span>'}</td><td class="cc"><button class="btn sm">Show batch</button></td>`;
         tr.querySelector("button").onclick=()=>showBatch(it); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
     } else {
       batchWrap.style.display="none";
-      if(!pending.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">Nothing waiting to be stored — everything added has been confirmed placed.</td></tr>`; }
+      if(!pending.length){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">Nothing waiting to be stored — everything added has been confirmed placed.</td></tr>`; }
       pending.forEach(it=>{ const tr=document.createElement("tr");
-        tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td><td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td><span style="color:#c0392b;">Pending</span></td><td class="cc"><button class="btn sm">Show batch</button></td>`;
-        tr.querySelector('[data-id]').onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
-        tr.querySelector("button").onclick=()=>showBatch(it); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
-      const selall=body.querySelector("#mi-selall"); if(selall) selall.onclick=()=>{ if(picked.size===pending.length){ picked.clear(); } else { pending.forEach(i=>picked.add(i.id)); } render(); };
+        const noSlot=!it.sku;
+        if(noSlot){
+          // No room in this item's category. It cannot be stored until storage is added or capacity
+          // changed, so the tick box is withheld and the row explains what to do.
+          tr.innerHTML=`<td></td><td>${esc(it.desc)}</td>
+            <td><span style="color:#c0392b;font-weight:600;white-space:nowrap;">No available slot</span></td>
+            <td>${originPill(it)}</td>
+            <td><span style="color:#c0392b;">Blocked</span></td>
+            <td class="cc" style="white-space:nowrap;">
+              <button class="btn sm" data-fix="1" title="Create more storage or change capacity">Fix storage…</button>
+              <button class="btn sm" data-retry="1" title="Try slotting this item again">&#8635;</button>
+            </td>`;
+          tr.querySelector('[data-fix]').onclick=()=>{ launchApp("warehouse"); };
+          tr.querySelector('[data-retry]').onclick=()=>{ const sku=assignSkuForCommit(it); if(sku) save(); render(); };
+        } else {
+          tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td><td>${esc(it.desc)}</td><td><b>${esc(it.sku)}</b></td><td>${originPill(it)}</td><td><span style="color:#c0392b;">Pending storage</span></td><td class="cc"><button class="btn sm" data-batch="1">Show batch</button></td>`;
+          tr.querySelector('[data-id]').onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
+          tr.querySelector('[data-batch]').onclick=()=>showBatch(it);
+        }
+        tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+      const storable=pending.filter(i=>!!i.sku);   // blocked items can't be stored yet
+      const selall=body.querySelector("#mi-selall"); if(selall) selall.onclick=()=>{ if(picked.size===storable.length){ picked.clear(); } else { picked.clear(); storable.forEach(i=>picked.add(i.id)); } render(); };
       const storeBtn=body.querySelector("#mi-store"); if(storeBtn) storeBtn.onclick=()=>{
         const targets=pending.filter(i=>picked.has(i.id)); if(!targets.length) return;
         // The batch forms HERE, at the shelving moment: the items the shelver actually has in hand
@@ -14954,6 +15213,32 @@ function openMissingItem(){
       };
     }
   }
+  // AUTO-PULL: while the Storage Queue is open, check eBay every 30s for newly created listings that
+  // aren't filed in WIM yet. Anything whose eBay category maps cleanly to a WIM category is imported
+  // and slotted automatically; anything ambiguous is left in "Pull from eBay" for a human to sort.
+  // The timer self-clears once the window is gone, so it can never outlive the screen.
+  let autoPullBusy=false;
+  async function autoPullTick(){
+    if(!openWindows["missing-item"]){ if(autoPullTimer){ clearInterval(autoPullTimer); autoPullTimer=null; } return; }
+    if(autoPullBusy || !(typeof EBAY!=="undefined" && EBAY.ready && EBAY.ready())) return;
+    autoPullBusy=true;
+    try{
+      await pullNewListings(null,true);
+      const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId));
+      let made=0, couldNotSlot=0;
+      list.slice().forEach(c=>{
+        const match=findSubcatByEbayId(c.categoryId);
+        if(!match || !match.section) return;                 // no confident category -- leave it
+        const r=createItemFromListing(c, match.section, match.subCategory, null);
+        if(r && r.ok){ made++; DB.pulledListings=(DB.pulledListings||[]).filter(x=>x.ebaySku!==c.ebaySku); }
+        else couldNotSlot++;
+      });
+      if(made||couldNotSlot){ save(); wimRefreshAll(); render(); }
+    }catch(e){ /* transient -- try again next tick */ }
+    finally{ autoPullBusy=false; }
+  }
+  autoPullTimer=setInterval(autoPullTick,30000);
+  autoPullTick();
   body._refresh=render;
   render();
 }
@@ -15842,6 +16127,7 @@ function createItemFromListing(c, section, subCategory, manualSlotValue){
   const created=[]; const _itnTaken=new Set(); const now=new Date().toISOString();
   placements.forEach(pl=>{
     const ni={ id:crypto.randomUUID(), simulated:!!c.simulated, desc:c.title, condition:c.condLabel||"", section, subCategory:subCategory||"",
+      origin:"eBay.com",
       slot:pl.slot, placement:pl.placement, sku:skuOf(pl.slot,pl.placement), onHand:"1",
       unitCost:"0.000", retail:c.price||"0.00",
       // Listings pulled from eBay weren't bought from a supplier WIM knows about — they're the
@@ -15926,7 +16212,7 @@ function openListedNoSku(){
       });
       save(); wimRefreshAll(); refreshSearchWindows&&refreshSearchWindows();
       msg.style.color=errs.length?"#c0392b":"#1f7244";
-      msg.textContent=okCount+" item(s) added to storage \u2014 find them in the bookshelf (Waiting on Storage) to shelve."+(errs.length?(" "+errs.length+" failed: "+errs.join(" \u00b7 ")):"");
+      msg.textContent=okCount+" item(s) added to storage \u2014 find them in the bookshelf (Storage Queue) to shelve."+(errs.length?(" "+errs.length+" failed: "+errs.join(" \u00b7 ")):"");
       render();
     };
     list.forEach((c)=>{ const ch=rowChoices[c.ebaySku];
