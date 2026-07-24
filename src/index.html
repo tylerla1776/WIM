@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.51", BUILD_DATE="2026-07-24", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.53", BUILD_DATE="2026-07-24", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.53","STORAGE QUEUE NOW HAS TWO TABS. PENDING STORAGE is the default and works as before. RECENTLY STORED is new: everything physically shelved in the last 5 days, newest first, showing the storage location it went to and how long ago (today, yesterday, N days ago). Useful when someone needs to find where something just went without digging through Item Maintenance. THE SEARCH BOX IS NOW LIVE ON BOTH TABS -- results narrow as you type, matching description, item number or warehouse SKU, and it searches whichever tab you are looking at. Note this is a deliberate change: the box used to search your whole inventory from the pending screen; it now filters the tab you are on, which is what makes the two tabs useful. ON DYNAMIC WAREHOUSE SKUs -- this already works and I verified it rather than assuming. A pending item holding A.3.08 automatically becomes A.3.07 when the item at A.3.03 leaves the shelf, and the slot stays a clean gapless sequence. Worth knowing exactly when it fires: the shift happens when an item is actually PICKED or SHIPPED, not the moment it sells, because a sold item is still physically sitting on that shelf until someone carries it off -- so the SKU always matches reality rather than jumping early and sending someone to the wrong spot. HTML-only."],
+  ["3.4.52","STORAGE QUEUE NOW SHOWS WHERE EACH ITEM IS IN THE LISTING PIPELINE. The Status column used to say Pending storage on every single row, which told you nothing you could not already see from the fact it was in the queue. It now shows what actually matters: LISTED in green when the item is live on eBay, REVIEW in blue when it has been sent to supervisor review and is waiting, and Not listed in grey for anything committed but not yet either. The Origin column still tells you how it entered the building (eBay.com, Inventory IQ, Bulk Add or Manual), so between the two columns you can see both where an item came from and how far along it is without opening it. MANUAL SKUs: an item with no free slot used to sit blocked with only Fix storage and a retry arrow, so if you wanted to place it somewhere yourself there was no way to say so. Blocked rows now also have a Set SKU button -- type the shelf address and it is assigned. It refuses a SKU another active item already holds and tells you which item has it, so two things can never claim the same shelf. Verified that all three sources still converge here: items listed from InventoryIQ, items created in WIM, and listings pulled from eBay.com all land in this one queue, and items sent to supervisor review arrive too rather than waiting until they are listed. Select the ones you are shelving and Move to storage as before -- items with no SKU stay unselectable because there is nowhere to put them yet. HTML-only."],
   ["3.4.51","FIXES BULK ADD CRASHING ON OPEN, PLUS THE STORAGE QUEUE BUTTON. Bulk Add was dying with \u0027findMergeCandidates is not defined\u0027 the moment it drew a scan card. The cause: the duplicate-matching helpers were written inside the old Import Scans window, so Bulk Add could not see them at all -- Import Scans was folded into Bulk Add back in 3.4.4 and these were left behind. The shared, self-contained ones (match finding and candidate checking) now live at the top level where every screen can reach them, and the three that depend on the screen\u0027s own selection state (the merge action, merging into an active listing, and the match panel) now exist properly inside Bulk Add. While fixing it I checked every other function Bulk Add calls for the same problem and found four more that would have thrown the moment you pressed a merge button -- all fixed in this build rather than waiting for you to hit them one at a time. THE STORAGE QUEUE BUTTON NOW ACTUALLY OPENS. The shelf icon with the pending count appears in the Add Inventory toolbar, the Bulk Add header and on item pages, but it was wired to each window individually, so it quietly stopped working after a screen redrew or when the window was popped out. It is now handled in one place and works from every screen and every popped-out window. STORAGE QUEUE IS ALSO ITS OWN APP: it now sits under Manage Inventory as Storage Queue with a live count of items waiting to be stored, alongside Add Inventory and Bulk Add Inventory. HTML-only."],
   ["3.4.50","GETS AUTO-UPDATE WORKING AGAIN. The 3.4.49 build itself was fine -- the signature race is genuinely fixed, and that release is clean and properly signed. What went wrong is a safety check added alongside it: it compared the installer name against the list of files on the release, but Windows adds an invisible carriage return to the end of each line, so the two never matched. The check decided something was wrong, stopped, and never copied the update notice to where WIM looks for it -- which is why WIM kept saying it was up to date. A guard meant to prevent a bad update ended up blocking a good one. It now strips those invisible characters, and just as importantly it only WARNS instead of stopping, because the real protection is that the signature is taken directly from the release itself. That check should never be the reason a working update fails to reach you."],
   ["3.4.49","FIXES THE RECURRING \u0027SIGNATURE DIDN\u0027T MATCH\u0027 UPDATE ERROR FOR GOOD. Every tag was quietly building WIM TWICE at the same moment. Each build signed its own installer, then the two raced: one build\u0027s installer ended up on the release while the other build\u0027s signature ended up in the update feed. The feed was therefore describing a file that no longer existed, so every auto-update was refused. Proof it was two builds: the two signatures for 3.4.48 were stamped eleven seconds apart. Three changes stop it. Only one release build can now run at a time -- a second is cancelled instead of racing. The update feed is now built FROM the signature file actually attached to the release, so the two cannot describe different files even if something else races. And the build now verifies, before and after publishing, that the feed and the release agree, failing loudly instead of shipping a broken update. Switching your local profile was not the cause -- it just triggers an update check, which is when the already-broken feed got noticed."],
@@ -2344,9 +2346,32 @@ function activeItems(){ return visibleItems().filter(i=>!i.sold && itemStatus(i)
 // An item only "waits on storage" once it's been COMMITTED — listed on eBay, or sent to Supervisor
 // Review, or otherwise assigned its commit SKU. A freshly-created scan/item that's still being built
 // in Bulk Add does NOT appear here yet; it shows up the moment it's listed or sent for review.
+// Where an item sits in the LISTING pipeline, shown in the Storage Queue's Status column.
+// Everything in that queue is pending storage by definition, so the useful thing to show is
+// whether it is still awaiting supervisor review or already live on eBay.
+function storageStateCell(it){
+  const L=it.listing||{};
+  if(L.status==="listed"||L.listedAt) return '<span style="color:#1f9d57;font-weight:700;">Listed</span>';
+  if(L.readyToList||L.sentForReviewAt) return '<span style="color:#2563EB;font-weight:700;">Review</span>';
+  return '<span style="color:#8a95a3;">Not listed</span>';
+}
 function isCommittedForStorage(i){
   const L=i.listing||{};
   return !!(L.status==="listed" || L.readyToList || L.sentForReviewAt || L.listedAt || i._committedAt);
+}
+// Items physically shelved within the last N days (default 5) -- the Recently stored tab, so a
+// person can check where something just went without hunting for it in Item Maintenance.
+function recentlyStoredItems(days){
+  const cut=Date.now()-((days||5)*24*60*60*1000);
+  return (DB.items||[]).filter(i=>{
+    if(!i.storedAt) return false;
+    const t=Date.parse(i.storedAt); return isFinite(t) && t>=cut;
+  }).sort((a,b)=>Date.parse(b.storedAt||0)-Date.parse(a.storedAt||0));
+}
+function storedAgo(it){
+  const t=Date.parse(it.storedAt||""); if(!isFinite(t)) return "";
+  const d=Math.floor((Date.now()-t)/86400000);
+  return d<=0?"today":(d===1?"yesterday":d+" days ago");
 }
 function pendingStorageItems(){ return activeItems().filter(i=>!i.storedAt && isCommittedForStorage(i)); }
 // The waiting-to-be-stored icon+count, shared across Add Item, Bulk Add, and every item
@@ -2572,6 +2597,19 @@ function skuOf(slotId,p){ return slotId+"."+pad2(p); }
 // List, or Send to Supervisor Review) -- the point an item truly enters the system. Scan-imported
 // items live in the photo area unslotted until this fires. Returns the SKU or null. Idempotent:
 // an item that already has a SKU keeps it. Emits the slot_place analytics event.
+// Ask for a warehouse SKU and assign it, refusing duplicates. Used by the Storage Queue so an item
+// with no free slot can still be placed by hand instead of sitting blocked forever.
+function manualSkuPrompt(it, after){
+  let v=null;
+  try{ v=prompt("Warehouse SKU for:\n"+(it.desc||"this item"), it.sku||""); }catch(e){ v=null; }
+  if(v==null) return;
+  v=String(v).trim().toUpperCase();
+  if(!v) return;
+  const clash=(DB.items||[]).find(x=>x.id!==it.id && !x.sold && (x.sku||"").toUpperCase()===v);
+  if(clash){ uiModal("SKU already in use","<div style=\"font-size:13px;\">"+esc(v)+" is already assigned to <b>"+esc(clash.desc||"another item")+"</b>. Pick a different one.</div>",[{label:"Okay",primary:true}]); return; }
+  it.sku=v; it.skuManual=true; save();
+  if(typeof after==="function") after();
+}
 function assignSkuForCommit(it){
   if(it.sku) return it.sku;
   const rs=autoSlot(it.id,it.section);
@@ -15218,25 +15256,33 @@ function openMissingItem(){
   if(openWindows["missing-item"]){ focusWin(openWindows["missing-item"].el); return; }
   const {body}=buildWindow({id:"missing-item",title:"Storage Queue",width:1040,height:640,
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Everything <b>pending storage</b> — in the system but not yet on a shelf. Search any item to see what else it was stored with, for checking nearby spots if something's been swapped.</span>`});
-  let picked=new Set(); let q=""; let autoPullTimer=null;
+  let picked=new Set(); let q=""; let autoPullTimer=null; let tab="pending";
   function render(){
     autoSlotPending();   // anything new in the queue gets its warehouse SKU automatically
-    const pending=pendingStorageItems().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
-    const searchResults = q ? activeItems().filter(i=>(i.desc||"").toLowerCase().includes(q.toLowerCase()) || (i.upc||"").toLowerCase().includes(q.toLowerCase()) || (i.sku||"").toLowerCase().includes(q.toLowerCase())).slice(0,25) : null;
+    // Live search filters whichever tab you are on, as you type.
+    const ql=(q||"").toLowerCase();
+    const match=(i)=>!ql || (i.desc||"").toLowerCase().includes(ql) || (i.upc||"").toLowerCase().includes(ql) || (i.sku||"").toLowerCase().includes(ql);
+    const allPending=pendingStorageItems().sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0));
+    const allStored=recentlyStoredItems(5);
+    const pending=allPending.filter(match);
+    const stored=allStored.filter(match);
     body.innerHTML=`<div style="padding:10px 14px;display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
         <input class="txt" id="mi-search" placeholder="Search any item by description, Item Number, or Warehouse SKU…" style="flex:1;max-width:420px;" value="${esc(q)}">
         ${q?'<button class="btn sm" id="mi-clearsearch">Clear search</button>':''}
         <span style="flex:1;"></span>
         <button class="btn sm" id="mi-ebaypull" title="Pull live eBay listings that aren't filed in WIM yet and add them to storage">Pull from eBay${(DB.pulledListings||[]).length?` (${(DB.pulledListings||[]).length})`:''}</button>
-        ${!q&&pending.length?`<label class="chkrow"><span class="chk ${picked.size&&picked.size===pending.filter(i=>!!i.sku).length?'on':''}" id="mi-selall"></span> Select All</label>
+        ${tab==="pending"&&pending.length?`<label class="chkrow"><span class="chk ${picked.size&&picked.size===pending.filter(i=>!!i.sku).length?'on':''}" id="mi-selall"></span> Select All</label>
         <button class="btn primary" id="mi-store" ${!picked.size?"disabled":""}>Move to storage${picked.size?" ("+picked.size+")":""}</button>`:''}
       </div>
-      ${q?`<div class="col-title" style="text-align:left;">Search results</div>`:`<div class="col-title" style="text-align:left;">Pending storage (${pending.length})</div>`}
-      ${(!q && pending.some(i=>!i.sku))?`<div style="background:#fdecea;border:1px solid #f5c2bd;color:#a1291c;border-radius:6px;padding:7px 10px;font-size:12px;margin-bottom:4px;">
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <button class="btn sm ${tab==="pending"?"primary":""}" id="mi-tab-pending">Pending storage (${allPending.length})</button>
+        <button class="btn sm ${tab==="stored"?"primary":""}" id="mi-tab-stored">Recently stored (${allStored.length})</button>
+      </div>
+      ${(tab==="pending" && pending.some(i=>!i.sku))?`<div style="background:#fdecea;border:1px solid #f5c2bd;color:#a1291c;border-radius:6px;padding:7px 10px;font-size:12px;margin-bottom:4px;">
         ${pending.filter(i=>!i.sku).length} item(s) have <b>no available slot</b> and can't be stored yet. Use <b>Fix storage…</b> on the row to add storage or change capacity, then hit the retry arrow.</div>`:''}
       <div class="resultwrap" style="margin:6px 0;flex:1;overflow:auto;"><table class="res"><thead><tr>
-        ${q?'':'<th style="width:30px;"></th>'}<th>Title</th><th style="width:120px;">Warehouse SKU</th><th style="width:110px;">Origin</th><th style="width:90px;">Status</th><th style="width:90px;"></th>
+        ${tab==="pending"?'<th style="width:30px;"></th>':''}<th>Title</th><th style="width:120px;">${tab==="stored"?"Storage location":"Warehouse SKU"}</th><th style="width:110px;">Origin</th><th style="width:110px;">${tab==="stored"?"Stored":"Status"}</th><th style="width:90px;"></th>
       </tr></thead><tbody id="mi-tb"></tbody></table></div>
       <div id="mi-batch" style="border-top:1px solid var(--line,#dfe3ea);padding-top:10px;max-height:220px;overflow:auto;display:none;"></div>
     </div>`;
@@ -15244,6 +15290,8 @@ function openMissingItem(){
     const search=body.querySelector("#mi-search");
     search.oninput=()=>{ q=search.value.trim(); render(); setTimeout(()=>{ const s2=body.querySelector("#mi-search"); if(s2){ s2.focus(); s2.setSelectionRange(s2.value.length,s2.value.length); } },0); };
     const clr=body.querySelector("#mi-clearsearch"); if(clr) clr.onclick=()=>{ q=""; render(); };
+    { const tp=body.querySelector("#mi-tab-pending"); if(tp) tp.onclick=()=>{ tab="pending"; picked.clear(); render(); };
+      const ts=body.querySelector("#mi-tab-stored");  if(ts) ts.onclick=()=>{ tab="stored";  picked.clear(); render(); }; }
     const ep=body.querySelector("#mi-ebaypull"); if(ep) ep.onclick=()=>{ openListedNoSku(); };
     function showBatch(it){
       const mates=batchMates(it);
@@ -15256,15 +15304,17 @@ function openMissingItem(){
         tr.innerHTML=`<td>${esc(m.desc)}</td><td><b>${esc(m.sku||"—")}</b></td><td>${m.storedAt?'<span style="color:#1f7244;">Stored</span>':'<span style="color:#c0392b;">Pending</span>'}</td>`;
         tr.style.cursor="pointer"; tr.ondblclick=()=>openItemDetail(m,"edit"); mtb.appendChild(tr); });
     }
-    if(q){
+    if(tab==="stored"){
       batchWrap.style.display="none";
-      if(!searchResults.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">No matches.</td></tr>`; }
-      searchResults.forEach(it=>{ const tr=document.createElement("tr");
-        tr.innerHTML=`<td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td>${originPill(it)}</td><td>${it.storedAt?'<span style="color:#1f7244;">Stored</span>':'<span style="color:#c0392b;">Pending storage</span>'}</td><td class="cc"><button class="btn sm">Show batch</button></td>`;
+      if(!stored.length){ tb.innerHTML=`<tr><td colspan="5" style="color:#888;">${q?"No matches in the last 5 days.":"Nothing has been stored in the last 5 days."}</td></tr>`; }
+      stored.forEach(it=>{ const tr=document.createElement("tr");
+        tr.innerHTML=`<td>${esc(it.desc)}</td><td><b>${esc(it.sku||"—")}</b></td><td>${originPill(it)}</td>`+
+          `<td><span style="color:#1f7244;font-weight:700;">${esc(storedAgo(it))}</span></td>`+
+          `<td class="cc"><button class="btn sm">Show batch</button></td>`;
         tr.querySelector("button").onclick=()=>showBatch(it); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
     } else {
       batchWrap.style.display="none";
-      if(!pending.length){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">Nothing waiting to be stored — everything added has been confirmed placed.</td></tr>`; }
+      if(!pending.length){ tb.innerHTML=`<tr><td colspan="6" style="color:#888;">${q?"No pending items match that search.":"Nothing waiting to be stored — everything added has been confirmed placed."}</td></tr>`; }
       pending.forEach(it=>{ const tr=document.createElement("tr");
         const noSlot=!it.sku;
         if(noSlot){
@@ -15276,12 +15326,16 @@ function openMissingItem(){
             <td><span style="color:#c0392b;">Blocked</span></td>
             <td class="cc" style="white-space:nowrap;">
               <button class="btn sm" data-fix="1" title="Create more storage or change capacity">Fix storage…</button>
+              <button class="btn sm" data-setsku="1" title="Type a warehouse SKU for this item yourself">Set SKU</button>
               <button class="btn sm" data-retry="1" title="Try slotting this item again">&#8635;</button>
             </td>`;
           tr.querySelector('[data-fix]').onclick=()=>{ launchApp("warehouse"); };
           tr.querySelector('[data-retry]').onclick=()=>{ const sku=assignSkuForCommit(it); if(sku) save(); render(); };
+          // Manual override: when there is genuinely no free slot, a person can still place the item
+          // by typing the shelf address themselves. Refuses a SKU another active item already holds.
+          { const b=tr.querySelector('[data-setsku]'); if(b) b.onclick=()=>manualSkuPrompt(it, render); }
         } else {
-          tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td><td>${esc(it.desc)}</td><td><b>${esc(it.sku)}</b></td><td>${originPill(it)}</td><td><span style="color:#c0392b;">Pending storage</span></td><td class="cc"><button class="btn sm" data-batch="1">Show batch</button></td>`;
+          tr.innerHTML=`<td><span class="chk ${picked.has(it.id)?'on':''}" data-id="${esc(it.id)}"></span></td><td>${esc(it.desc)}</td><td><b>${esc(it.sku)}</b></td><td>${originPill(it)}</td><td>${storageStateCell(it)}</td><td class="cc"><button class="btn sm" data-batch="1">Show batch</button></td>`;
           tr.querySelector('[data-id]').onclick=()=>{ if(picked.has(it.id)) picked.delete(it.id); else picked.add(it.id); render(); };
           tr.querySelector('[data-batch]').onclick=()=>showBatch(it);
         }
