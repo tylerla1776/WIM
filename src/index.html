@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.50", BUILD_DATE="2026-07-24", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.51", BUILD_DATE="2026-07-24", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.51","FIXES BULK ADD CRASHING ON OPEN, PLUS THE STORAGE QUEUE BUTTON. Bulk Add was dying with \u0027findMergeCandidates is not defined\u0027 the moment it drew a scan card. The cause: the duplicate-matching helpers were written inside the old Import Scans window, so Bulk Add could not see them at all -- Import Scans was folded into Bulk Add back in 3.4.4 and these were left behind. The shared, self-contained ones (match finding and candidate checking) now live at the top level where every screen can reach them, and the three that depend on the screen\u0027s own selection state (the merge action, merging into an active listing, and the match panel) now exist properly inside Bulk Add. While fixing it I checked every other function Bulk Add calls for the same problem and found four more that would have thrown the moment you pressed a merge button -- all fixed in this build rather than waiting for you to hit them one at a time. THE STORAGE QUEUE BUTTON NOW ACTUALLY OPENS. The shelf icon with the pending count appears in the Add Inventory toolbar, the Bulk Add header and on item pages, but it was wired to each window individually, so it quietly stopped working after a screen redrew or when the window was popped out. It is now handled in one place and works from every screen and every popped-out window. STORAGE QUEUE IS ALSO ITS OWN APP: it now sits under Manage Inventory as Storage Queue with a live count of items waiting to be stored, alongside Add Inventory and Bulk Add Inventory. HTML-only."],
   ["3.4.50","GETS AUTO-UPDATE WORKING AGAIN. The 3.4.49 build itself was fine -- the signature race is genuinely fixed, and that release is clean and properly signed. What went wrong is a safety check added alongside it: it compared the installer name against the list of files on the release, but Windows adds an invisible carriage return to the end of each line, so the two never matched. The check decided something was wrong, stopped, and never copied the update notice to where WIM looks for it -- which is why WIM kept saying it was up to date. A guard meant to prevent a bad update ended up blocking a good one. It now strips those invisible characters, and just as importantly it only WARNS instead of stopping, because the real protection is that the signature is taken directly from the release itself. That check should never be the reason a working update fails to reach you."],
   ["3.4.49","FIXES THE RECURRING \u0027SIGNATURE DIDN\u0027T MATCH\u0027 UPDATE ERROR FOR GOOD. Every tag was quietly building WIM TWICE at the same moment. Each build signed its own installer, then the two raced: one build\u0027s installer ended up on the release while the other build\u0027s signature ended up in the update feed. The feed was therefore describing a file that no longer existed, so every auto-update was refused. Proof it was two builds: the two signatures for 3.4.48 were stamped eleven seconds apart. Three changes stop it. Only one release build can now run at a time -- a second is cancelled instead of racing. The update feed is now built FROM the signature file actually attached to the release, so the two cannot describe different files even if something else races. And the build now verifies, before and after publishing, that the feed and the release agree, failing loudly instead of shipping a broken update. Switching your local profile was not the cause -- it just triggers an update check, which is when the already-broken feed got noticed."],
   ["3.4.48","SHIPPING BY WEIGHT INSTEAD OF A FLAT GUESS. Books and comics ship Media Mail, which is priced almost purely by weight -- so a flat per-category assumption was always going to be rough. Turn on Estimate shipping by weight in the InventoryIQ settings and the app works out each item\u0027s weight from its page count and format, then prices it as Media Mail using rates you can edit here when USPS changes them. If the listing someone picked happens to publish a real package weight, that is used instead of the estimate -- many sellers leave it blank on free shipping, so treat it as a bonus rather than the rule. The phone shows the weight it used right next to the shipping line, marked est. or listed, so nobody is guessing where the number came from. The old flat prices are still there and still the default; this is a switch, not a replacement. HTML-only."],
@@ -2350,9 +2351,18 @@ function isCommittedForStorage(i){
 function pendingStorageItems(){ return activeItems().filter(i=>!i.storedAt && isCommittedForStorage(i)); }
 // The waiting-to-be-stored icon+count, shared across Add Item, Bulk Add, and every item
 // landing page — same icon everywhere, just greyed out when there's nothing pending.
+// Any storage badge, anywhere (Add Inventory toolbar, Bulk Add header, item landing page), opens
+// the Storage Queue. Delegated so it survives re-renders and works inside popped-out windows --
+// the old per-window wiring silently missed the button in both cases.
+document.addEventListener("click",(e)=>{
+  const b=e.target&&e.target.closest?e.target.closest(".storage-badge"):null;
+  if(!b) return;
+  e.preventDefault(); e.stopPropagation();
+  try{ openMissingItem(); }catch(err){ try{ launchApp("missingitem"); }catch(e2){} }
+},true);
 function pendingStorageBadgeHtml(id){
   const n=pendingStorageItems().length;
-  return `<button class="btn sm" id="${id}" title="${n?n+' item(s) waiting to be confirmed stored':'Nothing waiting to be stored'}" style="display:inline-flex;align-items:center;gap:5px;opacity:${n?'1':'.4'};">
+  return `<button class="btn sm storage-badge" id="${id}" title="${n?n+' item(s) waiting to be confirmed stored':'Nothing waiting to be stored'}" style="display:inline-flex;align-items:center;gap:5px;opacity:${n?'1':'.4'};">
     <span style="width:16px;height:16px;display:inline-flex;color:${n?'#c98a1b':'#8a95a3'};">${I.shelf}</span>${n?`<span style="font-weight:700;">(${n})</span>`:''}</button>`;
 }
 // Everything created in the same batch as this item (one Add Item save, or one Bulk Add
@@ -3298,7 +3308,7 @@ function nodeActionsRaw(node){
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
-  if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Adjust Inventory"];
+  if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Storage Queue","Adjust Inventory"];
   if(node.key==="fulfillment") return ["Recently Listed","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
   if(node.key==="financials") return ["True Net Profit","Vendor ROI Report","WIM Analytics"];
   if(node.key==="whdiscrep") return ["Storage Queue"];
@@ -4309,6 +4319,7 @@ function handleAction(k,a){
   if(k==="addsell"&&a==="Add Inventory") return launchApp("additem");
   if(k==="addsell"&&a==="Bulk Add Inventory") return launchApp("bulkadd");
   if(k==="addsell"&&a==="Adjust Inventory") return launchApp("adjust");
+  if(k==="addsell"&&a==="Storage Queue") return launchApp("missingitem");   // its own app under Manage Inventory
   // RETIRED: Find by Photo (legacy) -- removed from the tree in 3.4.44.
   if(k==="whdiscrep"&&a==="Storage Queue") return launchApp("missingitem");   // Listed-no-SKU folded in here
   if(k==="reports"&&a==="Aging Inventory") return launchApp("aging");
@@ -8643,71 +8654,11 @@ async function openImportScans(){
   // Find other copies of this same item already in WIM: one that's LISTED right now, and one we've
   // SOLD before. ISBN/barcode is the reliable key and is tried first; description fuzzy-match is the
   // fallback, because comics have no barcode and not every book scan yields one.
-  function findMatches(it){
-    const bc=(it.barcode||"").replace(/[^0-9X]/gi,"");
-    const norm=(x)=>((x&&x.desc)||"").toLowerCase();
-    const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
-    const words=norm(it).split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
-    const sameThing=(x)=>{
-      if(x.id===it.id) return false;
-      // ISBN / barcode — definitive when both have one.
-      const xbc=(x.barcode||"").replace(/[^0-9X]/gi,"");
-      if(bc && xbc) return bc===xbc;
-      // Otherwise fall back to description overlap.
-      if(!words.length) return false;
-      const hay=norm(x)+" "+(((x.listing&&x.listing.title)||"").toLowerCase());
-      let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
-      return (hits/words.length) >= 0.6;   // stricter than the price-compare matcher: this one ties records together
-    };
-    let listed=null, sold=null;
-    (DB.items||[]).forEach(x=>{
-      if(!sameThing(x)) return;
-      const st=itemStatus(x);
-      if(!listed && x.listing && x.listing.status==="listed" && st!=="sold" && st!=="inactive") listed=x;
-      if(!sold && (st==="sold"||st==="inactive") && x.fulfillment && x.fulfillment.soldAt) sold=x;
-    });
-    return { listed, sold };
-  }
   // Merge candidates for the purple button: every OTHER item that plausibly is the same product,
   // split by where it currently lives. Uses the same fuzzy text match as findMatches PLUS an issue
   // guard: if BOTH titles carry an issue number and they differ, they never match (a #217 never
   // matches a #143); but a copy with no issue number CAN match a numbered one (your rule).
-  function findMergeCandidates(it){
-    const bc=(it.barcode||"").replace(/[^0-9X]/gi,"");
-    const norm=(x)=>((x&&x.desc)||"").toLowerCase();
-    const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
-    const words=norm(it).split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
-    const myIssue=titleCompInfo(it.desc||"").issue;
-    const sameThing=(x)=>{
-      if(x.id===it.id) return false;
-      if(x._mergedInto) return false;                 // already merged away — skip
-      // Issue guard first: if both have an issue number and they differ, not a match.
-      const xIssue=titleCompInfo(x.desc||"").issue;
-      if(myIssue!=null && xIssue!=null && myIssue!==xIssue) return false;
-      const xbc=(x.barcode||"").replace(/[^0-9X]/gi,"");
-      if(bc && xbc) return bc===xbc && (myIssue==null||xIssue==null||myIssue===xIssue);
-      if(!words.length) return false;
-      const hay=norm(x)+" "+(((x.listing&&x.listing.title)||"").toLowerCase());
-      let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
-      return (hits/words.length) >= 0.6;
-    };
-    const inBulk=[], inReview=[], active=[];
-    (DB.items||[]).forEach(x=>{
-      if(!sameThing(x)) return;
-      const st=itemStatus(x); const L=x.listing||{};
-      if(L.status==="listed" && st!=="sold" && st!=="inactive"){ active.push(x); return; }
-      if(L.readyToList && !L.listedAt){ inReview.push(x); return; }
-      // "in bulk add" = an un-listed, un-review scan/item still being built
-      if(x.fromScan && st!=="sold" && st!=="inactive" && !L.listedAt && !L.readyToList){ inBulk.push(x); return; }
-    });
-    return { inBulk, inReview, active, total:inBulk.length+inReview.length+active.length };
-  }
   // Is candidateId one of anchorId's merge candidates? (used to know which cards are pickable)
-  function isMergeCandidateOf(anchorId, candidateId){
-    const anchor=(DB.items||[]).find(x=>x.id===anchorId); if(!anchor) return false;
-    const mc=findMergeCandidates(anchor);
-    return mc.inBulk.concat(mc.inReview, mc.active).some(x=>x.id===candidateId);
-  }
   // Merge: fold the non-parent bulk-add matches into the picked parent as extra quantity units.
   // Each folded unit keeps its own identity (its own item number + SKU get assigned at commit), but
   // it disappears from the card list and shows on the parent as Quantity N. Active/review matches
@@ -9475,6 +9426,47 @@ function findMatches(it){
   return { listed, sold };
 }
 
+// Shared by Import Scans AND Bulk Add. This used to live inside openImportScans, so Bulk Add
+// threw "findMergeCandidates is not defined" the moment it drew a scan card. It only uses
+// globals (DB, itemStatus, titleCompInfo), so it is safe at top level.
+// Moved to top level: Bulk Add calls this too, and a nested copy was invisible to it.
+function isMergeCandidateOf(anchorId, candidateId){
+  const anchor=(DB.items||[]).find(x=>x.id===anchorId); if(!anchor) return false;
+  const mc=findMergeCandidates(anchor);
+  return mc.inBulk.concat(mc.inReview, mc.active).some(x=>x.id===candidateId);
+}
+
+function findMergeCandidates(it){
+  const bc=(it.barcode||"").replace(/[^0-9X]/gi,"");
+  const norm=(x)=>((x&&x.desc)||"").toLowerCase();
+  const stop=new Set(["the","a","an","and","of","in","for","to","with","by","on","is","vol","new","used"]);
+  const words=norm(it).split(/[^a-z0-9']+/).filter(w=>w.length>2 && !stop.has(w));
+  const myIssue=titleCompInfo(it.desc||"").issue;
+  const sameThing=(x)=>{
+    if(x.id===it.id) return false;
+    if(x._mergedInto) return false;                 // already merged away — skip
+    // Issue guard first: if both have an issue number and they differ, not a match.
+    const xIssue=titleCompInfo(x.desc||"").issue;
+    if(myIssue!=null && xIssue!=null && myIssue!==xIssue) return false;
+    const xbc=(x.barcode||"").replace(/[^0-9X]/gi,"");
+    if(bc && xbc) return bc===xbc && (myIssue==null||xIssue==null||myIssue===xIssue);
+    if(!words.length) return false;
+    const hay=norm(x)+" "+(((x.listing&&x.listing.title)||"").toLowerCase());
+    let hits=0; words.forEach(w=>{ if(hay.indexOf(w)>=0) hits++; });
+    return (hits/words.length) >= 0.6;
+  };
+  const inBulk=[], inReview=[], active=[];
+  (DB.items||[]).forEach(x=>{
+    if(!sameThing(x)) return;
+    const st=itemStatus(x); const L=x.listing||{};
+    if(L.status==="listed" && st!=="sold" && st!=="inactive"){ active.push(x); return; }
+    if(L.readyToList && !L.listedAt){ inReview.push(x); return; }
+    // "in bulk add" = an un-listed, un-review scan/item still being built
+    if(x.fromScan && st!=="sold" && st!=="inactive" && !L.listedAt && !L.readyToList){ inBulk.push(x); return; }
+  });
+  return { inBulk, inReview, active, total:inBulk.length+inReview.length+active.length };
+}
+
 function openBulkAdd(mode){
   const isAddItem=(mode==="additem");
   const winId=isAddItem?"add-item":"bulk-add";
@@ -9530,6 +9522,99 @@ function openBulkAdd(mode){
   let baSearch="", baHasPhotos=false, baResearched=false;   // toolbar filters
   let selectedScanId=null;   // which scan card is "selected" — only its Price Compare is open
   let mergeMode=null;        // { anchorId, pickedId } — active purple-button merge selection, or null
+  // Bulk Add needs its own copy: these read this screen's mergeMode / selectedScanId / render.
+  function doMerge(){
+    if(!mergeMode) return;
+    const parent=(DB.items||[]).find(x=>x.id===mergeMode.pickedId); if(!parent){ mergeMode=null; render(); return; }
+    const anchor=(DB.items||[]).find(x=>x.id===mergeMode.anchorId);
+    const mc=anchor?findMergeCandidates(anchor):{inBulk:[]};
+    // Everything still-in-bulk that isn't the parent folds in. (Active/review need the send flow.)
+    const foldIds=new Set();
+    mc.inBulk.forEach(x=>{ if(x.id!==parent.id) foldIds.add(x.id); });
+    if(anchor && anchor.id!==parent.id) foldIds.add(anchor.id);   // if parent was a candidate, fold the anchor too
+    if(!parent._mergedUnits) parent._mergedUnits=[];
+    foldIds.forEach(id=>{
+      const child=(DB.items||[]).find(x=>x.id===id); if(!child||child._mergedInto) return;
+      child._mergedInto=parent.id;                 // hidden from the list
+      parent._mergedUnits.push({ id:child.id, desc:child.desc, at:new Date().toISOString() });
+    });
+    selectedScanId=parent.id;   // keep the parent selected
+    mergeMode=null;
+    save(); render();
+  }
+
+  // Bulk Add needs its own copy: these read this screen's mergeMode / selectedScanId / render.
+  function mergeIntoActive(newItem, activeItem){
+    if(!newItem||!activeItem) return;
+    const canList = (typeof canListDirect==="function") ? canListDirect() : (SESSION.user && (SESSION.user.role==="admin"||SESSION.user.role==="lister"));
+    // Make the new copy join the active item's group: adopt its groupKey fields so unitsOf() counts
+    // them together (fuzzy titles could differ; the group needs them identical to link).
+    newItem.desc=activeItem.desc; newItem.section=activeItem.section; newItem.subCategory=activeItem.subCategory; newItem.condition=activeItem.condition;
+    // Mark the active item's listing as Reserve so only one shows at a time.
+    if(!activeItem.listing) activeItem.listing={status:"none"};
+    activeItem.listing.reserveItem=true;
+    // Link the new copy to the active parent for traceability.
+    newItem._reserveParentId=activeItem.id;
+    if(canList){
+      // Reserve-and-add: assign this copy its SKU/commit now; it becomes an active reserved unit that
+      // will list automatically when the current live one sells.
+      const sku=assignSkuForCommit(newItem); newItem._committedAt=new Date().toISOString();
+      if(!newItem.listing) newItem.listing={status:"none"};
+      newItem.listing.reserveItem=true; newItem.listing.status="none";   // reserved, not yet live
+      addHistory(newItem,"Merged into active listing as a reserved copy of "+(activeItem.desc||"item"));
+      addHistory(activeItem,"Marked Reserve; a merged copy was added to its quantity");
+      // Mark the originating scan as handled so it drops out of Bulk Add.
+      const r=(DB.importedScans||[]).find(x=>x.itemId===newItem.id); if(r){ r.listed=true; r.listedAt=new Date().toISOString(); }
+      save(); try{ wimToast(sku?("Reserved copy added — shelve at "+sku):"Reserved copy added to the active listing","success"); }catch(e){}
+      render();
+    } else {
+      // No listing rights → send to Supervisor Review flagged as a duplicate of the active item.
+      if(!newItem.listing) newItem.listing={status:"none"};
+      const sku=assignSkuForCommit(newItem); newItem._committedAt=new Date().toISOString();
+      newItem.listing.readyToList=true; newItem.listing.readyToListAt=new Date().toISOString(); newItem.listing.readyToListBy=(SESSION.user?SESSION.user.id:null);
+      newItem.listing.duplicateOfActiveId=activeItem.id;   // review card shows the Active tab
+      addHistory(newItem,"Sent to Supervisor Review as a duplicate of active listing "+(activeItem.desc||"item"));
+      const r=(DB.importedScans||[]).find(x=>x.itemId===newItem.id); if(r){ r.listed=true; r.listedAt=new Date().toISOString(); }
+      save(); try{ wimToast(sku?("Sent to Review as duplicate — shelve at "+sku):"Sent to Review as a duplicate","success"); }catch(e){}
+      render();
+    }
+  }
+
+  // Bulk Add needs its own copy: these read this screen's mergeMode / selectedScanId / render.
+  function openMatchPanel(it, mc){
+    mc=mc||findMergeCandidates(it);
+    const glowCard=(x,kind)=>{
+      const isActive=kind==="active";
+      const glow=isActive?"#1F9D55":"#7C3AED";
+      const label=isActive?"Active":"Supervisor Review";
+      return `<div style="border:2px solid ${glow};box-shadow:0 0 0 3px ${isActive?'rgba(31,157,85,.18)':'rgba(124,58,237,.18)'};border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div><span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${glow};">${label}</span>
+            <div style="font-size:13px;font-weight:600;color:#28313f;">${esc(x.desc||"item")}</div>
+            <div class="smallhint">Qty in group: ${groupQty(x)} · ${esc((x.listing&&x.listing.status)||"")}</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${isActive?`<button class="mp-mergeactive btn sm primary" data-id="${esc(x.id)}" style="background:#1F9D55;border-color:#1a8c4a;font-weight:700;white-space:nowrap;">Merge &amp; Send</button>`:``}
+            <button class="mp-open btn sm" data-id="${esc(x.id)}" style="white-space:nowrap;">Open</button>
+          </div>
+        </div></div>`;
+    };
+    const bodyHtml=`
+      <div style="max-height:60vh;overflow:auto;">
+        ${mc.active.length?`<div style="font-size:12px;font-weight:700;color:#1F9D55;margin:2px 0 6px;">Already active (${mc.active.length}) — merging adds this copy as reserved quantity</div>${mc.active.map(x=>glowCard(x,"active")).join("")}`:``}
+        ${mc.inReview.length?`<div style="font-size:12px;font-weight:700;color:#7C3AED;margin:8px 0 6px;">In Supervisor Review (${mc.inReview.length})</div>${mc.inReview.map(x=>glowCard(x,"review")).join("")}`:``}
+        ${mc.inBulk.length?`<div style="font-size:12px;font-weight:700;color:#5b6470;margin:8px 0 6px;">Still in Bulk Add (${mc.inBulk.length})</div><div class="smallhint" style="margin-bottom:8px;">Close this and use the purple button on the cards to merge in-progress items together.</div>`:``}
+      </div>`;
+    const modal=uiModal("Possible matches for "+((it.desc||"this item").slice(0,50)), bodyHtml, [{label:"Close"}]);
+    const root=modal.box;
+    root.querySelectorAll(".mp-mergeactive").forEach(b=>b.onclick=()=>{
+      const active=(DB.items||[]).find(x=>x.id===b.dataset.id); if(!active) return;
+      uiConfirm(`Merge this copy into the ACTIVE listing "${(active.desc||"item").slice(0,40)}"? It will be marked Reserve and this copy added as extra quantity (or sent to Review if you can't list).`, ()=>{
+        mergeIntoActive(it, active); modal.close();
+      });
+    });
+    root.querySelectorAll(".mp-open").forEach(b=>b.onclick=()=>{ const x=(DB.items||[]).find(y=>y.id===b.dataset.id); if(x) openItemDetail(x,"edit"); });
+  }
+
   // Which rows survive the filters. Filtering hides rows from VIEW only — they still exist, still
   // get created; a hidden row is never lost.
   const rowVisible=(r)=>{
