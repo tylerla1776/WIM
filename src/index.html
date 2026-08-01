@@ -502,7 +502,11 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.58", BUILD_DATE="2026-08-01", SCHEMA_VERSION=13, ADMIN_ID="64";
+/* Pull New Listings only files eBay listings created on or after this date. Everything listed
+   before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
+   this one line to move the boundary. */
+const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
+const APP_VERSION="3.4.59", BUILD_DATE="2026-08-01", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +612,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.59","PULL NEW LISTINGS NOW IGNORES THE OLD eBAY BACK CATALOGUE. Only listings created on or after 1 August 2026 are pulled into the Storage Queue. Everything listed before that date is pre-existing eBay stock that is never going to be inventoried into WIM, so pulling it in only filled the queue with items nobody would ever shelve. Because listings come back newest first, the pull now STOPS the moment it reaches one created before the cutoff rather than trawling the whole back catalogue, so it is faster as well as cleaner. The Pull from eBay screen states the cutoff date on screen so it is obvious why older listings never appear. The date is a single line at the top of the file (PULL_CUTOFF_MS) if it ever needs moving. HTML-only."],
   ["3.4.58","START FRESH: a permanent erase for setting the system up clean. The everyday Delete is deliberately a SOFT delete, which is why a deleted item is still listed in Item Maintenance -- it moves out of active and stays recoverable from Records. That is right for daily use but no good when you want a clean slate. Backup \u0026 Updates now has a Start fresh section that permanently erases every item, every invoice and record, pulled listings, pulled orders, the print queue, the review log, shipping comparisons and the listed-in-the-last-30-days figures, with optional checkboxes to also delete all slots and all groups. VENDORS AND ALL VENDOR COSTING ARE KEPT, along with categories, conditions, users and the eBay connection, so nothing has to be set up again. It is guarded three ways: you type the word ERASE, you confirm a dialog that names exactly what goes and what stays, and it warns you if this installation has never exported a backup. Export a backup first, because this cannot be undone. HTML-only."],
   ["3.4.57","ITEM NUMBER IS NOW THE eBAY LISTING NUMBER. Until now every item was given a category-based item number the moment it was created. That is gone. An item number is now the unique listing number eBay assigns when the item is actually listed, so a new item sits with a BLANK item number until it goes live on eBay, then takes the eBay number automatically. This applies at every point an item becomes listed: a real eBay publish from the desktop, a local status-only mark-as-listed, an item created already-listed, and reconciliation when the item was listed from a phone in InventoryIQ. The warehouse SKU is completely unaffected and still identifies and locates every item exactly as before, listed or not. The eBay SKU sent on publish now falls back to the item\u0027s internal id when the number is still blank, and incoming-order matching was widened to match on the internal id and stored eBay SKU as well as the item number, so sales always find their item. Existing items keep the numbers they already have. The item page now shows the item number field as assigned when listed rather than auto-generated on save. HTML-only."],
   ["3.4.56","VENDOR MANAGEMENT REWORK. The old Vendor Management list and the separate Unit Costing screen are now one screen, called Vendor Management, living under Configuration. You create vendors right there, and each vendor picks how it is costed: Cost averaging (the running purchase pool, the long-standing default) or Costing bands (price-driven tiers, the way the Warehouse vendor has always worked). A costing-bands vendor also tracks actualization: enter the total cost of inventory you bought from them, and as their items sell each item\u0027s cost is added to a running actualized total with a progress bar showing how much of the outlay has been earned back. At 100\u0025 a popup lets you know it is fully actualized. A take-remaining-costs-to-zero switch drops cost to \u00240 on all remaining and future inventory from that vendor. Picking a vendor on an item now fills cost by that vendor\u0027s own mode automatically."],
@@ -16218,7 +16223,7 @@ async function pullNewListings(after,silent,opts){
 
   const found=[];
   let page = append ? ((DB.ebay.pnlNextPage||1)) : 1;
-  let totalPages = 1, scanned = 0, skipped = 0;
+  let totalPages = 1, scanned = 0, skipped = 0, preCutoff = 0;
 
   try{
     // Walk pages until we have `want` new ones, or run out of listings.
@@ -16294,6 +16299,12 @@ async function pullNewListings(after,silent,opts){
       for(const row of rows){
         if(found.length>=want) break;
         scanned++;
+        /* Only inventory listed from the cutoff date onward gets filed into WIM. The pre-existing
+           eBay back catalogue is never going to be inventoried into the system, so pulling it in
+           would just fill the Storage Queue with items nobody will ever shelve. Rows are sorted
+           newest first, so once we reach one listed before the cutoff every remaining row is older
+           and we can stop scanning entirely. */
+        if(row.startMs && row.startMs < PULL_CUTOFF_MS){ preCutoff++; break; }
         // Already in WIM? Then everything older is too — this is the "if there are only 10 new,
         // it should know the 11th is already filed" behaviour.
         if(known.has(String(row.sku)) || known.has(String(row.listingId))){ skipped++; continue; }
@@ -16337,7 +16348,7 @@ async function pullNewListings(after,silent,opts){
           : "No active listings came back from eBay.");
       }
     }
-    if(after) after(found, { scanned, skipped, totalPages, morePages: page < totalPages });
+    if(after) after(found, { scanned, skipped, preCutoff, cutoff: PULL_CUTOFF_MS, totalPages, morePages: page < totalPages });
   }catch(e){ stopDots(); if(!silent){ closeAllModals(); uiAlert("Could not pull listings: "+(e&&e.message?e.message:e)); } }
 }
 /* ============================================================ FIND BY PHOTO (eBay image search → price range) ============================================================ */
@@ -16529,6 +16540,7 @@ function openListedNoSku(){
     body.innerHTML=`<div style="padding:12px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="btn primary" id="pnl-pull" ${WIM_IS_DESKTOP?'':'disabled'}>Pull New Listings</button>
         <span class="smallhint">${DB.ebay&&DB.ebay.lastPullAt?("Last pulled "+new Date(DB.ebay.lastPullAt).toLocaleString()+" · "):""}${list.length} listing(s) waiting to be added to storage</span>
+        <span class="smallhint" style="color:#8a6d1f;">Only listings created on or after ${new Date(PULL_CUTOFF_MS).toLocaleDateString()} are pulled — older eBay stock is left alone.</span>
         ${list.length?`<label class="chkrow"><span class="chk ${picked.size===list.length&&list.length?'on':''}" id="pnl-selall"></span> Select All</label>
         <button class="btn primary" id="pnl-import" ${(!picked.size||!allHaveCategory)?"disabled":""} title="${!picked.size?"Select at least one row":!allHaveCategory?"Every selected row needs a Category set first":""}">Add to Storage${picked.size?" ("+picked.size+")":""}</button>`:``}
         <span style="flex:1;"></span><span class="smallhint">${(DB.ebay&&DB.ebay.env)==="production"?"Production":"Sandbox"}</span></div>
