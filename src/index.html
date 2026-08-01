@@ -506,7 +506,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.59", BUILD_DATE="2026-08-01", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.60", BUILD_DATE="2026-08-01", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -612,6 +612,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.60","CLEARS THE OLD PULLED LISTINGS OUT OF THE STORAGE QUEUE. 3.4.59 stopped FETCHING pre-August-2026 listings, but the queue was still full of the back catalogue from earlier pulls, so Pull from eBay looked unchanged. Those rows are now removed once, automatically, on first run. Anything listed before 1 August 2026 goes, and so does anything with no listing date at all, since those came from a build that did not record one and cannot be judged -- a fresh pull brings back anything that genuinely belongs. Simulated rows are untouched. On top of that, the two screens that display pulled listings now filter by the cutoff as they draw, so a pre-cutoff listing can never appear again even if one arrives some other way. Hit Pull New Listings after updating and you will get only August 2026 onward. HTML-only."],
   ["3.4.59","PULL NEW LISTINGS NOW IGNORES THE OLD eBAY BACK CATALOGUE. Only listings created on or after 1 August 2026 are pulled into the Storage Queue. Everything listed before that date is pre-existing eBay stock that is never going to be inventoried into WIM, so pulling it in only filled the queue with items nobody would ever shelve. Because listings come back newest first, the pull now STOPS the moment it reaches one created before the cutoff rather than trawling the whole back catalogue, so it is faster as well as cleaner. The Pull from eBay screen states the cutoff date on screen so it is obvious why older listings never appear. The date is a single line at the top of the file (PULL_CUTOFF_MS) if it ever needs moving. HTML-only."],
   ["3.4.58","START FRESH: a permanent erase for setting the system up clean. The everyday Delete is deliberately a SOFT delete, which is why a deleted item is still listed in Item Maintenance -- it moves out of active and stays recoverable from Records. That is right for daily use but no good when you want a clean slate. Backup \u0026 Updates now has a Start fresh section that permanently erases every item, every invoice and record, pulled listings, pulled orders, the print queue, the review log, shipping comparisons and the listed-in-the-last-30-days figures, with optional checkboxes to also delete all slots and all groups. VENDORS AND ALL VENDOR COSTING ARE KEPT, along with categories, conditions, users and the eBay connection, so nothing has to be set up again. It is guarded three ways: you type the word ERASE, you confirm a dialog that names exactly what goes and what stays, and it warns you if this installation has never exported a backup. Export a backup first, because this cannot be undone. HTML-only."],
   ["3.4.57","ITEM NUMBER IS NOW THE eBAY LISTING NUMBER. Until now every item was given a category-based item number the moment it was created. That is gone. An item number is now the unique listing number eBay assigns when the item is actually listed, so a new item sits with a BLANK item number until it goes live on eBay, then takes the eBay number automatically. This applies at every point an item becomes listed: a real eBay publish from the desktop, a local status-only mark-as-listed, an item created already-listed, and reconciliation when the item was listed from a phone in InventoryIQ. The warehouse SKU is completely unaffected and still identifies and locates every item exactly as before, listed or not. The eBay SKU sent on publish now falls back to the item\u0027s internal id when the number is still blank, and incoming-order matching was widened to match on the internal id and stored eBay SKU as well as the item number, so sales always find their item. Existing items keep the numbers they already have. The item page now shows the item number field as assigned when listed rather than auto-generated on save. HTML-only."],
@@ -1768,6 +1769,18 @@ function migrate(d){
   if(d.ebay.condTolerance!==1 && d.ebay.condTolerance!==2) d.ebay.condTolerance=2;
   if(!Array.isArray(d.ebay.filedSkus)) d.ebay.filedSkus=[];
   if(!Array.isArray(d.pulledListings)) d.pulledListings=[];
+  /* The Aug 2026 cutoff filters what gets FETCHED, but the queue was already full of the old back
+     catalogue from earlier pulls. Clear those out once so the screen starts clean. Anything with no
+     listing date is from an older build and cannot be dated, so it goes too -- a fresh pull brings
+     back anything that genuinely belongs. Simulated rows are left alone. */
+  if(!d.meta.pullCutoffPurged){
+    d.pulledListings=(d.pulledListings||[]).filter(p=>{
+      if(!p || p.simulated) return true;
+      const ms=p.listedAt?Date.parse(p.listedAt):0;
+      return !!(ms && ms>=PULL_CUTOFF_MS);
+    });
+    d.meta.pullCutoffPurged=true;
+  }
   if(!Array.isArray(d.printQueue)) d.printQueue=[];
   if(!d.meta.dashboards||typeof d.meta.dashboards!=="object") d.meta.dashboards={};
   // ---- V2.7.4 (schema 12): category-based Item Numbers (3-732XX-NNNNNN) ----
@@ -15574,7 +15587,9 @@ function openMissingItem(){
     autoPullBusy=true;
     try{
       await pullNewListings(null,true);
-      const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId));
+      const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId))
+      // Belt and braces: never DISPLAY a pre-cutoff listing even if one gets in some other way.
+      .filter(p=>{ if(p.simulated) return true; const ms=p.listedAt?Date.parse(p.listedAt):0; return !ms || ms>=PULL_CUTOFF_MS; });
       let made=0, couldNotSlot=0;
       list.slice().forEach(c=>{
         const match=findSubcatByEbayId(c.categoryId);
@@ -16528,7 +16543,9 @@ function openListedNoSku(){
   let picked=new Set(); let rowChoices={}; let selInit=false; // id -> { section, subCategory, manualSlot, manualSlotValue }
   let lastPullInfo=null; // { scanned, skipped, morePages } from the last pull
   function render(){
-    const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId));
+    const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId))
+      // Belt and braces: never DISPLAY a pre-cutoff listing even if one gets in some other way.
+      .filter(p=>{ if(p.simulated) return true; const ms=p.listedAt?Date.parse(p.listedAt):0; return !ms || ms>=PULL_CUTOFF_MS; });
     try{ ensureIqCategories(); }catch(e){}
     list.forEach(c=>{ if(!rowChoices[c.ebaySku]){
       const match=findSubcatByEbayId(c.categoryId);
