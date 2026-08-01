@@ -502,7 +502,7 @@ async function setDesktopWindow(kind){
     }
   }catch(e){}
 }
-const APP_VERSION="3.4.53", BUILD_DATE="2026-07-24", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.58", BUILD_DATE="2026-08-01", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -608,6 +608,11 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.58","START FRESH: a permanent erase for setting the system up clean. The everyday Delete is deliberately a SOFT delete, which is why a deleted item is still listed in Item Maintenance -- it moves out of active and stays recoverable from Records. That is right for daily use but no good when you want a clean slate. Backup \u0026 Updates now has a Start fresh section that permanently erases every item, every invoice and record, pulled listings, pulled orders, the print queue, the review log, shipping comparisons and the listed-in-the-last-30-days figures, with optional checkboxes to also delete all slots and all groups. VENDORS AND ALL VENDOR COSTING ARE KEPT, along with categories, conditions, users and the eBay connection, so nothing has to be set up again. It is guarded three ways: you type the word ERASE, you confirm a dialog that names exactly what goes and what stays, and it warns you if this installation has never exported a backup. Export a backup first, because this cannot be undone. HTML-only."],
+  ["3.4.57","ITEM NUMBER IS NOW THE eBAY LISTING NUMBER. Until now every item was given a category-based item number the moment it was created. That is gone. An item number is now the unique listing number eBay assigns when the item is actually listed, so a new item sits with a BLANK item number until it goes live on eBay, then takes the eBay number automatically. This applies at every point an item becomes listed: a real eBay publish from the desktop, a local status-only mark-as-listed, an item created already-listed, and reconciliation when the item was listed from a phone in InventoryIQ. The warehouse SKU is completely unaffected and still identifies and locates every item exactly as before, listed or not. The eBay SKU sent on publish now falls back to the item\u0027s internal id when the number is still blank, and incoming-order matching was widened to match on the internal id and stored eBay SKU as well as the item number, so sales always find their item. Existing items keep the numbers they already have. The item page now shows the item number field as assigned when listed rather than auto-generated on save. HTML-only."],
+  ["3.4.56","VENDOR MANAGEMENT REWORK. The old Vendor Management list and the separate Unit Costing screen are now one screen, called Vendor Management, living under Configuration. You create vendors right there, and each vendor picks how it is costed: Cost averaging (the running purchase pool, the long-standing default) or Costing bands (price-driven tiers, the way the Warehouse vendor has always worked). A costing-bands vendor also tracks actualization: enter the total cost of inventory you bought from them, and as their items sell each item\u0027s cost is added to a running actualized total with a progress bar showing how much of the outlay has been earned back. At 100\u0025 a popup lets you know it is fully actualized. A take-remaining-costs-to-zero switch drops cost to \u00240 on all remaining and future inventory from that vendor. Picking a vendor on an item now fills cost by that vendor\u0027s own mode automatically."],
+  ["3.4.55","PULL FROM eBAY NO LONGER MAKES YOU SET A CATEGORY ON EVERY LISTING. The category and sub category now fill themselves in from the listing. Listings whose eBay category is already mapped work as before; everything else is now read from the eBay category name and the title, so a comic, manga or graphic novel files itself under Comics \u0026 Graphic Novels and a book or magazine under Books \u0026 Magazines. Only something genuinely unrecognisable still asks you to choose. EVERYTHING ARRIVES ALREADY SELECTED, so the job is to untick anything you do not want rather than tick every row you do. Your unticks stick -- re-rendering the screen will not re-select them. AND IT CLOSES ITSELF WHEN THE WORK IS DONE. Once every listing that was loaded has been added to storage, Listed no SKU shuts and drops you back in the Storage Queue with those items already there, holding their warehouse SKUs. If any row failed it stays open with the error so nothing disappears silently. It remains its own pop-out window, so it can sit beside the Storage Queue on a second monitor if you prefer. HTML-only."],
+  ["3.4.54","FIXES COMICS \u0026 GRAPHIC NOVELS NOT BEING ATTACHABLE TO A SLOT. Warehouse slots are bound to WIM\u0027s own category list, which ships as General, NONE and Bulk. InventoryIQ only ever assigns an item one of two categories -- Books \u0026 Magazines or Comics \u0026 Graphic Novels -- and neither existed in that list, so there was nothing to bind a slot to. The knock-on effect was worse than a missing dropdown entry: every comic coming off a phone either landed in the Storage Queue with no available slot and could not be stored at all, or was quietly filed under whatever category happened to be first, which is the wrong shelf. Both categories are now created automatically, so they appear in Warehouse Maintenance, Category Maintenance and everywhere else a category is chosen. Your existing categories are untouched -- these are added alongside them, never replacing anything, and it runs once. It is also re-checked right before a scan import picks a category, so an import can never fall back to the wrong one. NOTE ON ITEMS ALREADY IMPORTED: anything that came in before this fix kept whatever category it was given at the time, and is not moved automatically -- changing shelf assignments underneath items already sitting on shelves would send people to the wrong spot. If some are filed wrong, change the category on the item and use the retry arrow in the Storage Queue to re-slot it. HTML-only."],
   ["3.4.53","STORAGE QUEUE NOW HAS TWO TABS. PENDING STORAGE is the default and works as before. RECENTLY STORED is new: everything physically shelved in the last 5 days, newest first, showing the storage location it went to and how long ago (today, yesterday, N days ago). Useful when someone needs to find where something just went without digging through Item Maintenance. THE SEARCH BOX IS NOW LIVE ON BOTH TABS -- results narrow as you type, matching description, item number or warehouse SKU, and it searches whichever tab you are looking at. Note this is a deliberate change: the box used to search your whole inventory from the pending screen; it now filters the tab you are on, which is what makes the two tabs useful. ON DYNAMIC WAREHOUSE SKUs -- this already works and I verified it rather than assuming. A pending item holding A.3.08 automatically becomes A.3.07 when the item at A.3.03 leaves the shelf, and the slot stays a clean gapless sequence. Worth knowing exactly when it fires: the shift happens when an item is actually PICKED or SHIPPED, not the moment it sells, because a sold item is still physically sitting on that shelf until someone carries it off -- so the SKU always matches reality rather than jumping early and sending someone to the wrong spot. HTML-only."],
   ["3.4.52","STORAGE QUEUE NOW SHOWS WHERE EACH ITEM IS IN THE LISTING PIPELINE. The Status column used to say Pending storage on every single row, which told you nothing you could not already see from the fact it was in the queue. It now shows what actually matters: LISTED in green when the item is live on eBay, REVIEW in blue when it has been sent to supervisor review and is waiting, and Not listed in grey for anything committed but not yet either. The Origin column still tells you how it entered the building (eBay.com, Inventory IQ, Bulk Add or Manual), so between the two columns you can see both where an item came from and how far along it is without opening it. MANUAL SKUs: an item with no free slot used to sit blocked with only Fix storage and a retry arrow, so if you wanted to place it somewhere yourself there was no way to say so. Blocked rows now also have a Set SKU button -- type the shelf address and it is assigned. It refuses a SKU another active item already holds and tells you which item has it, so two things can never claim the same shelf. Verified that all three sources still converge here: items listed from InventoryIQ, items created in WIM, and listings pulled from eBay.com all land in this one queue, and items sent to supervisor review arrive too rather than waiting until they are listed. Select the ones you are shelving and Move to storage as before -- items with no SKU stay unselectable because there is nowhere to put them yet. HTML-only."],
   ["3.4.51","FIXES BULK ADD CRASHING ON OPEN, PLUS THE STORAGE QUEUE BUTTON. Bulk Add was dying with \u0027findMergeCandidates is not defined\u0027 the moment it drew a scan card. The cause: the duplicate-matching helpers were written inside the old Import Scans window, so Bulk Add could not see them at all -- Import Scans was folded into Bulk Add back in 3.4.4 and these were left behind. The shared, self-contained ones (match finding and candidate checking) now live at the top level where every screen can reach them, and the three that depend on the screen\u0027s own selection state (the merge action, merging into an active listing, and the match panel) now exist properly inside Bulk Add. While fixing it I checked every other function Bulk Add calls for the same problem and found four more that would have thrown the moment you pressed a merge button -- all fixed in this build rather than waiting for you to hit them one at a time. THE STORAGE QUEUE BUTTON NOW ACTUALLY OPENS. The shelf icon with the pending count appears in the Add Inventory toolbar, the Bulk Add header and on item pages, but it was wired to each window individually, so it quietly stopped working after a screen redrew or when the window was popped out. It is now handled in one place and works from every screen and every popped-out window. STORAGE QUEUE IS ALSO ITS OWN APP: it now sits under Manage Inventory as Storage Queue with a live count of items waiting to be stored, alongside Add Inventory and Bulk Add Inventory. HTML-only."],
@@ -1055,7 +1060,7 @@ const POPOUT_APPS={
   descmgr:{ title:"Description Manager", open:()=>openDescriptionManager() },
   categories:{ title:"Category Maintenance", open:()=>openListMaintenance("section") },
   groups:{ title:"Group Maintenance", open:()=>openListMaintenance("group") },
-  unitcosting:{ title:"Unit Costing", open:()=>openUnitCosting() },
+  unitcosting:{ title:"Vendor Management", open:()=>openUnitCosting() },
   adjustcfg:{ title:"Adjustment Configuration", open:()=>openListMaintenance("adjustment") },
   about:{ title:"About", open:()=>openAbout() },
   users:{ title:"Modify Users", open:()=>openModifyUsers() },
@@ -1286,6 +1291,15 @@ function normItemNum(s){ return String(s||"").replace(/\D/g,""); }
 function isNewFmtItemNum(s){ return /^3-732\d\d-\d{6}$/.test(String(s||"")); }
 function uniqueIdInUse(uid){ return DB.items.some(i=>{ const m=/^3-732\d\d-(\d{6})$/.exec(i.upc||""); return m && m[1]===uid; }); }
 function itemNumberInUse(num){ const n=normItemNum(num); return DB.items.some(i=>normItemNum(i.upc)===n); }
+/* The item number is now the eBay listing id, stamped when the item is listed -- not a category-based
+   number generated at creation. Items sit with a blank item number until they are actually listed.
+   The warehouse SKU is a separate field and is unaffected. */
+function stampItemNumberFromListing(it){
+  if(!it || !it.listing) return;
+  if(it.upc) return;
+  const id = it.listing.ebayListingId || it.listing.ebayItemId || null;
+  if(id){ it.upc=String(id); }
+}
 function genItemNumber(cat, extraTaken){ const catId=catIdFor(cat); let uid, full, tries=0;
   do{ uid=String(Math.floor(100000+Math.random()*900000)); full=catId+"-"+uid; tries++; }
   while((uniqueIdInUse(uid) || itemNumberInUse(full) || (extraTaken&&extraTaken.has(uid))) && tries<20000);
@@ -1579,6 +1593,26 @@ function migrate(d){
       { maxUnder:null,  cost:7.00 },
     ];
   }
+  /* Per-vendor config. Every vendor picks a cost MODE:
+       "average" - the running purchase pool (the long-standing default).
+       "bands"   - price-dependent tiers, like Warehouse. A bands vendor also tracks actualization:
+                   you enter the total cost of inventory bought from them; as their items sell, each
+                   item's cost is added to an "actualized" running total, and a progress bar shows how
+                   much of the outlay has been earned back. At 100% a popup fires. A "zero out"
+                   switch drops cost to $0 on all remaining and future inventory from that vendor. */
+  if(!d.vendorConfig || typeof d.vendorConfig!=="object") d.vendorConfig={};
+  (d.vendors||[]).forEach(v=>{
+    if(!d.vendorConfig[v]) d.vendorConfig[v]={ mode:(v==="Warehouse"?"bands":"average"), bands:null, totalCost:0, actualized:0, zeroOut:false, completedNotified:false };
+    const c=d.vendorConfig[v];
+    if(c.mode!=="bands"&&c.mode!=="average") c.mode="average";
+    if(c.totalCost==null) c.totalCost=0;
+    if(c.actualized==null) c.actualized=0;
+    if(c.zeroOut==null) c.zeroOut=false;
+    // Warehouse shares the global tier table; other bands vendors carry their own copy.
+    if(c.mode==="bands" && v!=="Warehouse" && !Array.isArray(c.bands)){
+      c.bands=(d.warehouseCostTiers||[]).map(t=>({maxUnder:t.maxUnder,cost:t.cost}));
+    }
+  });
   // Default the pinned vendor (used for new items) to Warehouse if nothing else is pinned.
   if(d.pinnedVendor==null || d.pinnedVendor==="") d.pinnedVendor="Warehouse";
   // One-time category cleanup: NONE is the only user-created placeholder category. Remove Bulk,
@@ -2191,6 +2225,17 @@ try{
     }); });
   }).observe(document.body,{childList:true,subtree:true});
 }catch(e){}
+// InventoryIQ only ever assigns these two categories to an item. WIM's warehouse slots bind to
+// DB.sections, which ships as General/NONE/Bulk -- so if these are missing, no slot can be bound
+// to them and every comic or book coming off a phone lands in the Storage Queue with "no available
+// slot", unstorable. Seeded here so the categories exist to bind slots to.
+const IQ_CATEGORIES=["Books & Magazines","Comics & Graphic Novels"];
+function ensureIqCategories(){
+  if(!Array.isArray(DB.sections)) DB.sections=["General","NONE","Bulk"];
+  let added=false;
+  IQ_CATEGORIES.forEach(c=>{ if(!DB.sections.includes(c)){ DB.sections.push(c); added=true; } });
+  return added;
+}
 async function boot(){
   try{
     let stored=null;
@@ -2206,6 +2251,8 @@ async function boot(){
       if(!DB.meta) DB.meta={schemaVersion:SCHEMA_VERSION};
       setTimeout(()=>{ try{ uiAlert("WIM loaded in recovery mode (a data-upgrade step was skipped, your data is intact). Details: "+(mErr&&mErr.message?mErr.message:mErr)); }catch(_){} }, 600);
     }
+    // Make sure the categories InventoryIQ assigns exist, so warehouse slots can be bound to them.
+    try{ ensureIqCategories(); }catch(e){}
     DB.posDepts=STATIC.posDepts; DB.sizeUnits=STATIC.sizeUnits;
     if(!DB.conditions) DB.conditions=STATIC.conditions.slice();
     try{ await restoreEbaySecretsFromVault(); }catch(e){ console.warn("WIM: eBay vault restore failed:",e); }
@@ -2707,6 +2754,36 @@ function warehouseCostForPrice(price){
 }
 function vendorDrawUnit(vendor, actualCost){ const p=DB.vendorCosting[vendor]; if(!p || p.unitsRemaining<=0) return;
   p.unitsRemaining-=1; p.costRemaining=Math.max(0, p.costRemaining-(parseFloat(actualCost)||0)); }
+/* ---- vendor cost mode + costing bands + actualization ---- */
+function vendorCfg(vendor){ if(!vendor) return null; if(!DB.vendorConfig[vendor]) DB.vendorConfig[vendor]={ mode:(vendor==="Warehouse"?"bands":"average"), bands:null, totalCost:0, actualized:0, zeroOut:false, completedNotified:false }; return DB.vendorConfig[vendor]; }
+function vendorMode(vendor){ const c=vendorCfg(vendor); return c?c.mode:"average"; }
+// The tier table a bands vendor uses: Warehouse shares the global one; others carry their own.
+function vendorBands(vendor){ if(vendor==="Warehouse") return DB.warehouseCostTiers||[]; const c=vendorCfg(vendor); return (c&&Array.isArray(c.bands))?c.bands:(DB.warehouseCostTiers||[]); }
+// Cost for a price under a specific vendor's bands.
+function bandCostForPrice(vendor, price){ const p=parseFloat(price); if(isNaN(p)) return null; const tiers=vendorBands(vendor);
+  for(const t of tiers){ if(t.maxUnder==null) return t.cost; if(p < t.maxUnder) return t.cost; } return tiers.length? tiers[tiers.length-1].cost : null; }
+/* The cost WIM suggests for an item from a vendor, honouring the vendor's mode:
+     zeroOut  -> 0 (costs have been taken to zero)
+     bands    -> price-driven tier cost
+     average  -> the running pool average                                                        */
+function vendorSuggestedCost(vendor, price){
+  const c=vendorCfg(vendor); if(!c) return null;
+  if(c.zeroOut) return 0;
+  if(c.mode==="bands") return bandCostForPrice(vendor, price);
+  return vendorAvgCost(vendor);
+}
+/* When an item from a bands vendor SELLS, its cost is earned back: add it to the actualized total.
+   Fires the completion popup the first time actualized reaches the total outlay. */
+function vendorActualize(vendor, soldCost){
+  const c=vendorCfg(vendor); if(!c || c.mode!=="bands") return;
+  const add=parseFloat(soldCost); if(isNaN(add)||add<=0) return;
+  c.actualized=Math.round(((c.actualized||0)+add)*100)/100;
+  if(!c.completedNotified && c.totalCost>0 && c.actualized>=c.totalCost){
+    c.completedNotified=true; save();
+    setTimeout(()=>{ try{ alert(vendor+" is fully actualized — the total cost of inventory bought from this vendor ($"+Number(c.totalCost).toFixed(2)+") has now been earned back."); }catch(e){} },0);
+  }
+}
+function vendorActualizedPct(vendor){ const c=vendorCfg(vendor); if(!c||!c.totalCost) return 0; return Math.max(0,Math.min(100, Math.round((c.actualized/c.totalCost)*1000)/10)); }
 function unitsOf(it){ // active units of the same product (matching description/category/condition), ordered by SKU (closest to A.1.01 first)
   const k=groupKey(it); return activeItems().filter(x=>groupKey(x)===k).sort((a,b)=>skuCmp(a.sku,b.sku)); }
 // Quantity of a product = HOW MANY PHYSICAL COPIES ARE ON THE SHELF = how many unit records exist.
@@ -2739,7 +2816,8 @@ function sellItems(items,userId,type){
   const lines=[];
   items.forEach(it=>{ const q=parseFloat(it.onHand);
     if(!isNaN(q)&&q>1){ it.onHand=String(q-1); anEvent("sold_qty",{id:it.id},it); addHistory(it,"Sold 1 (qty now "+it.onHand+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'decrement',reversed:false}); }
-    else { it.sold=true; setItemStatus(it,"inactive"); it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Sell"; anEvent("sold",{id:it.id},it); addHistory(it,"Sold (SKU "+it.sku+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'sold',reversed:false}); } });
+    else { it.sold=true; setItemStatus(it,"inactive"); it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Sell"; anEvent("sold",{id:it.id},it); addHistory(it,"Sold (SKU "+it.sku+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'sold',reversed:false});
+      if(it.vendor) vendorActualize(it.vendor, it.cost); } });
   const rec=makeRecord(type||"Sell",lines,userId); save(); return rec;
 }
 function adjustItems(items,userId,reason){
@@ -3345,7 +3423,7 @@ function nodeActionsRaw(node){
   if(node.key==="security") return ["Change Password","Modify Users","Force Log Out"];
   if(node.key==="print") return ["Print Queue","Print Configuration"];
   if(node.key==="catalog") return ["Catalog Maintenance"];
-  if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance","Unit Costing"];
+  if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance"];
   if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Storage Queue","Adjust Inventory"];
   if(node.key==="fulfillment") return ["Recently Listed","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
   if(node.key==="financials") return ["True Net Profit","Vendor ROI Report","WIM Analytics"];
@@ -4316,7 +4394,7 @@ function showActions(node){ const dp=document.getElementById("detail-pane"); if(
   nodeActions(node).forEach(a=>{ const el=document.createElement("div"); el.className="action"; el.innerHTML=`${esc(a)}${actionCountBadge(a)}`; el.onclick=()=>handleAction(node.key,a); dp.appendChild(el); }); }
 function handleAction(k,a){
   if(k==="config"&&a==="Warehouse Maintenance") return launchApp("warehouse");
-  if(k==="config"&&a==="Vendor Management") return launchApp("vendors");
+  if(k==="config"&&a==="Vendor Management") return launchApp("unitcosting");
   if(k==="config"&&a==="Condition Maintenance") return launchApp("conditions");
   if(k==="config"&&a==="Print Configuration") return launchApp("printcfg");
   if(k==="print"&&a==="Print Configuration") return launchApp("printcfg");
@@ -4786,29 +4864,67 @@ function openListMaintenance(kind){
 /* ============================================================ UNIT COSTING ============================================================ */
 function openUnitCosting(){
   const id="unit-costing"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Unit Costing",width:980,height:600,
-    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Set what you paid a vendor for a batch of units — WIM tracks the running average and suggests it automatically when you add items from that vendor</span>`});
+  const {body}=buildWindow({id,title:"Vendor Management",width:1040,height:640,
+    toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Create vendors and set how each one is costed \u2014 a running purchase average, or price-driven bands with cost actualization</span>`});
   let selected=DB.vendors[0]||null;
   function render(){
     body.innerHTML=`<div style="display:flex;height:100%;min-height:0;">
-      <div style="flex:0 0 240px;border-right:1px solid var(--line,#dfe3ea);overflow:auto;" id="uc-list"></div>
+      <div style="flex:0 0 250px;border-right:1px solid var(--line,#dfe3ea);display:flex;flex-direction:column;min-height:0;">
+        <div style="flex:1;overflow:auto;" id="uc-list"></div>
+        <div style="border-top:1px solid var(--line,#dfe3ea);padding:10px;">
+          <div class="ff sm"><input class="txt" id="uc-newname" placeholder="New vendor name" style="width:100%;box-sizing:border-box;"></div>
+          <div class="ff sm" style="margin-top:6px;"><select class="cmb" id="uc-newmode" style="width:100%;box-sizing:border-box;"><option value="average">Cost averaging</option><option value="bands">Costing bands</option></select></div>
+          <button class="btn primary sm" id="uc-newadd" style="width:100%;margin-top:6px;">+ Add vendor</button>
+          <div class="err" id="uc-newerr" style="margin-top:4px;"></div>
+        </div>
+      </div>
       <div style="flex:1;overflow:auto;padding:16px;" id="uc-detail"></div>
     </div>`;
     const listEl=body.querySelector("#uc-list");
-    if(!DB.vendors.length){ listEl.innerHTML=`<div class="smallhint" style="padding:14px;">No vendors yet — add one in Vendor Management first.</div>`; }
-    DB.vendors.forEach(v=>{ const row=document.createElement("div"); const avg=vendorAvgCost(v); const pool=DB.vendorCosting[v];
+    if(!DB.vendors.length){ listEl.innerHTML=`<div class="smallhint" style="padding:14px;">No vendors yet \u2014 add one below.</div>`; }
+    DB.vendors.forEach(v=>{ const row=document.createElement("div"); const cfg=vendorCfg(v);
       row.style.cssText="padding:10px 14px;border-bottom:1px solid #f0f2f6;cursor:pointer;"+(v===selected?"background:#e2ebf9;":"");
-      row.innerHTML=`<div style="font-weight:600;font-size:13px;">${esc(v)}</div><div class="smallhint">${pool&&pool.unitsRemaining?pool.unitsRemaining+" left · $"+avg.toFixed(2)+"/unit":"No active pool"}</div>`;
+      let sub;
+      if(cfg.mode==="bands"){ sub = cfg.totalCost>0 ? (vendorActualizedPct(v)+"% actualized") : "Costing bands"; }
+      else { const avg=vendorAvgCost(v); const pool=DB.vendorCosting[v]; sub = (pool&&pool.unitsRemaining)?(pool.unitsRemaining+" left \u00b7 $"+avg.toFixed(2)+"/unit"):"Cost averaging"; }
+      row.innerHTML=`<div style="font-weight:600;font-size:13px;">${esc(v)}${v==="Warehouse"?' <span class="smallhint">(default)</span>':''}</div><div class="smallhint">${sub}</div>`;
       row.onclick=()=>{ selected=v; render(); }; listEl.appendChild(row); });
+    const addBtn=body.querySelector("#uc-newadd");
+    addBtn.onclick=()=>{
+      const err=body.querySelector("#uc-newerr"); err.textContent="";
+      const name=(body.querySelector("#uc-newname").value||"").trim();
+      const mode=body.querySelector("#uc-newmode").value==="bands"?"bands":"average";
+      if(!name){ err.textContent="Enter a vendor name."; return; }
+      if(DB.vendors.some(v=>v.toLowerCase()===name.toLowerCase())){ err.textContent="That vendor already exists."; return; }
+      DB.vendors.push(name);
+      DB.vendorConfig[name]={ mode, bands:(mode==="bands"?(DB.warehouseCostTiers||[]).map(t=>({maxUnder:t.maxUnder,cost:t.cost})):null), totalCost:0, actualized:0, zeroOut:false, completedNotified:false };
+      selected=name; save(); render();
+    };
     const det=body.querySelector("#uc-detail");
-    if(!selected){ det.innerHTML=`<div class="smallhint">Choose a vendor on the left.</div>`; return; }
-    const pool=vendorPool(selected); const avg=vendorAvgCost(selected);
-    if(selected==="Warehouse"){ renderWarehouseTiers(det); return; }
-    det.innerHTML=`<div style="font-size:18px;font-weight:700;margin-bottom:4px;">${esc(selected)}</div>
-      <div style="display:flex;gap:14px;margin:14px 0;">
+    if(!selected){ det.innerHTML=`<div class="smallhint">Choose a vendor on the left, or add one.</div>`; return; }
+    renderDetail(det, selected);
+  }
+  function renderDetail(det, v){
+    const cfg=vendorCfg(v);
+    const modeSwitch = v==="Warehouse" ? `<span class="smallhint">Costing bands (price-driven)</span>` :
+      `<label style="font-size:12.5px;margin-right:14px;"><input type="radio" name="uc-mode" value="average" ${cfg.mode==="average"?"checked":""}> Cost averaging</label>
+       <label style="font-size:12.5px;"><input type="radio" name="uc-mode" value="bands" ${cfg.mode==="bands"?"checked":""}> Costing bands</label>`;
+    det.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px;">
+        <div style="font-size:18px;font-weight:700;">${esc(v)}</div>
+        <div>${modeSwitch}</div>
+      </div><div id="uc-modebody"></div>`;
+    if(v!=="Warehouse"){
+      det.querySelectorAll('input[name="uc-mode"]').forEach(r=>r.onchange=()=>{ cfg.mode=r.value; if(cfg.mode==="bands"&&!Array.isArray(cfg.bands)) cfg.bands=(DB.warehouseCostTiers||[]).map(t=>({maxUnder:t.maxUnder,cost:t.cost})); save(); render(); });
+    }
+    const mb=det.querySelector("#uc-modebody");
+    if(cfg.mode==="bands") renderBands(mb, v, cfg); else renderAverage(mb, v);
+  }
+  function renderAverage(det, v){
+    const pool=vendorPool(v); const avg=vendorAvgCost(v);
+    det.innerHTML=`<div style="display:flex;gap:14px;margin:14px 0;">
         <div class="gb" style="padding:10px 16px;"><div class="smallhint">Units Remaining</div><div style="font-size:22px;font-weight:700;">${pool.unitsRemaining}</div></div>
         <div class="gb" style="padding:10px 16px;"><div class="smallhint">Remaining Cost</div><div style="font-size:22px;font-weight:700;">$${pool.costRemaining.toFixed(2)}</div></div>
-        <div class="gb" style="padding:10px 16px;"><div class="smallhint">Current Avg Unit Cost</div><div style="font-size:22px;font-weight:700;">${avg!=null?"$"+avg.toFixed(2):"—"}</div></div>
+        <div class="gb" style="padding:10px 16px;"><div class="smallhint">Current Avg Unit Cost</div><div style="font-size:22px;font-weight:700;">${avg!=null?"$"+avg.toFixed(2):"\u2014"}</div></div>
       </div>
       <fieldset class="gb" style="margin:0 0 16px;"><legend>Record a Purchase</legend>
         <div style="display:flex;gap:10px;align-items:flex-end;">
@@ -4832,15 +4948,32 @@ function openUnitCosting(){
       save(); render();
     };
   }
-  function renderWarehouseTiers(det){
-    const tiers=DB.warehouseCostTiers||[];
-    det.innerHTML=`<div style="font-size:18px;font-weight:700;margin-bottom:4px;">Warehouse</div>
-      <div class="smallhint" style="margin-bottom:12px;max-width:560px;">The Warehouse vendor's cost is set automatically from the item's listing price — it isn't a purchase pool. Edit the price bands below; each row means "if the price is below this amount, the cost is this." The last row is the catch-all for everything at or above the highest band.</div>
-      <div class="resultwrap"><table class="res"><thead><tr><th>Price is under…</th><th>Cost</th><th style="width:90px;"></th></tr></thead><tbody id="wt-tb"></tbody></table></div>
+  function renderBands(det, v, cfg){
+    const tiers = v==="Warehouse" ? (DB.warehouseCostTiers||[]) : cfg.bands;
+    const pct=vendorActualizedPct(v);
+    const actBox = v==="Warehouse" ? "" : `
+      <fieldset class="gb" style="margin:0 0 16px;max-width:560px;"><legend>Cost actualization</legend>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="ff sm"><label>Total cost of inventory bought</label><input class="txt" id="uc-total" inputmode="decimal" value="${cfg.totalCost?Number(cfg.totalCost).toFixed(2):""}" placeholder="0.00" style="width:150px;"></div>
+          <div class="ff sm"><label>Actualized so far</label><div style="font-size:18px;font-weight:700;padding:4px 0;">$${Number(cfg.actualized||0).toFixed(2)}</div></div>
+        </div>
+        <div style="margin-top:10px;">
+          <div style="height:14px;background:#eef1f5;border-radius:7px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${pct>=100?'#1f9d57':'#3a7bfd'};transition:width .3s;"></div></div>
+          <div class="smallhint" style="margin-top:4px;">${pct}% of the outlay earned back as items sell.${pct>=100?' \u2014 fully actualized.':''}</div>
+        </div>
+        <label style="display:block;margin-top:12px;font-size:12.5px;"><input type="checkbox" id="uc-zero" ${cfg.zeroOut?"checked":""}> Take remaining costs to zero \u2014 all remaining and future inventory from this vendor costs $0</label>
+      </fieldset>`;
+    det.innerHTML=`<div class="smallhint" style="margin:12px 0;max-width:600px;">Cost is set automatically from the item's listing price. Each row means \u201cif the price is below this amount, the cost is this.\u201d The last row is the catch-all for everything at or above the highest band.</div>
+      ${actBox}
+      <div class="resultwrap"><table class="res"><thead><tr><th>Price is under\u2026</th><th>Cost</th><th style="width:90px;"></th></tr></thead><tbody id="wt-tb"></tbody></table></div>
       <div style="margin-top:10px;"><button class="btn sm" id="wt-add">+ Add band</button></div>
       <fieldset class="gb" style="margin-top:16px;max-width:360px;"><legend>Try it</legend>
         <div style="display:flex;gap:8px;align-items:flex-end;"><div class="ff sm"><label>Price</label><input class="txt" id="wt-try" inputmode="decimal" style="width:120px;" placeholder="e.g. 30"></div>
-        <div style="font-size:13px;">Cost would be <b id="wt-tryout">—</b></div></div></fieldset>`;
+        <div style="font-size:13px;">Cost would be <b id="wt-tryout">\u2014</b></div></div></fieldset>`;
+    const totalIn=det.querySelector("#uc-total");
+    if(totalIn) totalIn.addEventListener("change",()=>{ const val=parseFloat(totalIn.value); cfg.totalCost=isNaN(val)?0:val; if(cfg.actualized<cfg.totalCost) cfg.completedNotified=false; save(); render(); });
+    const zero=det.querySelector("#uc-zero");
+    if(zero) zero.addEventListener("change",()=>{ cfg.zeroOut=zero.checked; save(); });
     const tb=det.querySelector("#wt-tb");
     tiers.forEach((t,i)=>{ const tr=document.createElement("tr");
       const isLast=(t.maxUnder==null);
@@ -4848,17 +4981,14 @@ function openUnitCosting(){
         <td>$<input class="txt" data-cost="${i}" value="${Number(t.cost).toFixed(2)}" inputmode="decimal" style="width:80px;"></td>
         <td>${isLast?'':`<button class="btn sm" data-del="${i}">Delete</button>`}</td>`;
       tb.appendChild(tr); });
-    det.querySelectorAll("[data-th]").forEach(inp=>inp.addEventListener("change",()=>{ const i=+inp.dataset.th; const v=parseFloat(inp.value); if(!isNaN(v)) DB.warehouseCostTiers[i].maxUnder=v; sortTiers(); save(); render(); }));
-    det.querySelectorAll("[data-cost]").forEach(inp=>inp.addEventListener("change",()=>{ const i=+inp.dataset.cost; const v=parseFloat(inp.value); if(!isNaN(v)){ DB.warehouseCostTiers[i].cost=v; save(); } }));
-    det.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.del; DB.warehouseCostTiers.splice(i,1); save(); render(); });
-    det.querySelector("#wt-add").onclick=()=>{ // insert a new band before the catch-all
-      const arr=DB.warehouseCostTiers; const lastThresh=arr.filter(t=>t.maxUnder!=null).reduce((m,t)=>Math.max(m,t.maxUnder),0);
-      arr.splice(arr.length-1,0,{maxUnder:lastThresh+10,cost:0}); sortTiers(); save(); render(); };
+    const sortT=()=>tiers.sort((a,b)=>{ if(a.maxUnder==null) return 1; if(b.maxUnder==null) return -1; return a.maxUnder-b.maxUnder; });
+    det.querySelectorAll("[data-th]").forEach(inp=>inp.addEventListener("change",()=>{ const i=+inp.dataset.th; const val=parseFloat(inp.value); if(!isNaN(val)) tiers[i].maxUnder=val; sortT(); save(); render(); }));
+    det.querySelectorAll("[data-cost]").forEach(inp=>inp.addEventListener("change",()=>{ const i=+inp.dataset.cost; const val=parseFloat(inp.value); if(!isNaN(val)){ tiers[i].cost=val; save(); } }));
+    det.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.del; tiers.splice(i,1); save(); render(); });
+    det.querySelector("#wt-add").onclick=()=>{ const lastThresh=tiers.filter(t=>t.maxUnder!=null).reduce((m,t)=>Math.max(m,t.maxUnder),0);
+      tiers.splice(tiers.length-1,0,{maxUnder:lastThresh+10,cost:0}); sortT(); save(); render(); };
     const tryIn=det.querySelector("#wt-try"), tryOut=det.querySelector("#wt-tryout");
-    if(tryIn) tryIn.addEventListener("input",()=>{ const c=warehouseCostForPrice(tryIn.value); tryOut.textContent=c!=null?("$"+c.toFixed(2)):"—"; });
-  }
-  function sortTiers(){ // keep bands in ascending threshold order, catch-all last
-    DB.warehouseCostTiers.sort((a,b)=>{ if(a.maxUnder==null) return 1; if(b.maxUnder==null) return -1; return a.maxUnder-b.maxUnder; });
+    if(tryIn) tryIn.addEventListener("input",()=>{ const c=bandCostForPrice(v, tryIn.value); tryOut.textContent=c!=null?("$"+c.toFixed(2)):"\u2014"; });
   }
   render();
 }
@@ -5669,7 +5799,7 @@ async function publishToEbay(it,onStep){
     it._resolvedCondition=resolved;
     if(resolved!==desired) onStep&&onStep("Adjusting condition to “"+ebayCondLabel(resolved)+"” — the one this eBay category accepts…");
   }catch(e){ it._resolvedCondition=null; }
-  const sku=String(it.upc);
+  const sku=String(it.upc||it.id);   // item number is blank until listed; the internal id is the stable eBay SKU
   onStep&&onStep("Creating/updating the eBay inventory item…");
   const invPayload=ebayPayload(it);
   let r;
@@ -5841,6 +5971,7 @@ async function publishToEbay(it,onStep){
   if(!it.listing) it.listing={status:"none"};
   it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); it.listing.offerId=offerId; it.listing.ebayListingId=listingId; it.listing.publishMethod="api";
   it.listing.ebayItemId=it.listing.ebayItemId||listingId;
+  stampItemNumberFromListing(it);
   reportDesktopListedToIq(it);   // tell InventoryIQ so its phone Review & List queue drops this item
   anEvent("listed",{id:it.id},it);
   if(!it.listing.listedBy) it.listing.listedBy=(SESSION.user?SESSION.user.id:null); // for Recently Listed attribution
@@ -7345,7 +7476,7 @@ function openItemDetail(item,mode,nav,defaultTab){
       <div class="imgcell"><div class="imgbox" id="d-imgbox" style="position:relative;">${it.image?`<img src="${it.image}">`:'<span class="ph">📦</span>'}</div>
         ${ro?'':`<input type="file" id="d-imgfile" accept="image/*" multiple style="display:none;"><div style="display:flex;gap:6px;"><button class="btn sm" id="d-imgbtn">Add Photo</button><button class="btn sm" id="d-imgclr">Remove</button></div><div id="d-thumbstrip" style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;"></div>`}</div>
       <div style="display:grid;gap:10px;">
-        <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" readonly title="Item Number is auto-generated from the category and locked" ${isNew?'placeholder="(auto-generated on save)"':''} style="background:#f1f3f7;color:#5b6470;cursor:default;"></div>
+        <div class="ff"><label style="text-align:left;">Item Number</label><input class="txt" id="d-upc" value="${esc(it.upc)}" readonly title="The item number is the eBay listing number, assigned automatically when the item is listed" placeholder="(assigned when listed)" style="background:#f1f3f7;color:#5b6470;cursor:default;"></div>
         <div class="ff"><label class="blue" style="text-align:left;">Title</label><input class="txt" id="d-desc" value="${esc(it.desc)}" ${dis}></div>
         <div class="ff"><label style="text-align:left;">Vendor</label><select class="cmb" id="d-vendor" ${dis}><option value="" ${!it.vendor?'selected':''}>None</option>${(DB.vendors.includes(it.vendor)?DB.vendors:[it.vendor,...DB.vendors].filter(Boolean)).map(v=>`<option ${v===it.vendor?'selected':''}>${esc(v)}</option>`).join("")}</select></div>
         <div class="ff"><label style="text-align:left;">Category</label><select class="cmb" id="d-section" ${ro?'disabled':''}>${secOpts}</select></div>
@@ -7567,7 +7698,7 @@ function openItemDetail(item,mode,nav,defaultTab){
       };
       const localTog=lwrap.querySelector("#l-localtoggle"); if(localTog) localTog.onclick=(e)=>{ e.preventDefault();
         if(it.listing.status==="listed"){ it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString(); addHistory(it,"Delisted (local status only, eBay not contacted)"); }
-        else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); addHistory(it,"Marked as Listed (local status only, eBay not contacted)"); }
+        else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); stampItemNumberFromListing(it); addHistory(it,"Marked as Listed (local status only, eBay not contacted)"); }
         save(); refreshSearchWindows&&refreshSearchWindows(); renderListing(); };
       function renderEbayImgs(){ const host=lwrap.querySelector("#l-ebayimgs"); if(!host) return; const urls=(it.listing&&it.listing.ebayImageUrls)||[];
         host.innerHTML = urls.length ? `<div class="smallhint" style="margin-bottom:3px;">On eBay (${urls.length}):</div>`+urls.map(u=>`<div style="font-size:11px;color:#1f7244;word-break:break-all;">✓ ${esc(u)}</div>`).join("") : ""; }
@@ -7708,25 +7839,27 @@ function openItemDetail(item,mode,nav,defaultTab){
   //    fills automatically and is not meant to be hand-maintained.
   //  • Any other vendor → cost is suggested from that vendor's Unit Costing average, and only
   //    while the cost field hasn't been deliberately typed over.
+  // Fill cost from the current vendor's price bands (Warehouse or any bands vendor).
   function applyWarehouseCost(silent){
     if(!costInp) return;
     const price=(body.querySelector("#d-price")||{}).value || (it.listing&&it.listing.price) || it.retail;
-    const c=warehouseCostForPrice(price);
+    const c=bandCostForPrice((vendorSel?vendorSel.value:it.vendor), price);
     if(c!=null){ costInp.value=c.toFixed(2); costInp.dataset.autoFilled="1"; if(!silent){ markDirty&&markDirty(); } updateGmDisplay(); }
   }
-  function vendorIsWarehouse(){ return (vendorSel?vendorSel.value:it.vendor)==="Warehouse"; }
+  // A vendor is "price-driven" when its mode is bands (Warehouse always is).
+  function vendorIsWarehouse(){ return vendorMode(vendorSel?vendorSel.value:it.vendor)==="bands"; }
   if(vendorSel && costInp && !ro){
     vendorSel.addEventListener("change",()=>{
-      if(vendorSel.value==="Warehouse"){ costInp.readOnly=false; applyWarehouseCost(); }
-      else { const avg=vendorAvgCost(vendorSel.value);
+      const v=vendorSel.value, cfg=vendorCfg(v);
+      if(cfg && cfg.zeroOut){ costInp.value="0.00"; costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); return; }
+      if(vendorMode(v)==="bands"){ costInp.readOnly=false; applyWarehouseCost(); }
+      else { const avg=vendorAvgCost(v);
         if(avg!=null && (!costInp.value || costInp.dataset.autoFilled==="1")){ costInp.value=avg.toFixed(2); costInp.dataset.autoFilled="1"; markDirty&&markDirty(); updateGmDisplay(); } }
     });
     costInp.addEventListener("input",()=>{ if(costInp.dataset.autoFilled==="1") delete costInp.dataset.autoFilled; });
-    // If Warehouse is the (default) vendor, keep cost synced to price as price is typed.
+    // For a price-driven vendor, keep cost synced to price as price is typed.
     const priceInp=body.querySelector("#d-price");
     if(priceInp){ priceInp.addEventListener("input",()=>{ if(vendorIsWarehouse()) applyWarehouseCost(); }); }
-    // Fill once on open if this item is on the Warehouse vendor and has a price — silent, so it
-    // doesn't touch the not-yet-initialized Save button or mark a fresh item dirty.
     if(vendorIsWarehouse()) applyWarehouseCost(true);
   }
   const descTop=body.querySelector("#d-desc"); if(descTop && !ro) descTop.oninput=()=>{
@@ -7901,13 +8034,14 @@ function openItemDetail(item,mode,nav,defaultTab){
       const batchId=null; // batch forms at the shelving moment, not at save
       placements.forEach((pl,i)=>{ const ni=(i===0)?it:Object.assign({},it,{id:crypto.randomUUID()});
         Object.assign(ni, base, {slot:pl.slot,placement:pl.placement,sku:skuOf(pl.slot,pl.placement),onHand:(qty>1?"1":base.onHand),createdAt:new Date().toISOString(),sold:false,soldAt:null,soldBy:null,storedAt:null,storageBatchId:batchId});
-        ni.upc=genItemNumber(cat, _itnTaken);
-        ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+", Item # "+ni.upc+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
+        ni.upc="";                              // no item number until listed -- the eBay listing id becomes the number
+        ni.history=[{at:ni.createdAt,desc:"Item created (SKU "+ni.sku+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
         vendorDrawUnit(ni.vendor, ni.unitCost);
         DB.items.push(ni); created.push(ni); });
       recordAdds(created, SESSION.user.id, "Add");
       if(it._pendingListing && created[0]){ const L=it._pendingListing;
         created[0].listing=Object.assign({status:"listed",title:desc,price:"",qty:String(qty),descriptionId:null,ebayOfferId:null,ebaySku:null,listedAt:new Date().toISOString(),delistedAt:null}, L);
+        stampItemNumberFromListing(created[0]);
         if(L.ebaySku){ if(!DB.ebay) DB.ebay={}; if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[]; if(!DB.ebay.filedSkus.includes(L.ebaySku)) DB.ebay.filedSkus.push(L.ebaySku); }
         addHistory(created[0],"Filed from eBay listing"+(L.ebaySku?(" (eBay SKU "+L.ebaySku+")"):"")); }
       if(sendToLive){ created.forEach(ni=>{ if(!ni.listing) ni.listing={status:"none"}; ni.listing.readyToList=true; addHistory(ni,"Sent to Live (Ready to List)"); }); }
@@ -8067,6 +8201,40 @@ function openItemDetail(item,mode,nav,defaultTab){
     save(); wimRefreshAll();
     wimToast("Sent for listing review \u2192 Supervisor Review"); updateBtn(); };
   updateBtn();
+}
+/* HARD delete + fresh start. deleteItems() below is a soft delete by design (reversible from
+   Records), which is right for day to day use -- but it leaves the item in the data, which is why a
+   "deleted" item is still sitting in Item Maintenance. These two are for starting clean.
+
+   hardDeleteItems() removes the units outright, with no Record and no way back.
+   startFreshInventory() wipes the inventory side of the database and DELIBERATELY KEEPS all vendor
+   costing (vendors, vendorConfig, vendorCosting, warehouseCostTiers), categories, conditions, users,
+   and the eBay connection, so nothing has to be set up again. */
+function hardDeleteItems(units){
+  const ids=new Set((units||[]).map(u=>u&&u.id).filter(Boolean));
+  if(!ids.size) return 0;
+  const before=DB.items.length;
+  DB.items=DB.items.filter(i=>!ids.has(i.id));
+  // Drop any invoice/record lines that pointed at them, so Records does not show ghosts.
+  (DB.invoices||[]).forEach(r=>{ if(Array.isArray(r.lines)) r.lines=r.lines.filter(l=>!ids.has(l.itemId)); });
+  DB.invoices=(DB.invoices||[]).filter(r=>Array.isArray(r.lines)&&r.lines.length);
+  save();
+  return before-DB.items.length;
+}
+function startFreshInventory(opts){
+  const o=opts||{};
+  DB.items=[];                    // every inventory item, listed or not
+  DB.invoices=[];                 // sell / delete / adjust records
+  DB.importedScans=[];
+  DB.pulledListings=[];           // this is what feeds the "listed in the last 30 days" figures
+  DB.pulledOrderIds=[];
+  DB.printQueue=[];
+  DB.reviewLog=[];
+  DB.shippingComparisons=[];
+  if(DB.ebay) DB.ebay.filedSkus=[];
+  if(o.clearSlots) DB.slots=[];
+  if(o.clearGroups) DB.groups=[];
+  save();
 }
 function deleteItems(units,userId){ // soft-delete: out of active, reversible from Records
   const lines=[];
@@ -8538,6 +8706,7 @@ async function pullInventoryIqListed(){
       if(!it.listing||typeof it.listing!=="object") it.listing={ status:"none", title:"", price:"", qty:"1" };
       it.listing.status="listed";
       it.listing.ebayItemId=L.ebayItemId||it.listing.ebayItemId||null;
+      stampItemNumberFromListing(it);
       it.listing.listedAt=it.listing.listedAt||new Date().toISOString();
       it.listing.listedVia="inventoryiq";
       if(L.price!=null && !it.listing.price) it.listing.price=String(L.price);
@@ -8596,9 +8765,10 @@ async function pullInventoryIqScans(){
       // sold examples through so the card's Sold tab shows them without paying for another pull.
       // Read defensively — lights up automatically when the Worker starts sending apifyExamples.
       const apEx = s.apifyExamples || s.apify_examples || (s.apify && s.apify.examples) || null;
+      ensureIqCategories();   // never fall back to the wrong category just because one is missing
       const cat=DB.sections.includes(rec.category)?rec.category:(["Comics & Graphic Novels","Books & Magazines"].find(s=>DB.sections.includes(s))||DB.sections.find(s=>s&&s!=="NONE"&&s!=="General"&&s!=="Bulk")||DB.sections[0]||"");
       if(!(DB.vendors||[]).some(v=>String(v).toLowerCase()==="warehouse")){ DB.vendors=DB.vendors||[]; DB.vendors.push("Warehouse"); }
-      const it={ id:crypto.randomUUID(), upc:genItemNumber(cat), desc:rec.desc,
+      const it={ id:crypto.randomUUID(), upc:"", desc:rec.desc,
         vendor:"Warehouse",
         condition:((s.condition&&(DB.conditions||[]).includes(s.condition))?s.condition:"Used - Good"), section:cat,
         unitCost:"0.00", retail:"0.00", onHand:"1", groups:[],
@@ -9224,9 +9394,10 @@ async function openImportScans(){
         // Create the item shell now so opening it later goes straight to the listing flow.
         // Matches the app's standard item shape (same as Bulk Add), minus slotting/pricing,
         // which the user sets when they actually build the listing.
+        ensureIqCategories();   // never fall back to the wrong category just because one is missing
         const cat=DB.sections.includes(rec.category)?rec.category:(["Comics & Graphic Novels","Books & Magazines"].find(s=>DB.sections.includes(s))||DB.sections.find(s=>s&&s!=="NONE"&&s!=="General"&&s!=="Bulk")||DB.sections[0]||"");
         if(!(DB.vendors||[]).some(v=>String(v).toLowerCase()==="warehouse")){ DB.vendors=DB.vendors||[]; DB.vendors.push("Warehouse"); }
-        const it={ id:crypto.randomUUID(), upc:genItemNumber(cat), desc:rec.desc,
+        const it={ id:crypto.randomUUID(), upc:"", desc:rec.desc,
           // Scanned stock is the warehouse's own used inventory: vendor Warehouse, condition
           // Used - Good (the honest median for used books — a lister adjusts it from the photos).
           // The old defaults were pinned-vendor and "New", and "New" is precisely the condition
@@ -10046,7 +10217,7 @@ function openBulkAdd(mode){
       else { alloc=allocateMulti(qty,null,cat); if(alloc.length<qty){ r.error="no "+cat+" space ("+alloc.length+")"; errors++; return; } }
       const listPrice=(r.retail!=null&&String(r.retail).trim())?String(r.retail).trim():"0.00";
       alloc.forEach(pl=>{ const rowVendor=r.vendor.trim(), rowCost=r.unitCost||(vendorAvgCost(rowVendor)!=null?vendorAvgCost(rowVendor).toFixed(2):"0.00");
-        const it={ id:crypto.randomUUID(), origin:"Bulk Add", upc:genItemNumber(cat, _bulkItn), desc:r.desc.trim(),
+        const it={ id:crypto.randomUUID(), origin:"Bulk Add", upc:"", desc:r.desc.trim(),
         vendor:rowVendor, condition:r.condition.trim(),
         section:cat,
         unitCost:rowCost, retail:listPrice, onHand:"1", groups:[],
@@ -12120,7 +12291,7 @@ async function pullRecentlySold(daysBack){
       // coming. Combining copies (v3.3.60) made multi-quantity listings easy to create, which is
       // what turned this from theoretical into likely.
       const qtySold = Math.max(1, parseInt(li.quantity,10) || 1);
-      const available = sku ? DB.items.filter(i=>i.upc===sku && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : [];
+      const available = sku ? DB.items.filter(i=>(i.upc===sku || i.id===sku || (i.listing&&i.listing.ebaySku===sku)) && itemStatus(i)!=="inactive" && itemStatus(i)!=="sold") : [];
       if(!available.length){ continue; } // no local match — nothing to move; left for manual handling
       // The copies are interchangeable by design: identical condition is what allows them to share
       // an item number at all, so it genuinely doesn't matter which ones get pulled.
@@ -14224,12 +14395,45 @@ function openBackup(){
       <p class="smallhint" style="margin:0 0 10px;">Export a backup before applying any update. A backup is one file with all slots, items, photos, users and invoices.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;"><button class="btn" id="bk-export">Export Backup</button><button class="btn" id="bk-import">Restore from Backup…</button><input type="file" id="bk-file" accept="application/json,.json" style="display:none;"></div>
       <div class="err" id="bk-msg" style="color:#1f7244;"></div></fieldset>
+    <fieldset class="gb" style="margin:0 14px 14px;border-color:#c0392b;"><legend style="color:#c0392b;">Start fresh (permanent)</legend>
+      <p class="smallhint" style="margin:0 0 10px;">Permanently erases every item, invoice/record, pulled listing and order, print queue, review log and the listed-in-the-last-30-days figures. <b>Vendors and all vendor costing are kept</b>, along with categories, conditions, users and the eBay connection. This cannot be undone. Export a backup first.</p>
+      <label style="display:block;font-size:12.5px;margin-bottom:4px;"><input type="checkbox" id="sf-slots"> Also delete all slots</label>
+      <label style="display:block;font-size:12.5px;margin-bottom:8px;"><input type="checkbox" id="sf-groups"> Also delete all groups</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span style="font-size:12.5px;">Type <b>ERASE</b> to enable:</span>
+        <input id="sf-word" style="width:110px;text-transform:uppercase;">
+        <button class="btn" id="sf-go" disabled style="border-color:#c0392b;color:#c0392b;">Erase inventory data</button>
+      </div>
+      <div class="err" id="sf-msg" style="color:#c0392b;"></div></fieldset>
     <fieldset class="gb" style="margin:0 14px;"><legend>Applying updates</legend>
       <p class="smallhint" style="margin:0;line-height:1.6;">1. Export a backup (above).<br>2. Replace the <b>WIM</b> app file with the new version, keeping the <b>same file name and folder</b>.<br>3. Re-open WIM — your data stays put and upgrades automatically if the format changed.<br>4. If anything looks wrong, use <b>Restore from Backup</b> to roll back.</p></fieldset>`;
   const msg=body.querySelector("#bk-msg");
   body.querySelector("#bk-export").onclick=()=>{ const blob=new Blob([JSON.stringify(sanitizedForPersist(DB),null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob);
     const a=document.createElement("a"); a.href=url; a.download="WIM-backup-"+new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")+".json"; a.click(); URL.revokeObjectURL(url);
     DB.meta.lastBackupAt=new Date().toISOString(); save(); if(typeof renderBackupReminder==="function") renderBackupReminder(); msg.style.color="#1f7244"; msg.textContent="Backup downloaded. (eBay credentials are intentionally not included — reconnect eBay after restoring, same as setting up a new device.)"; };
+  /* Start fresh. Guarded three ways: the person must type ERASE, must confirm a dialog that names
+     exactly what goes and what stays, and is warned if no backup has ever been exported. */
+  {
+    const w=body.querySelector("#sf-word"), go=body.querySelector("#sf-go"), sfMsg=body.querySelector("#sf-msg");
+    if(w&&go){
+      w.oninput=()=>{ go.disabled = w.value.trim().toUpperCase()!=="ERASE"; };
+      go.onclick=()=>{
+        if(w.value.trim().toUpperCase()!=="ERASE") return;
+        const slots=body.querySelector("#sf-slots").checked, groups=body.querySelector("#sf-groups").checked;
+        const never=!DB.meta.lastBackupAt;
+        const warn=never?"\n\nYou have never exported a backup from this installation. There is no way to get this data back.":"";
+        uiConfirm("Permanently erase "+DB.items.length+" item(s), "+DB.invoices.length+" record(s)"+
+          (slots?", all slots":"")+(groups?", all groups":"")+
+          " and the listed-in-the-last-30-days data?\n\nKept: vendors and all vendor costing, categories, conditions, users, eBay connection."+warn,
+          ()=>{
+            startFreshInventory({clearSlots:slots, clearGroups:groups});
+            sfMsg.style.color="#1f7244";
+            sfMsg.textContent="Done. Inventory data erased; vendor costing kept. Close and reopen WIM.";
+            w.value=""; go.disabled=true;
+          }, {title:"Start fresh", yes:"Erase permanently"});
+      };
+    }
+  }
   const file=body.querySelector("#bk-file"); body.querySelector("#bk-import").onclick=()=>file.click();
   file.onchange=()=>{ const f=file.files[0]; if(!f) return; const rd=new FileReader();
     rd.onload=()=>{ try{ const obj=JSON.parse(rd.result); if(!obj.items||!obj.users) throw new Error("Not a WIM backup file.");
@@ -16280,8 +16484,8 @@ function createItemFromListing(c, section, subCategory, manualSlotValue){
       shipWeight:c.shipWeight||"", shipLength:c.shipLength||"", shipWidth:c.shipWidth||"", shipHeight:c.shipHeight||"",
       createdAt:now, sold:false, soldAt:null, soldBy:null,
       category:"FRUIT", caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0] };
-    ni.upc=genItemNumber(section,_itnTaken);
-    ni.history=[{at:now,desc:"Item created (SKU "+ni.sku+", Item # "+ni.upc+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
+    ni.upc="";                              // no item number until listed -- the eBay listing id becomes the number
+    ni.history=[{at:now,desc:"Item created (SKU "+ni.sku+")",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
     DB.items.push(ni); created.push(ni);
   });
   created[0].listing={ status:"listed", title:c.title, price:c.price||"", qty:String(qty), descriptionId:null,
@@ -16297,18 +16501,30 @@ function createItemFromListing(c, section, subCategory, manualSlotValue){
   recordAdds(created, SESSION.user.id, qty>1?"Bulk Add":"Add");
   return { ok:true, created };
 }
+// Work out the WIM category from the listing itself. findSubcatByEbayId handles listings whose
+// eBay category is already mapped; this covers the rest by reading the category name and title,
+// so a person never has to sit and pick a category for every pulled listing.
+function guessSectionFromListing(c){
+  const t=((c&&(c.categoryName||c.category||""))+" "+((c&&c.title)||"")).toLowerCase();
+  if(/comic|manga|graphic novel/.test(t)) return "Comics & Graphic Novels";
+  if(/book|magazine|paperback|hardcover|novel|paperbound/.test(t)) return "Books & Magazines";
+  return "";
+}
 function openListedNoSku(){
   const id="listed-no-sku"; if(openWindows[id]){ focusWin(openWindows[id].el); return; }
-  const {body}=buildWindow({id,title:"Listed, no SKU",width:1060,height:640,popoutKey:"listednosku",
+  const {body,close}=buildWindow({id,title:"Listed, no SKU",width:1060,height:640,popoutKey:"listednosku",
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">Already-listed eBay items to file into storage \u2014 price is locked; just set a category and add to storage</span>`});
-  let picked=new Set(); let rowChoices={}; // id -> { section, subCategory, manualSlot, manualSlotValue }
+  let picked=new Set(); let rowChoices={}; let selInit=false; // id -> { section, subCategory, manualSlot, manualSlotValue }
   let lastPullInfo=null; // { scanned, skipped, morePages } from the last pull
   function render(){
     const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId));
+    try{ ensureIqCategories(); }catch(e){}
     list.forEach(c=>{ if(!rowChoices[c.ebaySku]){
       const match=findSubcatByEbayId(c.categoryId);
-      rowChoices[c.ebaySku]={ section: match?match.section:"", subCategory: match?match.subCategory:"", manualSlot:false, manualSlotValue:"" };
+      rowChoices[c.ebaySku]={ section: match?match.section:guessSectionFromListing(c), subCategory: match?match.subCategory:"", manualSlot:false, manualSlotValue:"" };
     }});
+    // Everything arrives selected -- untick anything you do not want, rather than ticking all of them.
+    if(!selInit && list.length){ list.forEach(c=>picked.add(c.ebaySku)); selInit=true; }
     const allHaveCategory = list.length>0 && Array.from(picked).every(id=>rowChoices[id]&&rowChoices[id].section);
     body.innerHTML=`<div style="padding:12px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <button class="btn primary" id="pnl-pull" ${WIM_IS_DESKTOP?'':'disabled'}>Pull New Listings</button>
@@ -16352,6 +16568,15 @@ function openListedNoSku(){
         else errs.push(c.title+": "+r.error);
       });
       save(); wimRefreshAll(); refreshSearchWindows&&refreshSearchWindows();
+      // Everything that loaded has now been filed (or removed), so this screen has done its job:
+      // close it and drop the person back in the Storage Queue with the new items already slotted.
+      const remaining=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId));
+      if(!remaining.length && !errs.length){
+        setTimeout(()=>{
+          try{ close&&close(); }catch(e){}
+          try{ openMissingItem(); const w=openWindows["missing-item"]; if(w&&w.el) focusWin(w.el); }catch(e){}
+        }, 700);
+      }
       msg.style.color=errs.length?"#c0392b":"#1f7244";
       msg.textContent=okCount+" item(s) added to storage \u2014 find them in the bookshelf (Storage Queue) to shelve."+(errs.length?(" "+errs.length+" failed: "+errs.join(" \u00b7 ")):"");
       render();
