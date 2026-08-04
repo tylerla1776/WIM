@@ -486,7 +486,12 @@ const Cloud={
   getSlots(token){ return Cloud.rpc("get_slots",{p_session_token:token}); },
   createSlot(token,row,col,capacity,section,manualOnly){ return Cloud.rpc("create_slot",{p_session_token:token,p_row:row,p_col:col,p_capacity:capacity,p_section:section,p_manual_only:manualOnly}); },
   pickItem(token,itemId){ return Cloud.rpc("pick_item",{p_session_token:token,p_item_id:itemId}); },
-  deleteItem(token,itemId){ return Cloud.rpc("delete_item",{p_session_token:token,p_item_id:itemId}); }
+  deleteItem(token,itemId){ return Cloud.rpc("delete_item",{p_session_token:token,p_item_id:itemId}); },
+  getSections(token){ return Cloud.rpc("get_sections",{p_session_token:token}); },
+  upsertSection(token,name){ return Cloud.rpc("upsert_section",{p_session_token:token,p_name:name}); },
+  getSubcategories(token){ return Cloud.rpc("get_subcategories",{p_session_token:token}); },
+  upsertSubcategory(token,section,name,ebayId,ebayName,aspects){ return Cloud.rpc("upsert_subcategory",{p_session_token:token,p_section:section,p_name:name,p_ebay_id:ebayId,p_ebay_name:ebayName,p_aspects:aspects}); },
+  deleteSlot(token,slotId){ return Cloud.rpc("delete_slot",{p_session_token:token,p_slot_id:slotId}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -1082,6 +1087,12 @@ function applyCloudSlots(rows){
     if(s) cloudRowToLocalSlot(row,s); else { s=cloudRowToLocalSlot(row,null); DB.slots.push(s); byId.set(s.id,s); }
     changed++;
   }
+  // Reconcile deletions: drop local slots the cloud no longer has -- but never one made this
+  // session (may not be pushed yet) and never one that still has items sitting in it.
+  const cloudIds=new Set(rows.map(r=>r.id));
+  const before=DB.slots.length;
+  DB.slots=DB.slots.filter(s=> cloudIds.has(s.id) || _slotsMadeThisSession.has(s.id) || (DB.items||[]).some(it=>it.slot===s.id && !it.deleted));
+  if(DB.slots.length!==before) changed++;
   if(changed){ save(); try{ wimRefreshAll(); }catch(e){} }
   return changed;
 }
@@ -1094,6 +1105,7 @@ async function syncPullAndApply(){
   const r=await syncDelta();
   if(r.ok) applyCloudRows(r.rows);
   await syncSlotsPull();
+  await pullCategories();
   return r;
 }
 let _cloudReadTimer=null;
@@ -1123,6 +1135,7 @@ async function pushChangedItems(){
       _lastPushed.set(it.id, ser);   // covers both sent-now and queued-offline
     }
   }
+  try{ await pushChangedCategories(); }catch(e){}
 }
 let _pushTimer=null;
 function schedulePushChangedItems(){
@@ -1130,6 +1143,40 @@ function schedulePushChangedItems(){
   if(_pushTimer) return;
   _pushTimer=setTimeout(()=>{ _pushTimer=null; pushChangedItems().catch(e=>console.warn("WIM cloud push failed",e)); }, 1500);
 }
+
+/* --- Categories (sections + subcategories) sync: add/update, safe (never removes) --- */
+let _catSnap="";
+async function pushChangedCategories(){
+  if(cloudSyncPaused()||!cloudSession) return;
+  const snap=JSON.stringify({s:DB.sections||[],c:DB.subcats||{}});
+  if(snap===_catSnap) return;
+  const tok=cloudSession.session_token;
+  try{
+    for(const name of (DB.sections||[])){ if(name) await Cloud.upsertSection(tok,name); }
+    const subs=DB.subcats||{};
+    for(const section of Object.keys(subs)){ for(const sc of (subs[section]||[])){ if(sc&&sc.name) await Cloud.upsertSubcategory(tok,section,sc.name,sc.ebayId||"",sc.ebayName||"",sc.aspects||[]); } }
+    _catSnap=snap;
+  }catch(e){ /* keep snapshot unset so it retries next cycle */ }
+}
+async function pullCategories(){
+  if(cloudSyncPaused()||!cloudSession) return;
+  const tok=cloudSession.session_token; let ch=false;
+  try{
+    const rs=await Cloud.getSections(tok);
+    if(rs&&rs.ok){ let rows=[]; try{rows=JSON.parse(rs.body);}catch(e){} if(!Array.isArray(DB.sections))DB.sections=[];
+      for(const r of rows){ if(r&&r.name&&!DB.sections.includes(r.name)){ DB.sections.push(r.name); ch=true; } } }
+    const rc=await Cloud.getSubcategories(tok);
+    if(rc&&rc.ok){ let rows=[]; try{rows=JSON.parse(rc.body);}catch(e){} if(!DB.subcats||typeof DB.subcats!=="object")DB.subcats={};
+      for(const r of rows){ const sec=r.section||"General"; if(!DB.subcats[sec])DB.subcats[sec]=[];
+        const ex=DB.subcats[sec].find(x=>x.name===r.name);
+        if(!ex){ DB.subcats[sec].push({name:r.name,ebayId:r.ebay_id||"",ebayName:r.ebay_name||"",aspects:Array.isArray(r.aspects)?r.aspects:[]}); ch=true; }
+        else if(r.ebay_id&&!ex.ebayId){ ex.ebayId=r.ebay_id; ex.ebayName=r.ebay_name||""; ch=true; } } }
+    if(ch){ save(); try{ wimRefreshAll(); }catch(e){} }
+  }catch(e){}
+}
+/* Slots created this session, so reconciliation never removes a not-yet-pushed one. */
+const _slotsMadeThisSession=new Set();
+
 // Kick both directions off within a few seconds of a cloud login, whichever
 // code path logged in — no per-login hook needed.
 let _cloudAutoKicked=false;
@@ -4672,6 +4719,7 @@ function openWarehouseMaintenance(prefillCategory){
     const cat=body.querySelector("#ws-cat").value||"General";
     DB.slots.push({id,row:r,col:c,skuLimit:lim,manualOnly:manC.classList.contains("on"),section:cat,sections:[cat]}); save();
     try{ if(cloudSession && typeof Cloud!=="undefined" && Cloud.createSlot){ Cloud.createSlot(cloudSession.session_token, r, c, lim, cat, manC.classList.contains("on")); } }catch(e){}
+    try{ _slotsMadeThisSession.add(id); }catch(e){}
     err.textContent="";rowI.value="";colI.value="";limI.value="99";manC.classList.remove("on");upPrev(); mapState.selSlot=id; renderSlots(body); };
   renderSlots(body);
 }
@@ -4716,7 +4764,7 @@ function renderSlots(body){
     s.skuLimit=lim; s.manualOnly=man.classList.contains("on"); s.sections=chosen; s.section=chosen[0];
     save(); renderSlots(body); refreshSearchWindows(); };
   head.querySelector("#sd-del").onclick=()=>{ if(cnt>0){uiAlert("Cannot delete slot "+s.id+": it has active inventory.");return;}
-    uiConfirm("Delete slot "+s.id+"?",()=>{ DB.slots=DB.slots.filter(x=>x.id!==s.id); save(); mapState.selSlot=null; renderSlots(body); }); };
+    uiConfirm("Delete slot "+s.id+"?",()=>{ DB.slots=DB.slots.filter(x=>x.id!==s.id); try{ if(cloudSession && Cloud.deleteSlot){ Cloud.deleteSlot(cloudSession.session_token, s.id); } _slotsMadeThisSession.delete(s.id); }catch(e){} save(); mapState.selSlot=null; renderSlots(body); }); };
   activeInSlot(s.id).sort((a,b)=>a.placement-b.placement).forEach(it=>{ const li=document.createElement("div"); li.className="li";
     li.innerHTML=`<b>${it.sku}</b> &mdash; ${esc(it.desc)} <span style="color:#777;">(Item # ${esc(it.upc)})</span>`; li.ondblclick=()=>openItemDetail(it,"edit"); det.appendChild(li); });
 }
