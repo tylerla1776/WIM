@@ -482,7 +482,10 @@ const Cloud={
   getDeviceLogout(token,deviceKey){ return Cloud.rpc("get_device_logout",{p_session_token:token,p_device_key:deviceKey}); },
   clearDeviceLogout(token,deviceKey){ return Cloud.rpc("clear_device_logout",{p_session_token:token,p_device_key:deviceKey}); },
   getEbayCredentials(token){ return Cloud.rpc("get_ebay_credentials",{p_session_token:token}); },
-  setEbayCredentials(token,env,appId,certId,refreshToken,ruName){ return Cloud.rpc("set_ebay_credentials",{p_session_token:token,p_env:env,p_app_id:appId,p_cert_id:certId,p_refresh_token:refreshToken,p_ru_name:ruName}); }
+  setEbayCredentials(token,env,appId,certId,refreshToken,ruName){ return Cloud.rpc("set_ebay_credentials",{p_session_token:token,p_env:env,p_app_id:appId,p_cert_id:certId,p_refresh_token:refreshToken,p_ru_name:ruName}); },
+  getSlots(token){ return Cloud.rpc("get_slots",{p_session_token:token}); },
+  createSlot(token,row,col,capacity,section,manualOnly){ return Cloud.rpc("create_slot",{p_session_token:token,p_row:row,p_col:col,p_capacity:capacity,p_section:section,p_manual_only:manualOnly}); },
+  pickItem(token,itemId){ return Cloud.rpc("pick_item",{p_session_token:token,p_item_id:itemId}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -1059,10 +1062,37 @@ function applyCloudRows(rows){
   if(changed){ save(); try{ wimRefreshAll(); }catch(e){ console.warn("WIM refresh after pull failed",e); } }
   return changed;
 }
+function cloudRowToLocalSlot(row, existing){
+  const s=existing||{};
+  s.id=row.id; s.row=row.row||""; s.col=row.col||"";
+  s.skuLimit=(row.sku_limit==null)?99:row.sku_limit;
+  s.manualOnly=!!row.manual_only;
+  s.section=row.section||"General";
+  s.sections=Array.isArray(row.sections)?row.sections:(row.section?[row.section]:["General"]);
+  return s;
+}
+function applyCloudSlots(rows){
+  if(!Array.isArray(rows)||!rows.length) return 0;
+  if(!DB.slots) DB.slots=[];
+  const byId=new Map(DB.slots.map(s=>[s.id,s]));
+  let changed=0;
+  for(const row of rows){
+    let s=byId.get(row.id);
+    if(s) cloudRowToLocalSlot(row,s); else { s=cloudRowToLocalSlot(row,null); DB.slots.push(s); byId.set(s.id,s); }
+    changed++;
+  }
+  if(changed){ save(); try{ wimRefreshAll(); }catch(e){} }
+  return changed;
+}
+async function syncSlotsPull(){
+  if(cloudSyncPaused()||!cloudSession) return;
+  try{ const r=await Cloud.getSlots(cloudSession.session_token); if(r&&r.ok){ let rows=[]; try{rows=JSON.parse(r.body);}catch(e){} applyCloudSlots(rows); } }catch(e){}
+}
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
   if(r.ok) applyCloudRows(r.rows);
+  await syncSlotsPull();
   return r;
 }
 let _cloudReadTimer=null;
@@ -4640,6 +4670,7 @@ function openWarehouseMaintenance(prefillCategory){
     const id=r+"."+c; if(slotById(id)){err.textContent="Slot "+id+" already exists.";return;}
     const cat=body.querySelector("#ws-cat").value||"General";
     DB.slots.push({id,row:r,col:c,skuLimit:lim,manualOnly:manC.classList.contains("on"),section:cat,sections:[cat]}); save();
+    try{ if(cloudSession && typeof Cloud!=="undefined" && Cloud.createSlot){ Cloud.createSlot(cloudSession.session_token, r, c, lim, cat, manC.classList.contains("on")); } }catch(e){}
     err.textContent="";rowI.value="";colI.value="";limI.value="99";manC.classList.remove("on");upPrev(); mapState.selSlot=id; renderSlots(body); };
   renderSlots(body);
 }
