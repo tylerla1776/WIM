@@ -1002,7 +1002,112 @@ function save(){
     }
   });
   try{ if(wimSyncBC) wimSyncBC.postMessage({t:"changed",at:Date.now()}); }catch(e){}
+  try{ if(typeof schedulePushChangedItems==="function") schedulePushChangedItems(); }catch(e){}
 }
+/* ============================================================================
+ * WIM LIVE CLOUD SYNC  (reads + writes)  — wired in, additive.
+ * Reads: pulls changed items from Supabase and folds them into DB.items.
+ * Writes: pushes local item changes up through the existing offline-queue.
+ * No-ops entirely unless a cloud session is active, so non-cloud use is
+ * unaffected. Reuses: syncDelta, saveItemSmart, cloudSyncPaused, save,
+ * wimRefreshAll, itemStatus, Cloud.
+ * ========================================================================== */
+// Exact mirror of the Cloud Data Migration upload map, hoisted for reuse.
+function itemToCloudData(it){
+  return { sku: it.sku||"", description: it.desc||"", condition: it.condition||"", section: it.section||"", sub_category: it.subCategory||"",
+    on_hand: parseFloat(it.onHand)||0, cost: parseFloat(it.unitCost)||0, retail: parseFloat(it.retail)||0, vendor: it.vendor||"",
+    location_slot: it.slot||"", location_placement: it.placement!=null?String(it.placement):"",
+    image: it.image||"", images: it.images||[], aspects: it.aspects||{}, listing: it.listing||{},
+    item_number: it.upc||"", status: itemStatus(it), fulfillment: it.fulfillment||{}, simulated: false, sold: !!it.sold };
+}
+// Reverse: one Supabase row -> WIM's item shape. Local-only fields (groups,
+// compare, compareSold, soldAt, soldBy, outType, ...) are never touched.
+function cloudRowToLocalItem(row, existing){
+  const it = existing || {};
+  it.id=row.id; it.sku=row.sku||""; it.desc=row.description||""; it.condition=row.condition||"";
+  it.section=row.section||""; it.subCategory=row.sub_category||"";
+  it.onHand=(row.on_hand==null)?"":String(row.on_hand);
+  it.unitCost=(row.cost==null)?"":row.cost; it.retail=(row.retail==null)?"":row.retail;
+  it.vendor=row.vendor||""; it.slot=row.location_slot||"";
+  const p=parseInt(row.location_placement,10); it.placement=isNaN(p)?null:p;
+  it.image=row.image||""; it.images=row.images||[]; it.aspects=row.aspects||{}; it.listing=row.listing||{};
+  it.upc=row.item_number||""; it.status=row.status||"active"; it.fulfillment=row.fulfillment||{};
+  it.sold=!!row.sold; it.cloudUpdatedAt=row.updated_at||null;
+  return it;
+}
+// Tracks what we last pushed per item so we only push real changes and don't
+// echo freshly-pulled rows back up.
+const _lastPushed = new Map();
+function _markPushed(it){ try{ _lastPushed.set(it.id, JSON.stringify(itemToCloudData(it))); }catch(e){} }
+
+function applyCloudRows(rows){
+  if(!Array.isArray(rows)||!rows.length) return 0;
+  if(!DB.items) DB.items=[];
+  const byId=new Map(DB.items.map(it=>[it.id,it]));
+  let changed=0;
+  for(const row of rows){
+    if(row.deleted_at){
+      if(byId.has(row.id)){ DB.items=DB.items.filter(it=>it.id!==row.id); byId.delete(row.id); _lastPushed.delete(row.id); changed++; }
+      continue;
+    }
+    let it=byId.get(row.id);
+    if(it){ cloudRowToLocalItem(row,it); }
+    else { it=cloudRowToLocalItem(row,null); DB.items.push(it); byId.set(it.id,it); }
+    _markPushed(it);   // a freshly-pulled item is already in sync — don't re-push it
+    changed++;
+  }
+  if(changed){ save(); try{ wimRefreshAll(); }catch(e){ console.warn("WIM refresh after pull failed",e); } }
+  return changed;
+}
+async function syncPullAndApply(){
+  if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
+  const r=await syncDelta();
+  if(r.ok) applyCloudRows(r.rows);
+  return r;
+}
+let _cloudReadTimer=null;
+function startCloudReadLoop(intervalMs){
+  if(_cloudReadTimer) return;
+  const every=intervalMs||60000;
+  syncPullAndApply();
+  _cloudReadTimer=setInterval(()=>{ syncPullAndApply().catch(e=>console.warn("WIM cloud read cycle failed",e)); }, every);
+}
+function stopCloudReadLoop(){ if(_cloudReadTimer){ clearInterval(_cloudReadTimer); _cloudReadTimer=null; } }
+
+// Push every genuinely-changed item up through the offline-safe path.
+async function pushChangedItems(){
+  if(cloudSyncPaused()||!cloudSession) return;
+  const items=(DB.items||[]);
+  for(const it of items){
+    if(!it||it.simulated||it.deleted) continue;
+    const data=itemToCloudData(it);
+    const ser=JSON.stringify(data);
+    if(_lastPushed.get(it.id)===ser) continue;   // nothing changed since last push
+    let r;
+    try{ r=await saveItemSmart(it.id, it.cloudUpdatedAt||null, data); }
+    catch(e){ continue; }
+    if(r && r.conflict){ try{ await syncPullAndApply(); }catch(e){} continue; } // let the pull re-sync it
+    if(r && r.ok){
+      if(r.result && r.result.body){ try{ const j=JSON.parse(r.result.body); const row=Array.isArray(j)?j[0]:j; if(row&&row.updated_at) it.cloudUpdatedAt=row.updated_at; }catch(e){} }
+      _lastPushed.set(it.id, ser);   // covers both sent-now and queued-offline
+    }
+  }
+}
+let _pushTimer=null;
+function schedulePushChangedItems(){
+  if(cloudSyncPaused()||!cloudSession) return;
+  if(_pushTimer) return;
+  _pushTimer=setTimeout(()=>{ _pushTimer=null; pushChangedItems().catch(e=>console.warn("WIM cloud push failed",e)); }, 1500);
+}
+// Kick both directions off within a few seconds of a cloud login, whichever
+// code path logged in — no per-login hook needed.
+let _cloudAutoKicked=false;
+setInterval(()=>{
+  if(!cloudSession) return;
+  if(!_cloudReadTimer && !cloudSyncPaused()) startCloudReadLoop();
+  if(!_cloudAutoKicked && !cloudSyncPaused()){ _cloudAutoKicked=true; schedulePushChangedItems(); }
+}, 5000);
+
 /* ---- Pop-out: open a tool in its own desktop window (experimental, additive) ---- */
 const POPOUT_APPS={
   itemsearch:{ title:"Item Maintenance", open:()=>openItemSearch() },
