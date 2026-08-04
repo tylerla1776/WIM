@@ -485,7 +485,8 @@ const Cloud={
   setEbayCredentials(token,env,appId,certId,refreshToken,ruName){ return Cloud.rpc("set_ebay_credentials",{p_session_token:token,p_env:env,p_app_id:appId,p_cert_id:certId,p_refresh_token:refreshToken,p_ru_name:ruName}); },
   getSlots(token){ return Cloud.rpc("get_slots",{p_session_token:token}); },
   createSlot(token,row,col,capacity,section,manualOnly){ return Cloud.rpc("create_slot",{p_session_token:token,p_row:row,p_col:col,p_capacity:capacity,p_section:section,p_manual_only:manualOnly}); },
-  pickItem(token,itemId){ return Cloud.rpc("pick_item",{p_session_token:token,p_item_id:itemId}); }
+  pickItem(token,itemId){ return Cloud.rpc("pick_item",{p_session_token:token,p_item_id:itemId}); },
+  deleteItem(token,itemId){ return Cloud.rpc("delete_item",{p_session_token:token,p_item_id:itemId}); }
 };
 const WIM_POPOUT_MATCH=(typeof location!=="undefined"&&location.hash?location.hash.match(/popout=([^&]+)/):null);
 const WIM_POPOUT_MODE=!!WIM_POPOUT_MATCH;
@@ -1021,7 +1022,7 @@ function itemToCloudData(it){
     on_hand: parseFloat(it.onHand)||0, cost: parseFloat(it.unitCost)||0, retail: parseFloat(it.retail)||0, vendor: it.vendor||"",
     location_slot: it.slot||"", location_placement: it.placement!=null?String(it.placement):"",
     image: it.image||"", images: it.images||[], aspects: it.aspects||{}, listing: it.listing||{},
-    item_number: it.upc||"", status: itemStatus(it), fulfillment: it.fulfillment||{}, simulated: false, sold: !!it.sold };
+    item_number: it.upc||"", status: itemStatus(it), fulfillment: it.fulfillment||{}, simulated: false, sold: !!it.sold, compare: it.compare||null, compare_sold: it.compareSold||null, sold_date: it.soldAt||null };
 }
 // Reverse: one Supabase row -> WIM's item shape. Local-only fields (groups,
 // compare, compareSold, soldAt, soldBy, outType, ...) are never touched.
@@ -1035,7 +1036,7 @@ function cloudRowToLocalItem(row, existing){
   const p=parseInt(row.location_placement,10); it.placement=isNaN(p)?null:p;
   it.image=row.image||""; it.images=row.images||[]; it.aspects=row.aspects||{}; it.listing=row.listing||{};
   it.upc=row.item_number||""; it.status=row.status||"active"; it.fulfillment=row.fulfillment||{};
-  it.sold=!!row.sold; it.cloudUpdatedAt=row.updated_at||null;
+  it.sold=!!row.sold; it.compare=row.compare||null; it.compareSold=row.compare_sold||null; if(row.sold_date) it.soldAt=row.sold_date; it.cloudUpdatedAt=row.updated_at||null;
   return it;
 }
 // Tracks what we last pushed per item so we only push real changes and don't
@@ -2985,7 +2986,7 @@ function recordAdds(items,userId,type){ // type = "Add" or "Bulk Add"
 }
 function reverseLines(inv,idxs){
   idxs.forEach(i=>{ const ln=inv.lines[i]; if(!ln||ln.reversed) return; const it=DB.items.find(x=>x.id===ln.itemId);
-    if(ln.mode==='add'){ if(it && !it.sold){ DB.items=DB.items.filter(x=>x.id!==it.id); } }
+    if(ln.mode==='add'){ if(it && !it.sold){ DB.items=DB.items.filter(x=>x.id!==it.id); try{ if(cloudSession && typeof Cloud!=="undefined" && Cloud.deleteItem) Cloud.deleteItem(cloudSession.session_token, it.id); }catch(e){} } }
     else if(it){ if(ln.mode==='decrement'){ it.onHand=String((parseFloat(it.onHand)||0)+ln.qty); }
       else { it.sold=false; it.soldAt=null; it.soldBy=null; it.outType=null; if((parseFloat(it.onHand)||0)<1) it.onHand="1"; restoreSlot(it); addHistory(it,"Reactivated (record #"+inv.num+" reversed)"); } }
     ln.reversed=true; });
@@ -9181,7 +9182,7 @@ async function openImportScans(){
       card.querySelector(".rs-images").onclick=()=>openExternal("https://www.google.com/search?tbm=isch&q="+q);
       card.querySelector(".rs-del").onclick=()=>{
         uiConfirm("Delete this item? The scan record and its inventory item are removed — for stock that isn't worth listing.", ()=>{
-          DB.items=DB.items.filter(x=>x.id!==it.id);
+          DB.items=DB.items.filter(x=>x.id!==it.id); try{ if(cloudSession && typeof Cloud!=="undefined" && Cloud.deleteItem) Cloud.deleteItem(cloudSession.session_token, it.id); }catch(e){}
           DB.importedScans=DB.importedScans.filter(x=>x!==r);
           save(); render();
         });
@@ -10471,7 +10472,7 @@ function openBulkAdd(mode){
       card.querySelector(".rs-open").onclick=()=>openItemDetail(it,"edit");
       card.querySelector(".rs-del").onclick=()=>{
         uiConfirm("Delete this item? The scan record and its inventory item are removed — for stock that isn't worth listing.", ()=>{
-          DB.items=DB.items.filter(x=>x.id!==it.id);
+          DB.items=DB.items.filter(x=>x.id!==it.id); try{ if(cloudSession && typeof Cloud!=="undefined" && Cloud.deleteItem) Cloud.deleteItem(cloudSession.session_token, it.id); }catch(e){}
           DB.importedScans=DB.importedScans.filter(x=>x!==r);
           save(); render();
         });
@@ -10633,7 +10634,7 @@ function openBulkAdd(mode){
       let p=r.folderPath; if(!p){ try{ p=await assignScanFolder(r); save(); }catch(e){} }
       if(p) wimDesktop.invoke("open_url",{url:"file:///"+String(p).replace(/\\/g,"/")}).catch(()=>{}); else uiAlert("No photo folder for this item yet."); };
     card.querySelector(".ba-delete").onclick=()=>{
-      uiConfirm("Delete this scan and its item record?", ()=>{ DB.items=DB.items.filter(x=>x.id!==it.id); DB.importedScans=DB.importedScans.filter(x=>x!==r); save(); render(); });
+      uiConfirm("Delete this scan and its item record?", ()=>{ DB.items=DB.items.filter(x=>x.id!==it.id); try{ if(cloudSession && typeof Cloud!=="undefined" && Cloud.deleteItem) Cloud.deleteItem(cloudSession.session_token, it.id); }catch(e){} DB.importedScans=DB.importedScans.filter(x=>x!==r); save(); render(); });
     };
 
     // The green List / Review button — the one-click payoff.
@@ -11518,7 +11519,7 @@ function openCloudDataMigration(){
       on_hand: parseFloat(it.onHand)||0, cost: parseFloat(it.unitCost)||0, retail: parseFloat(it.retail)||0, vendor: it.vendor||"",
       location_slot: it.slot||"", location_placement: it.placement!=null?String(it.placement):"",
       image: it.image||"", images: it.images||[], aspects: it.aspects||{}, listing: it.listing||{},
-      item_number: it.upc||"", status: itemStatus(it), fulfillment: it.fulfillment||{}, simulated: false, sold: !!it.sold };
+      item_number: it.upc||"", status: itemStatus(it), fulfillment: it.fulfillment||{}, simulated: false, sold: !!it.sold, compare: it.compare||null, compare_sold: it.compareSold||null, sold_date: it.soldAt||null };
   }
   function eligibleItems(){ return DB.items.filter(it=>!it.simulated && !it.deleted); }
   function render(){
