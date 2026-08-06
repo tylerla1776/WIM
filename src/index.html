@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.64", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.66", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.66","Re-cut of 3.4.65 (origin badge + category &amp; display fix) under a fresh version, since 3.4.65 did not build/install. No new changes -- this is purely to get the last update to actually publish."],
+  ["3.4.65","ORIGIN BADGE + CATEGORY DISPLAY FIX. Item cards now show an origin badge next to the status -- eBay App (listed on eBay.com), InventoryIQ, or WIM -- based on an origin stamped at listing time; anything with no stamp shows eBay App. And eBay category names that arrive HTML-encoded (e.g. Toys &amp; Hobbies) now display correctly with a real ampersand. Next build: rename Sub Category to Character throughout, and lock Title/Condition/Price on live eBay listings."],
   ["3.4.64","PULL CLOUD BUTTON NOW RUNS THE FULL ENRICHMENT. The manual Pull Cloud -> WIM button was pulling raw fields but skipping the vendor/cost/category logic that the background sync runs -- so synced items came in with Vendor: None and Cost: 0. It now routes through the same apply path: category is adopted, vendor is set to Warehouse when blank, and cost fills from the listing price. Pull again after this and vendor + cost populate (cost needs a price present on the item)."],
   ["3.4.63","SYNCED ITEMS NOW GET VENDOR + COST AUTOMATICALLY. Items coming in through the cloud sync with no vendor are set to the Warehouse vendor (they are your own back-catalogue listings), and because Warehouse is a price-band vendor, the cost fills itself straight from the listing price -- no manual vendor pick, no manual cost. This matches how WIM already handles its own imports. Cost fills once a price is present on the item; the phone (InventoryIQ) still needs to write the real listing price, category, condition, photo URLs and listing description into the shared record for the rest of the card to populate."],
   ["3.4.62","REAL CATEGORIES FROM eBAY, NOT TWO FIXED BUCKETS. WIM no longer forces synced items into just Books & Magazines or Comics & Graphic Novels. It now ADOPTS whatever real category an item arrives with from the sync -- the actual eBay category (Comic Books, Manga & Asian Comics, Graphic Novels & TPBs, Fiction & Literature, and later Toys, Games, anything) -- adding it to your category list automatically so it is recognised and can be slot-bound. Additive: your existing categories are untouched, nothing is removed. NOTE: a newly-adopted category has no slot bound to it yet, so bind a slot to it in Warehouse Maintenance for items to auto-file into it."],
@@ -1035,10 +1037,11 @@ function itemToCloudData(it){
 }
 // Reverse: one Supabase row -> WIM's item shape. Local-only fields (groups,
 // compare, compareSold, soldAt, soldBy, outType, ...) are never touched.
+function _deent(x){ return (x==null?"":String(x)).replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&apos;/g,"'"); }
 function cloudRowToLocalItem(row, existing){
   const it = existing || {};
   it.id=row.id; it.sku=row.sku||""; it.desc=row.description||""; it.condition=row.condition||"";
-  it.section=row.section||""; it.subCategory=row.sub_category||"";
+  it.section=_deent(row.section||""); it.subCategory=_deent(row.sub_category||"");
   it.onHand=(row.on_hand==null)?"":String(row.on_hand);
   it.unitCost=(row.cost==null)?"":row.cost; it.retail=(row.retail==null)?"":row.retail;
   it.vendor=row.vendor||""; it.slot=row.location_slot||"";
@@ -7707,7 +7710,7 @@ function openItemDetail(item,mode,nav,defaultTab){
   body.innerHTML=`
     <div class="d-scrollwrap">
     ${soldBanner}
-    <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':`<span style="color:${itemStatusColor(it)};font-weight:600;">${itemStatusLabel(it)}</span>`)}${(it.simulated||(it.fulfillment&&it.fulfillment.simulated))?' <span style="background:#fff7e0;color:#6b5400;border:1px solid #e6c200;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px;">SIMULATED</span>':''}</div></div>
+    <div class="tabs" style="border-top:none;"><div class="tab" style="color:#111;font-weight:600;">Main Warehouse</div><div class="reccount" style="margin-left:auto;">${isCat?'Sold record':(isNew?'New record':`<span style="color:${itemStatusColor(it)};font-weight:600;">${itemStatusLabel(it)}</span>${(function(){var o=(it.listing&&it.listing.origin)||it.origin||"eBay App";var col=(o==="WIM")?"#1f7244":((o==="InventoryIQ")?"#5a3fa8":"#1a5fa8");return ' <span style="background:#fff;color:'+col+';border:1px solid '+col+';border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px;">'+esc(o)+'</span>';})()}`)}${(it.simulated||(it.fulfillment&&it.fulfillment.simulated))?' <span style="background:#fff7e0;color:#6b5400;border:1px solid #e6c200;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px;">SIMULATED</span>':''}</div></div>
     ${dl}
     <div class="imd-top">
       <div class="imgcell"><div class="imgbox" id="d-imgbox" style="position:relative;">${it.image?`<img src="${it.image}">`:'<span class="ph">📦</span>'}</div>
