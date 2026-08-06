@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.63", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.64", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.64","PULL CLOUD BUTTON NOW RUNS THE FULL ENRICHMENT. The manual Pull Cloud -> WIM button was pulling raw fields but skipping the vendor/cost/category logic that the background sync runs -- so synced items came in with Vendor: None and Cost: 0. It now routes through the same apply path: category is adopted, vendor is set to Warehouse when blank, and cost fills from the listing price. Pull again after this and vendor + cost populate (cost needs a price present on the item)."],
   ["3.4.63","SYNCED ITEMS NOW GET VENDOR + COST AUTOMATICALLY. Items coming in through the cloud sync with no vendor are set to the Warehouse vendor (they are your own back-catalogue listings), and because Warehouse is a price-band vendor, the cost fills itself straight from the listing price -- no manual vendor pick, no manual cost. This matches how WIM already handles its own imports. Cost fills once a price is present on the item; the phone (InventoryIQ) still needs to write the real listing price, category, condition, photo URLs and listing description into the shared record for the rest of the card to populate."],
   ["3.4.62","REAL CATEGORIES FROM eBAY, NOT TWO FIXED BUCKETS. WIM no longer forces synced items into just Books & Magazines or Comics & Graphic Novels. It now ADOPTS whatever real category an item arrives with from the sync -- the actual eBay category (Comic Books, Manga & Asian Comics, Graphic Novels & TPBs, Fiction & Literature, and later Toys, Games, anything) -- adding it to your category list automatically so it is recognised and can be slot-bound. Additive: your existing categories are untouched, nothing is removed. NOTE: a newly-adopted category has no slot bound to it yet, so bind a slot to it in Warehouse Maintenance for items to auto-file into it."],
   ["3.4.61","LIVE CLOUD SYNC IS NOW ACTUALLY IN THE INSTALLED APP. Every earlier cloud-sync build was handed off without a version bump, so the auto-updater saw the same 3.4.60 and installed nothing -- the sync code was never running. This build carries it all: items, slots, categories and deletions syncing through Supabase, plus a new PULL CLOUD -> WIM button on the Cloud Sync (Test) screen that folds every cloud item into your real list and clears local-only leftovers, surfacing any error on screen instead of failing silently. This is the update that makes WIM and InventoryIQ share one live inventory."],
@@ -14211,23 +14212,15 @@ function openCloudSyncTest(){
       if(!r.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Fetch failed (HTTP "+r.status+")"; resultBox.textContent=r.body||""; return; }
       let rows=[]; try{ rows=JSON.parse(r.body); }catch(pe){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Couldn't read the response."; resultBox.textContent=r.body||""; return; }
       if(!DB.items) DB.items=[];
-      const byId=new Map(DB.items.map(it=>[it.id,it]));
-      const cloudIds=new Set();
-      let added=0, updated=0;
-      for(const row of rows){
-        if(row.deleted_at) continue;
-        cloudIds.add(row.id);
-        const ex=byId.get(row.id);
-        if(ex){ cloudRowToLocalItem(row,ex); updated++; }
-        else { const it=cloudRowToLocalItem(row,null); DB.items.push(it); byId.set(it.id,it); added++; }
-      }
+      applyCloudRows(rows);   // maps fields AND runs enrichment: adopt category, vendor=Warehouse, cost from price
+      const cloudIds=new Set(rows.filter(x=>!x.deleted_at).map(x=>x.id));
       const before=DB.items.length;
       DB.items=DB.items.filter(it=> cloudIds.has(it.id) || it.simulated);
       const removed=before-DB.items.length;
-      save(); try{ wimRefreshAll(); }catch(re){}
+      if(removed){ save(); try{ wimRefreshAll(); }catch(re){} }
       fetchMsg.style.color="#1f7244";
-      fetchMsg.textContent="Applied — "+added+" added, "+updated+" updated, "+removed+" local-only removed. Item Maintenance should now match the cloud.";
-      resultBox.textContent="Applied "+rows.length+" cloud items into WIM.\nAdded: "+added+"\nUpdated: "+updated+"\nRemoved (local-only, incl. ghosts): "+removed+"\nDB.items now: "+DB.items.length;
+      fetchMsg.textContent="Applied "+rows.length+" cloud items ("+removed+" local-only removed). Cards should be filled now.";
+      resultBox.textContent="Applied "+rows.length+" cloud items into WIM.\nRemoved (local-only, incl. ghosts): "+removed+"\nDB.items now: "+DB.items.length;
     }catch(err){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Apply error — see box below."; resultBox.textContent="ERROR applying cloud items:\n"+String(err&&err.stack||err); }
   };
   syncBtn.onclick=async ()=>{
