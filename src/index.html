@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.62", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.63", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.63","SYNCED ITEMS NOW GET VENDOR + COST AUTOMATICALLY. Items coming in through the cloud sync with no vendor are set to the Warehouse vendor (they are your own back-catalogue listings), and because Warehouse is a price-band vendor, the cost fills itself straight from the listing price -- no manual vendor pick, no manual cost. This matches how WIM already handles its own imports. Cost fills once a price is present on the item; the phone (InventoryIQ) still needs to write the real listing price, category, condition, photo URLs and listing description into the shared record for the rest of the card to populate."],
   ["3.4.62","REAL CATEGORIES FROM eBAY, NOT TWO FIXED BUCKETS. WIM no longer forces synced items into just Books & Magazines or Comics & Graphic Novels. It now ADOPTS whatever real category an item arrives with from the sync -- the actual eBay category (Comic Books, Manga & Asian Comics, Graphic Novels & TPBs, Fiction & Literature, and later Toys, Games, anything) -- adding it to your category list automatically so it is recognised and can be slot-bound. Additive: your existing categories are untouched, nothing is removed. NOTE: a newly-adopted category has no slot bound to it yet, so bind a slot to it in Warehouse Maintenance for items to auto-file into it."],
   ["3.4.61","LIVE CLOUD SYNC IS NOW ACTUALLY IN THE INSTALLED APP. Every earlier cloud-sync build was handed off without a version bump, so the auto-updater saw the same 3.4.60 and installed nothing -- the sync code was never running. This build carries it all: items, slots, categories and deletions syncing through Supabase, plus a new PULL CLOUD -> WIM button on the Cloud Sync (Test) screen that folds every cloud item into your real list and clears local-only leftovers, surfacing any error on screen instead of failing silently. This is the update that makes WIM and InventoryIQ share one live inventory."],
   ["3.4.60","CLEARS THE OLD PULLED LISTINGS OUT OF THE STORAGE QUEUE. 3.4.59 stopped FETCHING pre-August-2026 listings, but the queue was still full of the back catalogue from earlier pulls, so Pull from eBay looked unchanged. Those rows are now removed once, automatically, on first run. Anything listed before 1 August 2026 goes, and so does anything with no listing date at all, since those came from a build that did not record one and cannot be judged -- a fresh pull brings back anything that genuinely belongs. Simulated rows are untouched. On top of that, the two screens that display pulled listings now filter by the cutoff as they draw, so a pre-cutoff listing can never appear again even if one arrives some other way. Hit Pull New Listings after updating and you will get only August 2026 onward. HTML-only."],
@@ -1081,6 +1082,19 @@ function applyCloudRows(rows){
         }
       }
     }catch(ce){}
+    // WIM default for synced items: these are the warehouse's own listings, so no vendor -> Warehouse,
+    // which (Warehouse being a price-band vendor) fills the cost straight from the listing price.
+    try{
+      if(it && (!it.vendor || it.vendor==="" || it.vendor==="None")){
+        it.vendor="Warehouse";
+        if(typeof vendorCfg==="function"){ try{ vendorCfg("Warehouse"); }catch(_v){} }
+        const noCost=(it.unitCost==null||it.unitCost===""||parseFloat(it.unitCost)===0);
+        if(noCost && it.retail!=null && it.retail!=="" && typeof warehouseCostForPrice==="function"){
+          const c=warehouseCostForPrice(it.retail);
+          if(c!=null) it.unitCost=c;
+        }
+      }
+    }catch(vc){}
     _markPushed(it);   // a freshly-pulled item is already in sync — don't re-push it
     changed++;
   }
