@@ -14108,6 +14108,7 @@ function openCloudSyncTest(){
     <fieldset class="gb" style="margin-top:12px;"><legend>Data test</legend>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
         <button class="btn" id="cs-fetch" disabled>Fetch Items (full)</button>
+        <button class="btn primary" id="cs-apply" disabled title="Pulls every cloud item and folds it into your actual item list, and removes local-only leftovers">Pull Cloud → WIM (apply)</button>
         <button class="btn" id="cs-sync" disabled title="Only pulls what changed since the last sync">Sync Changes Only</button>
         <button class="btn" id="cs-resetsync" disabled title="Clears the saved sync point, so the next Sync Changes Only pulls everything again like a first-time sync">Reset Sync Point</button>
         <button class="btn" id="cs-create" disabled>Create Test Item</button>
@@ -14127,7 +14128,7 @@ function openCloudSyncTest(){
     <fieldset class="gb" style="margin-top:12px;"><legend>7-day backup fail-safe</legend>
       <div class="smallhint" style="margin-bottom:6px;">Forces the fail-safe to run right now, bypassing the real 7-day/24-hour checks — should download a small JSON file of your current cloud items and show the warning alert, the same as it would if the real automation had actually gone stale.</div>
       <div style="display:flex;gap:8px;align-items:center;"><button class="btn" id="cs-testfailsafe" disabled>Test Fail-Safe Backup Now</button><span class="smallhint" id="cs-failsafemsg"></span></div></fieldset></div>`;
-  const loginMsg=body.querySelector("#cs-loginmsg"), sessionBox=body.querySelector("#cs-session"), fetchBtn=body.querySelector("#cs-fetch"), syncBtn=body.querySelector("#cs-sync"), resetSyncBtn=body.querySelector("#cs-resetsync"), createBtn=body.querySelector("#cs-create"), conflictBtn=body.querySelector("#cs-conflict"), fetchMsg=body.querySelector("#cs-fetchmsg"), resultBox=body.querySelector("#cs-result"), syncPointBox=body.querySelector("#cs-syncpoint");
+  const loginMsg=body.querySelector("#cs-loginmsg"), sessionBox=body.querySelector("#cs-session"), fetchBtn=body.querySelector("#cs-fetch"), applyBtn=body.querySelector("#cs-apply"), syncBtn=body.querySelector("#cs-sync"), resetSyncBtn=body.querySelector("#cs-resetsync"), createBtn=body.querySelector("#cs-create"), conflictBtn=body.querySelector("#cs-conflict"), fetchMsg=body.querySelector("#cs-fetchmsg"), resultBox=body.querySelector("#cs-result"), syncPointBox=body.querySelector("#cs-syncpoint");
   const flushBtn=body.querySelector("#cs-flush"), queueMsg=body.querySelector("#cs-queuemsg");
   const claimBtn=body.querySelector("#cs-claim"), pingBtn=body.querySelector("#cs-ping"), releaseBtn=body.querySelector("#cs-release"), lockMsg=body.querySelector("#cs-lockmsg");
   const testFailsafeBtn=body.querySelector("#cs-testfailsafe"), failsafeMsg=body.querySelector("#cs-failsafemsg");
@@ -14137,10 +14138,10 @@ function openCloudSyncTest(){
   function paintSyncPoint(){ const s=DB.cloud&&DB.cloud.lastSyncedAt;
     syncPointBox.textContent=s?("Last synced: "+new Date(s).toLocaleString()+" — Sync Changes Only will only pull what's newer than this."):"Never synced yet — Sync Changes Only will pull everything once, the same as a full fetch."; }
   function paintSession(){
-    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; testFailsafeBtn.disabled=true; return; }
+    if(!cloudSession){ sessionBox.textContent="Not logged in yet."; fetchBtn.disabled=true; applyBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; testFailsafeBtn.disabled=true; return; }
     sessionBox.innerHTML=`Logged in as <b>${esc(cloudSession.staff_name)}</b> (${esc(cloudSession.role)}) on team <b>${esc(cloudSession.team_name)}</b><br>Session token: <code style="font-size:10px;">${esc(cloudSession.session_token.slice(0,16))}…</code>`;
-    if(cloudSyncPaused()){ fetchBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; testFailsafeBtn.disabled=true; return; }
-    fetchBtn.disabled=false; syncBtn.disabled=false; resetSyncBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false; claimBtn.disabled=!lastCreatedId; testFailsafeBtn.disabled=false;
+    if(cloudSyncPaused()){ fetchBtn.disabled=true; applyBtn.disabled=true; syncBtn.disabled=true; resetSyncBtn.disabled=true; createBtn.disabled=true; conflictBtn.disabled=true; claimBtn.disabled=true; pingBtn.disabled=true; releaseBtn.disabled=true; testFailsafeBtn.disabled=true; return; }
+    fetchBtn.disabled=false; applyBtn.disabled=false; syncBtn.disabled=false; resetSyncBtn.disabled=false; createBtn.disabled=false; conflictBtn.disabled=false; claimBtn.disabled=!lastCreatedId; testFailsafeBtn.disabled=false;
   }
   paintSession(); paintQueue(); paintSyncPoint();
   body.querySelector("#cs-login").onclick=async ()=>{
@@ -14168,6 +14169,33 @@ function openCloudSyncTest(){
       fetchMsg.style.color="#1f7244"; fetchMsg.textContent=rows.length+" item(s) came back (full pull — every item, every time).";
       resultBox.textContent=JSON.stringify(rows,null,2);
     }catch(e){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
+  };
+  applyBtn.onclick=async ()=>{
+    if(!cloudSession) return;
+    fetchMsg.style.color="#555"; fetchMsg.textContent="Pulling cloud items into WIM…";
+    try{
+      const r=await Cloud.getItems(cloudSession.session_token);
+      if(!r.ok){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Fetch failed (HTTP "+r.status+")"; resultBox.textContent=r.body||""; return; }
+      let rows=[]; try{ rows=JSON.parse(r.body); }catch(pe){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Couldn't read the response."; resultBox.textContent=r.body||""; return; }
+      if(!DB.items) DB.items=[];
+      const byId=new Map(DB.items.map(it=>[it.id,it]));
+      const cloudIds=new Set();
+      let added=0, updated=0;
+      for(const row of rows){
+        if(row.deleted_at) continue;
+        cloudIds.add(row.id);
+        const ex=byId.get(row.id);
+        if(ex){ cloudRowToLocalItem(row,ex); updated++; }
+        else { const it=cloudRowToLocalItem(row,null); DB.items.push(it); byId.set(it.id,it); added++; }
+      }
+      const before=DB.items.length;
+      DB.items=DB.items.filter(it=> cloudIds.has(it.id) || it.simulated);
+      const removed=before-DB.items.length;
+      save(); try{ wimRefreshAll(); }catch(re){}
+      fetchMsg.style.color="#1f7244";
+      fetchMsg.textContent="Applied — "+added+" added, "+updated+" updated, "+removed+" local-only removed. Item Maintenance should now match the cloud.";
+      resultBox.textContent="Applied "+rows.length+" cloud items into WIM.\nAdded: "+added+"\nUpdated: "+updated+"\nRemoved (local-only, incl. ghosts): "+removed+"\nDB.items now: "+DB.items.length;
+    }catch(err){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Apply error — see box below."; resultBox.textContent="ERROR applying cloud items:\n"+String(err&&err.stack||err); }
   };
   syncBtn.onclick=async ()=>{
     if(!cloudSession) return;
