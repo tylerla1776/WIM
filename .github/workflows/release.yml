@@ -1,4 +1,4 @@
-name: release
+name: release build
 # Builds the Windows installer, signs it for the auto-updater, creates a GitHub
 # Release, uploads latest.json, AND publishes latest.json to the "updater" branch
 # at a direct (non-redirecting) raw URL so installed apps can fetch it cleanly.
