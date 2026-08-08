@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.66", BUILD_DATE="2026-08-06", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.74", BUILD_DATE="2026-08-08", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,10 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.74","MULTI-QUANTITY PACKING COUNT + AUTO-ADVANCING FULFILLMENT. The shipping list shows PACK N on multi-copy sales (from fulfillment.soldUnits) so a 3-copy order says PACK 3 and nobody under-packs. WIM also advances the back half by itself: when InventoryIQ writes the shipped timestamp/tracking from eBay the item moves Ready-to-Ship to Shipping automatically, and when eBay reports delivered it moves to Completed and into Catalog -- no Mark Shipped click, no complete click. The pick is the only human step. WIM only moves its own stage and never overwrites InventoryIQ timestamps. Versions 3.4.70-73 were skipped (tags used during the release fix)."],
+  ["3.4.69","SYNC HANDOFF GUARDS (InventoryIQ now owns finances + tombstones). Three protections for the first sync after WIM has been closed: (1) WIM never pushes to the cloud until it has PULLED at least once, so it can't overwrite InventoryIQ's live data with its own stale copy on reopen. (2) Tombstones respected: any item InventoryIQ soft-deleted (deleted_at) is removed locally on pull AND never pushed back to life — matched by item number, not just row id, so a legacy copy under a different id can't resurrect it. (3) Fees: WIM no longer overwrites eBay fees/label cost when feesPulledAt is already set — those are InventoryIQ's real settled numbers, WIM just displays them. Legacy pre-Aug-1 orders WIM still owns. Next: multi-quantity Ready-to-Ship packing count."],
+  ["3.4.68","ONE PICK ENGINE FOR WIM AND INVENTORYIQ. Marking an item picked now runs the shelf slide-up on the SERVER via the shared pick_item function when WIM is cloud-connected -- the same operation InventoryIQ Pull Sold uses. Being one atomic, slot-locked server operation, two people picking the same slot from the two apps can no longer scramble positions. WIM no longer shifts locally when connected (that could double-shift once the moved items synced). Offline it falls back to the local shift so picking still works with no connection."],
+  ["3.4.67","MULTI-QUANTITY COUNT OWNERSHIP. InventoryIQ now owns the remaining-quantity count for listings it manages, because it reads eBay's live order feed directly. WIM will no longer decrement On Hand for any item carrying fulfillment.positions -- that key is the flag meaning phone-managed multi-quantity. WIM still displays On Hand and still uses the slot/placement for shelf location; it simply does not touch the count on a sale for those items, so the two systems can never double-count the same sale. The sale is still recorded in item history and on the record."],
   ["3.4.66","Re-cut of 3.4.65 (origin badge + category &amp; display fix) under a fresh version, since 3.4.65 did not build/install. No new changes -- this is purely to get the last update to actually publish."],
   ["3.4.65","ORIGIN BADGE + CATEGORY DISPLAY FIX. Item cards now show an origin badge next to the status -- eBay App (listed on eBay.com), InventoryIQ, or WIM -- based on an origin stamped at listing time; anything with no stamp shows eBay App. And eBay category names that arrive HTML-encoded (e.g. Toys &amp; Hobbies) now display correctly with a real ampersand. Next build: rename Sub Category to Character throughout, and lock Title/Condition/Price on live eBay listings."],
   ["3.4.64","PULL CLOUD BUTTON NOW RUNS THE FULL ENRICHMENT. The manual Pull Cloud -> WIM button was pulling raw fields but skipping the vendor/cost/category logic that the background sync runs -- so synced items came in with Vendor: None and Cost: 0. It now routes through the same apply path: category is adopted, vendor is set to Warehouse when blank, and cost fills from the listing price. Pull again after this and vendor + cost populate (cost needs a price present on the item)."],
@@ -1054,6 +1058,7 @@ function cloudRowToLocalItem(row, existing){
 // Tracks what we last pushed per item so we only push real changes and don't
 // echo freshly-pulled rows back up.
 const _lastPushed = new Map();
+const _tombstones = new Set(); let _firstPullDone = false;  // tombstone item_numbers + "have we pulled once yet" gate
 function _markPushed(it){ try{ _lastPushed.set(it.id, JSON.stringify(itemToCloudData(it))); }catch(e){} }
 
 function applyCloudRows(rows){
@@ -1063,7 +1068,10 @@ function applyCloudRows(rows){
   let changed=0;
   for(const row of rows){
     if(row.deleted_at){
-      if(byId.has(row.id)){ DB.items=DB.items.filter(it=>it.id!==row.id); byId.delete(row.id); _lastPushed.delete(row.id); changed++; }
+      if(row.item_number) _tombstones.add(row.item_number);   // InventoryIQ tombstoned this — remember it so we never push it back
+      const _before=DB.items.length;
+      DB.items=DB.items.filter(it=> it.id!==row.id && !(row.item_number && it.upc===row.item_number) );
+      if(DB.items.length!==_before){ byId.delete(row.id); _lastPushed.delete(row.id); changed++; }
       continue;
     }
     let it=byId.get(row.id);
@@ -1140,7 +1148,7 @@ async function syncSlotsPull(){
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
-  if(r.ok) applyCloudRows(r.rows);
+  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ autoAdvanceFulfillment(); }catch(e){} }
   await syncSlotsPull();
   await pullCategories();
   return r;
@@ -1157,9 +1165,11 @@ function stopCloudReadLoop(){ if(_cloudReadTimer){ clearInterval(_cloudReadTimer
 // Push every genuinely-changed item up through the offline-safe path.
 async function pushChangedItems(){
   if(cloudSyncPaused()||!cloudSession) return;
+  if(!_firstPullDone) return;   // never push before the first pull — protects against clobbering InventoryIQ's data or resurrecting its tombstones on the first sync after reopening
   const items=(DB.items||[]);
   for(const it of items){
     if(!it||it.simulated||it.deleted) continue;
+    if(it.upc && _tombstones.has(it.upc)) continue;   // InventoryIQ deleted this legacy item — do not push it back to life
     const data=itemToCloudData(it);
     const ser=JSON.stringify(data);
     if(_lastPushed.get(it.id)===ser) continue;   // nothing changed since last push
@@ -2502,6 +2512,7 @@ async function boot(){
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const b0=document.getElementById("sim-banner"); if(b0) b0.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
     try{ migrateRecentlySold(); }catch(e){ console.warn("recentlySold migration failed", e); }
     try{ const n=repairSoldStatus(); if(n) console.log("repaired "+n+" sold item(s) that weren't showing in Shipping"); }catch(e){ console.warn("sold-status repair failed", e); }
+    try{ autoAdvanceFulfillment(); }catch(e){ console.warn("auto-advance failed", e); }
     try{ const n=repairOnHand(); if(n) console.log("normalised on-hand on "+n+" item(s) — one record is one physical copy"); }catch(e){ console.warn("on-hand repair failed", e); }
     try{ const n=repairDeleted(); if(n) console.log("repaired "+n+" item(s) that were deleted but never actually left inventory"); }catch(e){ console.warn("deleted repair failed", e); }
     if(WIM_POPOUT_MODE){ bootPopout(); return; }
@@ -2740,6 +2751,22 @@ function repairSoldStatus(){
   if(fixed) save();
   return fixed;
 }
+function autoAdvanceFulfillment(){
+  let moved=0;
+  (DB.items||[]).forEach(it=>{
+    const f=it.fulfillment; if(!f) return;
+    if(itemStatus(it)!=="sold") return;
+    if(f.deliveredAt && f.stage!=="completed"){
+      f.stage="completed"; if(!f.completedAt) f.completedAt=f.deliveredAt; if(!f.sentToCatalogAt) f.sentToCatalogAt=new Date().toISOString();
+      addHistory(it,"Auto-advanced to Completed \u2014 eBay reported delivered"); moved++;
+    } else if(f.shippedAt && f.stage==="readyToShip"){
+      f.stage="shipped"; if(!f.movedToShippingAt) f.movedToShippingAt=f.shippedAt;
+      addHistory(it,"Auto-advanced to Shipping \u2014 eBay label/tracking landed"); moved++;
+    }
+  });
+  if(moved) save();
+  return moved;
+}
 function migrateRecentlySold(){
   let moved=0;
   (DB.items||[]).forEach(it=>{
@@ -2870,6 +2897,27 @@ function shiftSlotDown(slotId, departedPlacement){
   affected.sort((a,b)=>a.placement-b.placement);
   affected.forEach(i=>{ const oldSku=i.sku; i.placement=i.placement-1; i.sku=skuOf(slotId,i.placement);
     addHistory(i,"Warehouse SKU shifted "+oldSku+" → "+i.sku+" (slot position closed up)"); });
+}
+// One shift engine for WIM and InventoryIQ. When cloud-connected, the shelf slide-up happens
+// server-side via pick_item (atomic, slot-locked) so two people picking the same slot from two
+// different apps can never scramble positions. WIM does NOT shift locally in that case -- that
+// would double-shift once the moved siblings synced up. Offline, it falls back to the local shift.
+function pickShift(it){
+  if(!it || !it.slot || it.placement==null) return;
+  if(cloudSession && typeof Cloud!=="undefined" && Cloud.pickItem && typeof cloudSyncPaused==="function" && !cloudSyncPaused()){
+    var _slot=it.slot, _pl=it.placement;
+    Cloud.pickItem(cloudSession.session_token, it.id).then(function(r){
+      try{
+        var rows=[]; if(r && r.ok && r.body){ try{ rows=JSON.parse(r.body); }catch(e){} }
+        if(Array.isArray(rows) && rows.length && typeof applyCloudRows==="function"){ applyCloudRows(rows); }
+        else if(typeof syncPullAndApply==="function"){ syncPullAndApply(); }
+      }catch(e){}
+    }).catch(function(){
+      try{ shiftSlotDown(_slot, _pl); save(); if(typeof wimRefreshAll==="function") wimRefreshAll(); }catch(e){}
+    });
+    return;
+  }
+  shiftSlotDown(it.slot, it.placement);
 }
 function lowestPlacement(slotId,ex){ const s=slotById(slotId); if(!s) return null; const t=takenPlacements(slotId,ex);
   for(let p=1;p<=s.skuLimit;p++){ if(!t.has(p)) return p; } return null; }
@@ -3053,7 +3101,15 @@ function makeRecord(type,lines,userId){ const rec={ id:crypto.randomUUID(), num:
 function sellItems(items,userId,type){
   const lines=[];
   items.forEach(it=>{ const q=parseFloat(it.onHand);
-    if(!isNaN(q)&&q>1){ it.onHand=String(q-1); anEvent("sold_qty",{id:it.id},it); addHistory(it,"Sold 1 (qty now "+it.onHand+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'decrement',reversed:false}); }
+    // Phone-managed multi-quantity: InventoryIQ owns the count for any item carrying
+    // fulfillment.positions (it reads eBay's live order feed). WIM displays on_hand but must
+    // never decrement it here, or the two systems double-count the same sale.
+    if(it.fulfillment && Array.isArray(it.fulfillment.positions)){
+      anEvent("sold_qty_iq",{id:it.id},it);
+      addHistory(it,"Sold 1 — quantity managed by InventoryIQ (count not changed by WIM)");
+      lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'iq_managed',reversed:false});
+    }
+    else if(!isNaN(q)&&q>1){ it.onHand=String(q-1); anEvent("sold_qty",{id:it.id},it); addHistory(it,"Sold 1 (qty now "+it.onHand+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'decrement',reversed:false}); }
     else { it.sold=true; setItemStatus(it,"inactive"); it.soldAt=new Date().toISOString(); it.soldBy=userId; it.outType="Sell"; anEvent("sold",{id:it.id},it); addHistory(it,"Sold (SKU "+it.sku+")"); lines.push({itemId:it.id,upc:it.upc,desc:it.desc,sku:it.sku,section:it.section,qty:1,mode:'sold',reversed:false});
       if(it.vendor) vendorActualize(it.vendor, it.cost); } });
   const rec=makeRecord(type||"Sell",lines,userId); save(); return rec;
@@ -12635,7 +12691,7 @@ async function checkForDirectShipments(onProgress){
       if(trackingNumber && !f.trackingNumber){
         f.trackingNumber=trackingNumber; f.trackingUrl=buildTrackingUrl(carrierCode,trackingNumber);
         f.stage="shipped"; f.shippedAt=new Date().toISOString();
-        if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); shiftSlotDown(it.slot, it.placement); }
+        if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); pickShift(it); }
         addHistory(it,"Detected as shipped on eBay.com directly — tracking "+trackingNumber+(carrierCode?" via "+carrierCode:""));
         found++;
       }
@@ -12861,7 +12917,7 @@ function openShipping(){
   const SH_PER_PAGE=20;
   // "status" is sortable so you can group everything still waiting to be picked — that's the whole
   // point of the column: a warehouse worker wants to see what still needs pulling off the shelf.
-  const SH_COLS=[{k:"desc",label:"Title",get:it=>it.desc,t:"text"},{k:"sku",label:"SKU",get:it=>it.sku,t:"mixed"},{k:"buyer",label:"Buyer",get:it=>it.fulfillment.buyer,t:"text"},{k:"shipto",label:"Ship To",get:it=>(it.fulfillment.shipTo&&it.fulfillment.shipTo.fullName)||"",t:"text"},{k:"status",label:"Status",get:it=>it.fulfillment.pickedAt?"Picked":"",t:"text"},{k:"moved",label:"",get:it=>it.fulfillment.movedToShippingAt||"",t:"text"}];
+  const SH_COLS=[{k:"desc",label:"Title",get:it=>{var f=it.fulfillment||{};var n=parseInt(f.soldUnits,10)||0;return (it.desc||"")+(n>1?"  \u2014  PACK "+n:"");},t:"text"},{k:"sku",label:"SKU",get:it=>it.sku,t:"mixed"},{k:"buyer",label:"Buyer",get:it=>it.fulfillment.buyer,t:"text"},{k:"shipto",label:"Ship To",get:it=>(it.fulfillment.shipTo&&it.fulfillment.shipTo.fullName)||"",t:"text"},{k:"status",label:"Status",get:it=>it.fulfillment.pickedAt?"Picked":"",t:"text"},{k:"moved",label:"",get:it=>it.fulfillment.movedToShippingAt||"",t:"text"}];
   function render(){
     const stage = tab==="readyToShip" ? "readyToShip" : tab;
     const col=SH_COLS.find(c=>c.k===shSort.key) || SH_COLS[0];
@@ -13005,7 +13061,7 @@ function openShipping(){
       body.querySelector("#sh-picked").onclick=()=>{
         const targets=items.filter(i=>picked.has(i.id)&&!i.fulfillment.pickedAt); if(!targets.length) return;
         targets.forEach(it=>{ it.fulfillment.pickedAt=new Date().toISOString();
-          if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement);
+          if(it.slot && it.placement!=null) pickShift(it);
           addHistory(it,"Marked picked — physically removed from slot "+esc(it.slot||"")+", moved to shipping area"); });
         save(); wimRefreshAll(); picked.clear(); render();
       };
@@ -13891,7 +13947,7 @@ function openShippingInformation(it){
       }
       f.trackingNumber=trackingNumber||f.trackingNumber; f.trackingUrl=trackingUrl; f.stage="shipped"; f.shippedAt=new Date().toISOString();
       if(!isSim){ f.actualShipCost=selectedRate.amount; f.actualShipCarrier=selectedRate.provider; } // the real amount actually paid, not an estimate — this is what True Net Profit should use
-      if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); shiftSlotDown(it.slot, it.placement); }
+      if(it.slot && it.placement!=null && !f.pickedAt){ f.pickedAt=new Date().toISOString(); pickShift(it); }
       addHistory(it,(isSim?"Shipped (SIMULATED, no real label purchased) via ":"Shipped via ")+selectedRate.provider+" ("+selectedRate.service+", $"+selectedRate.amount+")"+(trackingNumber?" — tracking "+trackingNumber:""));
       try{ if(!it.simulated && !f.simulated) await EBAY.createShippingFulfillment(f.orderId, f.lineItemId, trackingNumber||"", "OTHER"); }catch(e){}
       save(); wimRefreshAll();
@@ -13933,7 +13989,7 @@ function openMarkShippedDialog(items,onDone){
         // Safety net only — the real shift should already have happened when this was
         // marked Picked. If that step got skipped for some reason, this still corrects
         // the slot now rather than leaving it stale indefinitely.
-        if(!f.pickedAt){ f.pickedAt=new Date().toISOString(); if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement); }
+        if(!f.pickedAt){ f.pickedAt=new Date().toISOString(); if(it.slot && it.placement!=null) pickShift(it); }
         addHistory(it,(it.simulated?"[Simulated] ":"")+"Marked shipped (tracking "+tracking+")"); okCount++;
       }catch(e){ addHistory(it,"Failed to mark shipped on eBay: "+(e&&e.message||e)); }
     }
@@ -14085,7 +14141,7 @@ function openRecentlySold(){
       body.querySelector("#rs-picked").onclick=()=>{
         const targets=items.filter(i=>picked.has(i.id)); if(!targets.length) return;
         targets.forEach(it=>{ const f=it.fulfillment;
-          if(!f.pickedAt){ f.pickedAt=new Date().toISOString(); if(it.slot && it.placement!=null) shiftSlotDown(it.slot, it.placement); addHistory(it,"Marked Picked (off the shelf) — SKU "+it.sku+" retained on record, slot position freed"); }
+          if(!f.pickedAt){ f.pickedAt=new Date().toISOString(); if(it.slot && it.placement!=null) pickShift(it); addHistory(it,"Marked Picked (off the shelf) — SKU "+it.sku+" retained on record, slot position freed"); }
         });
         picked.clear(); save(); wimRefreshAll(); render();
       };
@@ -14216,6 +14272,7 @@ function openCloudSyncTest(){
       let rows=[]; try{ rows=JSON.parse(r.body); }catch(pe){ fetchMsg.style.color="#c0392b"; fetchMsg.textContent="Couldn't read the response."; resultBox.textContent=r.body||""; return; }
       if(!DB.items) DB.items=[];
       applyCloudRows(rows);   // maps fields AND runs enrichment: adopt category, vendor=Warehouse, cost from price
+      _firstPullDone=true;
       const cloudIds=new Set(rows.filter(x=>!x.deleted_at).map(x=>x.id));
       const before=DB.items.length;
       DB.items=DB.items.filter(it=> cloudIds.has(it.id) || it.simulated);
@@ -14407,11 +14464,13 @@ async function pullEbayFees(items, onProgress){
         }
       });
 
-      f.ebayFees = round2(feeTotal);
-      f.ebayFeeLines = feeLines;
-      if(labelCost) f.shipLabelCost = round2(labelCost);
-      if(refunded) f.refundedAmount = round2(refunded);
-      f.feesPulledAt = new Date().toISOString();
+      if(!f.feesPulledAt){   // InventoryIQ owns real settled fees when feesPulledAt is set — never overwrite with WIM's own pull
+        f.ebayFees = round2(feeTotal);
+        f.ebayFeeLines = feeLines;
+        if(labelCost) f.shipLabelCost = round2(labelCost);
+        if(refunded) f.refundedAmount = round2(refunded);
+        f.feesPulledAt = new Date().toISOString();
+      }
       // Once the money has actually been paid out, the numbers are settled and won't change again.
       const settled = txns.some(t=>String(t.transactionStatus||"").toUpperCase()==="PAYOUT");
       if(settled) f.feesFinal = true;
