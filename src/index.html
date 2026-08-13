@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.74", BUILD_DATE="2026-08-08", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.76", BUILD_DATE="2026-08-09", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.76","STORAGE QUEUE NOW READS FROM SUPABASE, NOT eBAY. The Storage Queue used to poll eBay every 30 seconds while it was open (a GetMyeBaySelling call each time) -- the single biggest eBay Trading-API drain on WIM side, and it added up fast if the screen was left open. It now refreshes from the shared Supabase database instead, where InventoryIQ already writes new listings server-side, so new items still appear in the queue automatically but WIM makes ZERO eBay calls to do it. The manual Pull from eBay button is unchanged for when you deliberately want a direct eBay pull."],
+  ["3.4.75","AUTOMATIC CANCELLATIONS + RETURNS (InventoryIQ detects, WIM reacts). WIM now recognizes the cancel/return flags InventoryIQ writes server-side from eBay -- cancelledAt / stage cancelled, and returnedAt / refundAmount / stage returned. A flagged order drops out of Ready-to-Ship on its own and appears in Cancellations, Refunds, Returns for restock, with no Check-for-Cancellations click. The refund reads sign-proof (absolute value, always subtracted) so a 50 sale with a 50 refund nets to 0 either way. Auto-advance leaves cancelled/returned items alone. WIM reads/displays; InventoryIQ owns writing; restock stays a human step."],
   ["3.4.74","MULTI-QUANTITY PACKING COUNT + AUTO-ADVANCING FULFILLMENT. The shipping list shows PACK N on multi-copy sales (from fulfillment.soldUnits) so a 3-copy order says PACK 3 and nobody under-packs. WIM also advances the back half by itself: when InventoryIQ writes the shipped timestamp/tracking from eBay the item moves Ready-to-Ship to Shipping automatically, and when eBay reports delivered it moves to Completed and into Catalog -- no Mark Shipped click, no complete click. The pick is the only human step. WIM only moves its own stage and never overwrites InventoryIQ timestamps. Versions 3.4.70-73 were skipped (tags used during the release fix)."],
   ["3.4.69","SYNC HANDOFF GUARDS (InventoryIQ now owns finances + tombstones). Three protections for the first sync after WIM has been closed: (1) WIM never pushes to the cloud until it has PULLED at least once, so it can't overwrite InventoryIQ's live data with its own stale copy on reopen. (2) Tombstones respected: any item InventoryIQ soft-deleted (deleted_at) is removed locally on pull AND never pushed back to life — matched by item number, not just row id, so a legacy copy under a different id can't resurrect it. (3) Fees: WIM no longer overwrites eBay fees/label cost when feesPulledAt is already set — those are InventoryIQ's real settled numbers, WIM just displays them. Legacy pre-Aug-1 orders WIM still owns. Next: multi-quantity Ready-to-Ship packing count."],
   ["3.4.68","ONE PICK ENGINE FOR WIM AND INVENTORYIQ. Marking an item picked now runs the shelf slide-up on the SERVER via the shared pick_item function when WIM is cloud-connected -- the same operation InventoryIQ Pull Sold uses. Being one atomic, slot-locked server operation, two people picking the same slot from the two apps can no longer scramble positions. WIM no longer shifts locally when connected (that could double-shift once the moved items synced). Offline it falls back to the local shift so picking still works with no connection."],
@@ -2756,6 +2758,7 @@ function autoAdvanceFulfillment(){
   (DB.items||[]).forEach(it=>{
     const f=it.fulfillment; if(!f) return;
     if(itemStatus(it)!=="sold") return;
+    if(f.cancelledAt||f.returnedAt||f.stage==="cancelled"||f.stage==="returned") return;
     if(f.deliveredAt && f.stage!=="completed"){
       f.stage="completed"; if(!f.completedAt) f.completedAt=f.deliveredAt; if(!f.sentToCatalogAt) f.sentToCatalogAt=new Date().toISOString();
       addHistory(it,"Auto-advanced to Completed \u2014 eBay reported delivered"); moved++;
@@ -13309,7 +13312,7 @@ async function openTrueNetProfit(){
         // the real numbers WIM had already pulled were sitting unused while it showed estimates.
         const sc=match?bestShipCost(match):{v:0,real:false};
         // Refunds: a refunded sale is not profit. Read what the fee pull recorded.
-        const refund=match?(parseFloat(match.fulfillment.refundedAmount)||0):0;
+        const refund=match?Math.abs(parseFloat(match.fulfillment.refundedAmount||match.fulfillment.refundAmount)||0):0;
         rows.push({ desc:match?match.desc:("Order "+orderId), soldAt:match?match.fulfillment.soldAt:t.transactionDate,
           soldPrice, shipPaid, fees, itemCost, shipCost:sc.v, shipCostReal:sc.real, refund,
           net: soldPrice+shipPaid-refund-fees-itemCost-sc.v });
@@ -15541,9 +15544,9 @@ function openDiscrepancies(){
   }
   render();
 }
-function cancelledOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.cancelled && !i.fulfillment.restocked); }
-function refundedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.refunded); }
-function returnedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && i.fulfillment.returned && !i.fulfillment.returnResolved); }
+function cancelledOrderItems(){ return visibleItems().filter(i=>i.fulfillment && (i.fulfillment.cancelled || i.fulfillment.cancelledAt || i.fulfillment.stage==="cancelled") && !i.fulfillment.restocked); }
+function refundedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && (i.fulfillment.refunded || i.fulfillment.refundAmount)); }
+function returnedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && (i.fulfillment.returned || i.fulfillment.returnedAt || i.fulfillment.stage==="returned") && !i.fulfillment.returnResolved); }
 function openCancelledOrders(){
   if(openWindows["cancelled-orders"]){ focusWin(openWindows["cancelled-orders"].el); return; }
   const {body}=buildWindow({id:"cancelled-orders",title:"Cancelled Orders",width:1000,height:600,
@@ -15884,22 +15887,17 @@ function openMissingItem(){
   let autoPullBusy=false;
   async function autoPullTick(){
     if(!openWindows["missing-item"]){ if(autoPullTimer){ clearInterval(autoPullTimer); autoPullTimer=null; } return; }
-    if(autoPullBusy || !(typeof EBAY!=="undefined" && EBAY.ready && EBAY.ready())) return;
+    if(autoPullBusy) return;
     autoPullBusy=true;
     try{
-      await pullNewListings(null,true);
-      const list=(DB.pulledListings||[]).filter(p=>!p.simulated || (DB.simulationMode && p.simProfileId===DB.activeSimulationProfileId))
-      // Belt and braces: never DISPLAY a pre-cutoff listing even if one gets in some other way.
-      .filter(p=>{ if(p.simulated) return true; const ms=p.listedAt?Date.parse(p.listedAt):0; return !ms || ms>=PULL_CUTOFF_MS; });
-      let made=0, couldNotSlot=0;
-      list.slice().forEach(c=>{
-        const match=findSubcatByEbayId(c.categoryId);
-        if(!match || !match.section) return;                 // no confident category -- leave it
-        const r=createItemFromListing(c, match.section, match.subCategory, null);
-        if(r && r.ok){ made++; DB.pulledListings=(DB.pulledListings||[]).filter(x=>x.ebaySku!==c.ebaySku); }
-        else couldNotSlot++;
-      });
-      if(made||couldNotSlot){ save(); wimRefreshAll(); render(); }
+      // Storage Queue reads from SUPABASE (where InventoryIQ writes new listings server-side), NOT eBay
+      // directly -- so it makes ZERO eBay Trading API calls. New items InventoryIQ enumerates and stores
+      // flow in through the normal cloud sync. Use the manual "Pull from eBay" button only if you
+      // deliberately want to hit eBay.
+      if(cloudSession && typeof syncPullAndApply==="function" && !(typeof cloudSyncPaused==="function" && cloudSyncPaused())){
+        await syncPullAndApply();
+        render();
+      }
     }catch(e){ /* transient -- try again next tick */ }
     finally{ autoPullBusy=false; }
   }
