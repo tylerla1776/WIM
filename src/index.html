@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.76", BUILD_DATE="2026-08-09", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.77", BUILD_DATE="2026-08-09", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.77","PRINTABLE PROFIT & LOSS STATEMENT (Financials -> P&L Statement). A two-sheet printable report. Sheet 1: total sales and units sold at the top, a full COGS breakdown (item unit cost, shipping/label, eBay fees with eBay-itemized fee lines and taxes broken out underneath, refunds), total COGS and total profit with percent-of-sales, then Sales by eBay Category and Sales by Character -- each sorted by sales with units, sales, costs and profit per group. Sheet 2: every sold item as a list with its photo, title, condition, price, and the COGS split (unit cost, shipping, eBay fees, COGS, profit). Sales where fees are still estimated are marked (fees est.). Prints to PDF/paper via the browser print dialog. Reads the same synced sold-item data everything else uses."],
   ["3.4.76","STORAGE QUEUE NOW READS FROM SUPABASE, NOT eBAY. The Storage Queue used to poll eBay every 30 seconds while it was open (a GetMyeBaySelling call each time) -- the single biggest eBay Trading-API drain on WIM side, and it added up fast if the screen was left open. It now refreshes from the shared Supabase database instead, where InventoryIQ already writes new listings server-side, so new items still appear in the queue automatically but WIM makes ZERO eBay calls to do it. The manual Pull from eBay button is unchanged for when you deliberately want a direct eBay pull."],
   ["3.4.75","AUTOMATIC CANCELLATIONS + RETURNS (InventoryIQ detects, WIM reacts). WIM now recognizes the cancel/return flags InventoryIQ writes server-side from eBay -- cancelledAt / stage cancelled, and returnedAt / refundAmount / stage returned. A flagged order drops out of Ready-to-Ship on its own and appears in Cancellations, Refunds, Returns for restock, with no Check-for-Cancellations click. The refund reads sign-proof (absolute value, always subtracted) so a 50 sale with a 50 refund nets to 0 either way. Auto-advance leaves cancelled/returned items alone. WIM reads/displays; InventoryIQ owns writing; restock stays a human step."],
   ["3.4.74","MULTI-QUANTITY PACKING COUNT + AUTO-ADVANCING FULFILLMENT. The shipping list shows PACK N on multi-copy sales (from fulfillment.soldUnits) so a 3-copy order says PACK 3 and nobody under-packs. WIM also advances the back half by itself: when InventoryIQ writes the shipped timestamp/tracking from eBay the item moves Ready-to-Ship to Shipping automatically, and when eBay reports delivered it moves to Completed and into Catalog -- no Mark Shipped click, no complete click. The pick is the only human step. WIM only moves its own stage and never overwrites InventoryIQ timestamps. Versions 3.4.70-73 were skipped (tags used during the release fix)."],
@@ -1282,6 +1283,7 @@ const POPOUT_APPS={
   shipcompare:{ title:"Shipping Historical Comparison", open:()=>openShippingComparison() },
   netprofit:{ title:"True Net Profit", open:()=>openTrueNetProfit() },
   vendorroi:{ title:"Vendor ROI Report", open:()=>openVendorROI() },
+  pnlstatement:{ title:"P&L Statement", open:()=>openProfitLossStatement() },
   wimanalytics:{ title:"WIM Analytics", open:()=>openWimAnalytics() },
   cloudsetup:{ title:"Cloud Sync Setup", open:()=>openCloudSyncSetup() },
   localprofiles:{ title:"Local Profiles", open:()=>openLocalProfiles() },
@@ -2691,6 +2693,102 @@ function pendingStorageBadgeHtml(id){
 // Everything created in the same batch as this item (one Add Item save, or one Bulk Add
 // Create click) — used by Missing Item to show where else to check for a possible swap.
 function batchMates(it){ if(!it.storageBatchId) return []; return activeItems().filter(i=>i.storageBatchId===it.storageBatchId && i.id!==it.id); }
+function openProfitLossStatement(){
+  const all = soldItems().filter(function(it){
+    const f=it.fulfillment||{};
+    const sp=parseFloat((f.soldPrice!=null?f.soldPrice:it.retail))||0;
+    return sp>0 && !it.simulated;
+  });
+  if(!all.length){ uiAlert("No sold items with a recorded sale price yet — nothing to report."); return; }
+  const num=function(v){ const n=parseFloat(v); return isNaN(n)?0:n; };
+  const money=function(n){ return "$"+(Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  const pct=function(part,whole){ return (whole?(100*part/whole):0).toFixed(1)+"%"; };
+  const rows=all.map(function(it){
+    const f=it.fulfillment||{};
+    const sale=num(f.soldPrice!=null?f.soldPrice:it.retail);
+    const unitCost=num(it.unitCost!=null?it.unitCost:it.cost);
+    const ship=num(f.shipCostPaid);
+    const fees=num(f.ebayFees);
+    const refund=Math.abs(num(f.refundedAmount!=null?f.refundedAmount:f.refundAmount));
+    const cogs=unitCost+ship+fees;
+    return { it:it, sale:sale, unitCost:unitCost, ship:ship, fees:fees, refund:refund, cogs:cogs, profit:sale-cogs-refund,
+             cat:(it.section||"Uncategorized"), chr:(it.subCategory||"—"),
+             feeLines:(Array.isArray(f.ebayFeeLines)?f.ebayFeeLines:null), estFees:!f.feesPulledAt };
+  });
+  const T={ sales:0, units:rows.length, unitCost:0, ship:0, fees:0, refund:0, cogs:0, profit:0 };
+  rows.forEach(function(r){ T.sales+=r.sale; T.unitCost+=r.unitCost; T.ship+=r.ship; T.fees+=r.fees; T.refund+=r.refund; T.cogs+=r.cogs; T.profit+=r.profit; });
+  const feeBreak={};
+  rows.forEach(function(r){ if(r.feeLines) r.feeLines.forEach(function(fl){ const k=(fl.type||fl.label||fl.feeType||fl.name||"Other Fee").toString(); feeBreak[k]=(feeBreak[k]||0)+Math.abs(num(fl.amount!=null?fl.amount:fl.value)); }); });
+  const feeBreakRows=Object.keys(feeBreak).sort(function(a,b){return feeBreak[b]-feeBreak[a];}).map(function(k){return [k,feeBreak[k]];});
+  const groupBy=function(key){ const g={}; rows.forEach(function(r){ const kk=r[key]||"—"; if(!g[kk]) g[kk]={units:0,sales:0,cost:0,profit:0}; g[kk].units++; g[kk].sales+=r.sale; g[kk].cost+=r.cogs+r.refund; g[kk].profit+=r.profit; }); return Object.keys(g).map(function(k){ return Object.assign({name:k},g[k]); }).sort(function(a,b){return b.sales-a.sales;}); };
+  const byCat=groupBy("cat");
+  const byChar=groupBy("chr");
+  const today=new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
+  const distRows=function(list){ return list.map(function(g){ return "<tr><td>"+esc(g.name)+"</td><td class=\"r\">"+g.units+"</td><td class=\"r\">"+money(g.sales)+"</td><td class=\"r\">"+money(g.cost)+"</td><td class=\"r "+(g.profit<0?"neg":"pos")+"\">"+money(g.profit)+"</td></tr>"; }).join(""); };
+  const sheet1=""
+    +"<div class=\"sheet\">"
+    +"<div class=\"hd\"><h1>Profit &amp; Loss Statement</h1><div class=\"sub\">Generated "+esc(today)+" · "+T.units+" sold items</div></div>"
+    +"<div class=\"kpis\">"
+    +"<div class=\"k\"><div class=\"kl\">Total Sales</div><div class=\"kv\">"+money(T.sales)+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Items Sold</div><div class=\"kv\">"+T.units+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Total COGS</div><div class=\"kv\">"+money(T.cogs)+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Total Profit</div><div class=\"kv "+(T.profit<0?"neg":"pos")+"\">"+money(T.profit)+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Net Margin</div><div class=\"kv\">"+pct(T.profit,T.sales)+"</div></div>"
+    +"</div>"
+    +"<h2>Cost Breakdown (COGS)</h2>"
+    +"<table class=\"t\"><tr><th>Cost</th><th class=\"r\">Amount</th><th class=\"r\">% of Sales</th></tr>"
+    +"<tr><td>Item Unit Cost</td><td class=\"r\">"+money(T.unitCost)+"</td><td class=\"r\">"+pct(T.unitCost,T.sales)+"</td></tr>"
+    +"<tr><td>Shipping (carrier / label)</td><td class=\"r\">"+money(T.ship)+"</td><td class=\"r\">"+pct(T.ship,T.sales)+"</td></tr>"
+    +"<tr><td>eBay Fees"+(feeBreakRows.length?" (itemized below, taxes included here)":"")+"</td><td class=\"r\">"+money(T.fees)+"</td><td class=\"r\">"+pct(T.fees,T.sales)+"</td></tr>"
+    +feeBreakRows.map(function(x){ return "<tr class=\"sub2\"><td>&nbsp;&nbsp;— "+esc(x[0])+"</td><td class=\"r\">"+money(x[1])+"</td><td class=\"r\"></td></tr>"; }).join("")
+    +"<tr><td>Refunds</td><td class=\"r\">"+money(T.refund)+"</td><td class=\"r\">"+pct(T.refund,T.sales)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Total COGS</td><td class=\"r\">"+money(T.cogs)+"</td><td class=\"r\">"+pct(T.cogs,T.sales)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Total Profit</td><td class=\"r "+(T.profit<0?"neg":"pos")+"\">"+money(T.profit)+"</td><td class=\"r\">"+pct(T.profit,T.sales)+"</td></tr>"
+    +"</table>"
+    +"<h2>Sales by eBay Category</h2>"
+    +"<table class=\"t\"><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th></tr>"+distRows(byCat)+"</table>"
+    +"<h2>Sales by Character</h2>"
+    +"<table class=\"t\"><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th></tr>"+distRows(byChar)+"</table>"
+    +"</div>";
+  const itemRows=rows.slice().sort(function(a,b){return b.sale-a.sale;}).map(function(r){
+    const img=r.it.image?("<img src=\""+esc(r.it.image)+"\" />"):"<div class=\"noimg\">—</div>";
+    return "<tr><td class=\"imgc\">"+img+"</td>"
+      +"<td>"+esc(r.it.desc||r.it.upc||"")+"<div class=\"meta\">"+esc(r.it.sku||"")+(r.estFees?" · <span class=\"est\">fees est.</span>":"")+"</div></td>"
+      +"<td>"+esc(r.it.condition||"")+"</td>"
+      +"<td class=\"r\">"+money(r.sale)+"</td>"
+      +"<td class=\"r\">"+money(r.unitCost)+"</td>"
+      +"<td class=\"r\">"+money(r.ship)+"</td>"
+      +"<td class=\"r\">"+money(r.fees)+"</td>"
+      +"<td class=\"r\">"+money(r.cogs)+"</td>"
+      +"<td class=\"r "+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</td></tr>";
+  }).join("");
+  const sheet2=""
+    +"<div class=\"sheet pagebreak\">"
+    +"<div class=\"hd\"><h1>Sold Items</h1><div class=\"sub\">"+T.units+" items · sorted by sale price</div></div>"
+    +"<table class=\"t items\"><tr><th>Photo</th><th>Title</th><th>Cond.</th><th class=\"r\">Price</th><th class=\"r\">Unit Cost</th><th class=\"r\">Ship</th><th class=\"r\">eBay Fees</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th></tr>"+itemRows+"</table>"
+    +"</div>";
+  const css="<style>"
+    +"@page{size:letter;margin:0.5in;} *{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box;}"
+    +"body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a2e;margin:0;font-size:12px;}"
+    +".sheet{padding:0 0 24px 0;} .pagebreak{page-break-before:always;}"
+    +".hd{border-bottom:3px solid #1a2b4a;padding-bottom:8px;margin-bottom:14px;} h1{margin:0;font-size:24px;color:#1a2b4a;} .sub{color:#667;font-size:12px;margin-top:2px;}"
+    +"h2{font-size:14px;color:#1a2b4a;margin:18px 0 6px;border-bottom:1px solid #ccd;padding-bottom:3px;}"
+    +".kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;} .k{flex:1;min-width:110px;border:1px solid #dde;border-radius:8px;padding:8px 10px;background:#f7f8fc;}"
+    +".kl{font-size:10px;color:#778;text-transform:uppercase;letter-spacing:.03em;} .kv{font-size:19px;font-weight:800;margin-top:2px;}"
+    +"table.t{width:100%;border-collapse:collapse;margin-bottom:6px;} .t th{background:#1a2b4a;color:#fff;text-align:left;padding:5px 7px;font-size:11px;} .t td{padding:4px 7px;border-bottom:1px solid #eef;}"
+    +".t .r{text-align:right;} .tot td{font-weight:800;border-top:2px solid #1a2b4a;background:#f0f2f8;} .sub2 td{color:#778;font-size:11px;}"
+    +".pos{color:#1F7244;} .neg{color:#c0392b;}"
+    +".items img{width:44px;height:44px;object-fit:cover;border-radius:4px;} .imgc{width:52px;} .noimg{width:44px;height:44px;background:#eef;border-radius:4px;text-align:center;line-height:44px;color:#aab;}"
+    +".meta{font-size:10px;color:#889;} .est{color:#b8860b;}"
+    +"</style>";
+  let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
+  ifr=document.createElement("iframe"); ifr.id="wim-print-frame"; ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(ifr);
+  const doc=ifr.contentWindow.document; doc.open();
+  doc.write("<html><head><title>WIM — Profit and Loss</title>"+css+"</head><body>"+sheet1+sheet2+"</body></html>"); doc.close();
+  setTimeout(function(){ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },400);
+}
+
 function soldItems(){ return visibleItems().filter(i=>i.sold||itemStatus(i)==="inactive"); }
 function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"); }
 // ---- Fulfillment workflow data ----
@@ -3723,7 +3821,7 @@ function nodeActionsRaw(node){
   if(node.key==="item") return ["Item Maintenance","Category Maintenance","Group Maintenance"];
   if(node.key==="addsell") return ["Add Inventory","Bulk Add Inventory","Storage Queue","Adjust Inventory"];
   if(node.key==="fulfillment") return ["Recently Listed","Shipping","Cancellations, Refunds, Returns","Shipping Historical Comparison"];
-  if(node.key==="financials") return ["True Net Profit","Vendor ROI Report","WIM Analytics"];
+  if(node.key==="financials") return ["True Net Profit","Vendor ROI Report","P&L Statement","WIM Analytics"];
   if(node.key==="whdiscrep") return ["Storage Queue"];
   if(node.key==="reports") return ["Aging Inventory","Stale Listings","Low Stock","Listing Traffic","Item Report","Movement Report","Active Summary","Item Rank","Listing Efficiency"];
   if(node.key==="invoices") return ["Records"];
@@ -4764,6 +4862,7 @@ function handleAction(k,a){
   if(k==="fulfillment"&&a==="Cancellations, Refunds, Returns") return launchApp("crr");
   if(k==="financials"&&a==="True Net Profit") return launchApp("netprofit");
   if(k==="financials"&&a==="Vendor ROI Report") return launchApp("vendorroi");
+  if(k==="financials"&&a==="P&L Statement") return launchApp("pnlstatement");
   if(k==="financials"&&a==="WIM Analytics") return launchApp("wimanalytics");
   if(k==="comm"&&a==="Communication") return launchApp("comm");
   if(k==="comm"&&a==="Reviews") return launchApp("reviews");
