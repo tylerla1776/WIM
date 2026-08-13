@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.77", BUILD_DATE="2026-08-09", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.79", BUILD_DATE="2026-08-13", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.79","THE PULL IS THE GATE + CATCH-UP ON PULL. An item now waits in Ready to Ship until it is actually pulled off the shelf -- even if eBay already reports it shipped or delivered -- so the physical pick (which frees the slot) is never skipped. The moment the item is marked pulled (in WIM or InventoryIQ), it catches up to exactly where it really is: if eBay already shows shipped it jumps to Shipping, if delivered it jumps to Completed and Catalog, immediately. All fulfillment fields (pickedAt, shippedAt, trackingNumber, deliveredAt, stage, soldPrice, fees) are read straight from the shared record under InventoryIQ exact names. Revenue and cost are assessed at the sale (any sold item counts with its sale price and acquisition cost; real eBay fees and label cost refine those once they settle)."],
+  ["3.4.78","SOLD ITEMS NOW LAND IN READY TO SHIP AUTOMATICALLY. Items InventoryIQ marks sold in the shared database were syncing into WIM but not appearing on the Shipping screen: Ready to Ship only shows items whose fulfillment stage is readyToShip, and InventoryIQ sets sold=true without setting that stage. WIM now gives any synced sold item that has no stage the readyToShip stage on every pull (not just at startup), so a sale detected on the phone shows up in WIM Shipping on the next sync -- no Pull Sold Orders click needed. Cancelled/returned/shipped/completed items keep their own stage untouched."],
   ["3.4.77","PRINTABLE PROFIT & LOSS STATEMENT (Financials -> P&L Statement). A two-sheet printable report. Sheet 1: total sales and units sold at the top, a full COGS breakdown (item unit cost, shipping/label, eBay fees with eBay-itemized fee lines and taxes broken out underneath, refunds), total COGS and total profit with percent-of-sales, then Sales by eBay Category and Sales by Character -- each sorted by sales with units, sales, costs and profit per group. Sheet 2: every sold item as a list with its photo, title, condition, price, and the COGS split (unit cost, shipping, eBay fees, COGS, profit). Sales where fees are still estimated are marked (fees est.). Prints to PDF/paper via the browser print dialog. Reads the same synced sold-item data everything else uses."],
   ["3.4.76","STORAGE QUEUE NOW READS FROM SUPABASE, NOT eBAY. The Storage Queue used to poll eBay every 30 seconds while it was open (a GetMyeBaySelling call each time) -- the single biggest eBay Trading-API drain on WIM side, and it added up fast if the screen was left open. It now refreshes from the shared Supabase database instead, where InventoryIQ already writes new listings server-side, so new items still appear in the queue automatically but WIM makes ZERO eBay calls to do it. The manual Pull from eBay button is unchanged for when you deliberately want a direct eBay pull."],
   ["3.4.75","AUTOMATIC CANCELLATIONS + RETURNS (InventoryIQ detects, WIM reacts). WIM now recognizes the cancel/return flags InventoryIQ writes server-side from eBay -- cancelledAt / stage cancelled, and returnedAt / refundAmount / stage returned. A flagged order drops out of Ready-to-Ship on its own and appears in Cancellations, Refunds, Returns for restock, with no Check-for-Cancellations click. The refund reads sign-proof (absolute value, always subtracted) so a 50 sale with a 50 refund nets to 0 either way. Auto-advance leaves cancelled/returned items alone. WIM reads/displays; InventoryIQ owns writing; restock stays a human step."],
@@ -1151,7 +1153,7 @@ async function syncSlotsPull(){
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
-  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ autoAdvanceFulfillment(); }catch(e){} }
+  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} }
   await syncSlotsPull();
   await pullCategories();
   return r;
@@ -2516,6 +2518,7 @@ async function boot(){
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const b0=document.getElementById("sim-banner"); if(b0) b0.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
     try{ migrateRecentlySold(); }catch(e){ console.warn("recentlySold migration failed", e); }
     try{ const n=repairSoldStatus(); if(n) console.log("repaired "+n+" sold item(s) that weren't showing in Shipping"); }catch(e){ console.warn("sold-status repair failed", e); }
+    try{ ensureShippingStages(); }catch(e){ console.warn("shipping-stage repair failed", e); }
     try{ autoAdvanceFulfillment(); }catch(e){ console.warn("auto-advance failed", e); }
     try{ const n=repairOnHand(); if(n) console.log("normalised on-hand on "+n+" item(s) — one record is one physical copy"); }catch(e){ console.warn("on-hand repair failed", e); }
     try{ const n=repairDeleted(); if(n) console.log("repaired "+n+" item(s) that were deleted but never actually left inventory"); }catch(e){ console.warn("deleted repair failed", e); }
@@ -2851,12 +2854,27 @@ function repairSoldStatus(){
   if(fixed) save();
   return fixed;
 }
+function ensureShippingStages(){
+  // A sold item with no fulfillment stage lands nowhere in Shipping. InventoryIQ marks items sold in
+  // Supabase but does not always set a stage, so give any sold, un-staged item the readyToShip stage
+  // -- that is what the Ready to Ship screen filters on. Runs on every pull, not just at startup.
+  let n=0;
+  (DB.items||[]).forEach(function(it){
+    if(it.simulated) return;
+    if(itemStatus(it)!=="sold") return;
+    var f=ensureFulfillment(it);
+    if(!f.stage){ f.stage="readyToShip"; n++; }
+  });
+  if(n) save();
+  return n;
+}
 function autoAdvanceFulfillment(){
   let moved=0;
   (DB.items||[]).forEach(it=>{
     const f=it.fulfillment; if(!f) return;
     if(itemStatus(it)!=="sold") return;
     if(f.cancelledAt||f.returnedAt||f.stage==="cancelled"||f.stage==="returned") return;
+    if(!f.pickedAt) return;   // the PICK is the gate: nothing advances past Ready to Ship until it has been pulled
     if(f.deliveredAt && f.stage!=="completed"){
       f.stage="completed"; if(!f.completedAt) f.completedAt=f.deliveredAt; if(!f.sentToCatalogAt) f.sentToCatalogAt=new Date().toISOString();
       addHistory(it,"Auto-advanced to Completed \u2014 eBay reported delivered"); moved++;
@@ -3012,6 +3030,8 @@ function pickShift(it){
         var rows=[]; if(r && r.ok && r.body){ try{ rows=JSON.parse(r.body); }catch(e){} }
         if(Array.isArray(rows) && rows.length && typeof applyCloudRows==="function"){ applyCloudRows(rows); }
         else if(typeof syncPullAndApply==="function"){ syncPullAndApply(); }
+        try{ ensureShippingStages(); }catch(e){}
+        try{ autoAdvanceFulfillment(); }catch(e){}   // pulled item immediately catches up to shipped/completed if eBay already shows it there
       }catch(e){}
     }).catch(function(){
       try{ shiftSlotDown(_slot, _pl); save(); if(typeof wimRefreshAll==="function") wimRefreshAll(); }catch(e){}
@@ -14375,6 +14395,8 @@ function openCloudSyncTest(){
       if(!DB.items) DB.items=[];
       applyCloudRows(rows);   // maps fields AND runs enrichment: adopt category, vendor=Warehouse, cost from price
       _firstPullDone=true;
+      try{ ensureShippingStages(); }catch(e){}
+      try{ autoAdvanceFulfillment(); }catch(e){}
       const cloudIds=new Set(rows.filter(x=>!x.deleted_at).map(x=>x.id));
       const before=DB.items.length;
       DB.items=DB.items.filter(it=> cloudIds.has(it.id) || it.simulated);
