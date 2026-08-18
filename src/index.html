@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.79", BUILD_DATE="2026-08-13", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.80", BUILD_DATE="2026-08-17", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.80","SHIPPED ITEMS COMPLETE AFTER 7 DAYS (was 14). eBay does not expose a delivery timestamp, so completion runs on a window after the real shipped date InventoryIQ now writes from eBay. Shortened to 7 days, which covers domestic media mail, and the item now carries on into Catalog at the same time instead of stopping at Completed. The check also runs on every cloud sync rather than only on a 5-minute timer, so a backlog catches up as soon as WIM pulls. Cancelled and returned orders are skipped. Still adjustable in fulfillment settings if 7 days proves too quick. (Attaching USPS/UPS/FedEx tracking APIs later would make this exact rather than time-based.)"],
   ["3.4.79","THE PULL IS THE GATE + CATCH-UP ON PULL. An item now waits in Ready to Ship until it is actually pulled off the shelf -- even if eBay already reports it shipped or delivered -- so the physical pick (which frees the slot) is never skipped. The moment the item is marked pulled (in WIM or InventoryIQ), it catches up to exactly where it really is: if eBay already shows shipped it jumps to Shipping, if delivered it jumps to Completed and Catalog, immediately. All fulfillment fields (pickedAt, shippedAt, trackingNumber, deliveredAt, stage, soldPrice, fees) are read straight from the shared record under InventoryIQ exact names. Revenue and cost are assessed at the sale (any sold item counts with its sale price and acquisition cost; real eBay fees and label cost refine those once they settle)."],
   ["3.4.78","SOLD ITEMS NOW LAND IN READY TO SHIP AUTOMATICALLY. Items InventoryIQ marks sold in the shared database were syncing into WIM but not appearing on the Shipping screen: Ready to Ship only shows items whose fulfillment stage is readyToShip, and InventoryIQ sets sold=true without setting that stage. WIM now gives any synced sold item that has no stage the readyToShip stage on every pull (not just at startup), so a sale detected on the phone shows up in WIM Shipping on the next sync -- no Pull Sold Orders click needed. Cancelled/returned/shipped/completed items keep their own stage untouched."],
   ["3.4.77","PRINTABLE PROFIT & LOSS STATEMENT (Financials -> P&L Statement). A two-sheet printable report. Sheet 1: total sales and units sold at the top, a full COGS breakdown (item unit cost, shipping/label, eBay fees with eBay-itemized fee lines and taxes broken out underneath, refunds), total COGS and total profit with percent-of-sales, then Sales by eBay Category and Sales by Character -- each sorted by sales with units, sales, costs and profit per group. Sheet 2: every sold item as a list with its photo, title, condition, price, and the COGS split (unit cost, shipping, eBay fees, COGS, profit). Sales where fees are still estimated are marked (fees est.). Prints to PDF/paper via the browser print dialog. Reads the same synced sold-item data everything else uses."],
@@ -1153,7 +1154,7 @@ async function syncSlotsPull(){
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
-  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} }
+  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
   await syncSlotsPull();
   await pullCategories();
   return r;
@@ -12632,12 +12633,20 @@ function mapReturnReason(code){
   return m[code]||"";
 }
 function checkAutoComplete(){
-  const days=(DB.fulfillmentSettings&&DB.fulfillmentSettings.autoCompleteDays)||14;
+  // eBay does not expose a delivery timestamp, so completion runs on a time window after the
+  // real shipped date (which InventoryIQ writes from eBay). 7 days covers domestic media mail.
+  const days=(DB.fulfillmentSettings&&DB.fulfillmentSettings.autoCompleteDays)||7;
   const cutoff=Date.now()-days*86400000;
   let moved=0;
   fulfillmentItems("shipped").forEach(it=>{
-    const shippedAt=it.fulfillment.shippedAt?new Date(it.fulfillment.shippedAt).getTime():null;
-    if(shippedAt && shippedAt<=cutoff){ it.fulfillment.stage="completed"; it.fulfillment.completedAt=new Date().toISOString(); addHistory(it,"Auto-moved to Completed ("+days+" day(s) after shipping)"); moved++; }
+    const f=it.fulfillment||{};
+    if(f.cancelledAt||f.returnedAt||f.stage==="cancelled"||f.stage==="returned") return;
+    const shippedAt=f.shippedAt?new Date(f.shippedAt).getTime():null;
+    if(shippedAt && shippedAt<=cutoff){
+      f.stage="completed"; f.completedAt=new Date().toISOString();
+      if(!f.sentToCatalogAt) f.sentToCatalogAt=f.completedAt;   // and on into Catalog
+      addHistory(it,"Auto-moved to Completed ("+days+" day(s) after shipping)"); moved++;
+    }
   });
   if(moved){ save(); wimRefreshAll(); }
 }
@@ -14397,6 +14406,7 @@ function openCloudSyncTest(){
       _firstPullDone=true;
       try{ ensureShippingStages(); }catch(e){}
       try{ autoAdvanceFulfillment(); }catch(e){}
+      try{ checkAutoComplete(); }catch(e){}
       const cloudIds=new Set(rows.filter(x=>!x.deleted_at).map(x=>x.id));
       const before=DB.items.length;
       DB.items=DB.items.filter(it=> cloudIds.has(it.id) || it.simulated);
