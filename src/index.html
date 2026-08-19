@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.80", BUILD_DATE="2026-08-17", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.83", BUILD_DATE="2026-08-18", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.83","DELIVERY + COSTING ALIGNED WITH INVENTORYIQ. eBay does not expose a real delivery date, so WIM no longer waits on one: it now completes an order once eBay estimated delivery date has actually passed, with the 7-day-after-shipped rule still backstopping it, so nothing stalls in Shipping forever. And WIM warehouse cost tiers are now pinned to the same tier table InventoryIQ owns (under $14.95 = $1, $14.95 = $2, $24.95 = $3, $29.95 = $5, $39.95 = $6, $49.95+ = $7) so both apps derive identical unit cost and report the same profit and margin on the same item. With eBay fees now populating on all sold rows, the P&L Statement should show real fees rather than estimates."],
+  ["3.4.82","P&L NOW MATCHES THE SHIPPING SCREENS. The statement was pulling in any item marked inactive -- ended or deactivated listings that never actually sold -- and counting their ASKING price as revenue, so it listed items that appear nowhere in Ready to Ship, Shipping or Completed while missing real sales. It now uses exactly the same definition of sold that the Shipping tabs use, so the item list and the totals line up with what you see there. Items whose eBay fees have not settled yet still show as estimated (fees est.) with zero fees -- that is real missing data from eBay, not a reporting choice, and those numbers fill in once the fees post."],
+  ["3.4.81","AUTOMATIC SYNC NOW ACTUALLY CATCHES SHIPPED/STAGE CHANGES. Root cause of items sitting in Ready to Ship until someone clicked Pull Cloud by hand: the background sync asked only for rows changed since the last sync, but InventoryIQ writes fulfillment updates (shipped, tracking, stage) that do not always bump the row updated_at, so those rows looked unchanged and were skipped forever while the cursor moved past them. The manual button worked because it pulls everything. Now every fifth background cycle does a full pull, so a missed update is picked up within a few minutes with no clicking. Items should move Picked to Shipping to Completed on their own again."],
   ["3.4.80","SHIPPED ITEMS COMPLETE AFTER 7 DAYS (was 14). eBay does not expose a delivery timestamp, so completion runs on a window after the real shipped date InventoryIQ now writes from eBay. Shortened to 7 days, which covers domestic media mail, and the item now carries on into Catalog at the same time instead of stopping at Completed. The check also runs on every cloud sync rather than only on a 5-minute timer, so a backlog catches up as soon as WIM pulls. Cancelled and returned orders are skipped. Still adjustable in fulfillment settings if 7 days proves too quick. (Attaching USPS/UPS/FedEx tracking APIs later would make this exact rather than time-based.)"],
   ["3.4.79","THE PULL IS THE GATE + CATCH-UP ON PULL. An item now waits in Ready to Ship until it is actually pulled off the shelf -- even if eBay already reports it shipped or delivered -- so the physical pick (which frees the slot) is never skipped. The moment the item is marked pulled (in WIM or InventoryIQ), it catches up to exactly where it really is: if eBay already shows shipped it jumps to Shipping, if delivered it jumps to Completed and Catalog, immediately. All fulfillment fields (pickedAt, shippedAt, trackingNumber, deliveredAt, stage, soldPrice, fees) are read straight from the shared record under InventoryIQ exact names. Revenue and cost are assessed at the sale (any sold item counts with its sale price and acquisition cost; real eBay fees and label cost refine those once they settle)."],
   ["3.4.78","SOLD ITEMS NOW LAND IN READY TO SHIP AUTOMATICALLY. Items InventoryIQ marks sold in the shared database were syncing into WIM but not appearing on the Shipping screen: Ready to Ship only shows items whose fulfillment stage is readyToShip, and InventoryIQ sets sold=true without setting that stage. WIM now gives any synced sold item that has no stage the readyToShip stage on every pull (not just at startup), so a sale detected on the phone shows up in WIM Shipping on the next sync -- no Pull Sold Orders click needed. Cancelled/returned/shipped/completed items keep their own stage untouched."],
@@ -2320,9 +2323,16 @@ async function addHistorySmart(itemId,note){
 // everything once — every sync after that only asks for changes. The watermark is the
 // newest "updated_at" actually seen in the server's response, not the device's own clock —
 // a device's clock can drift, the server's timestamps can't.
+let _deltaCycles=0;
 async function syncDelta(){
   if(!cloudSession) return { ok:false, error:"Not logged in" };
-  const since=DB.cloud&&DB.cloud.lastSyncedAt;
+  // Every 5th cycle, ignore the cursor and pull EVERYTHING. The delta query only returns rows whose
+  // updated_at moved, but InventoryIQ writes fulfillment changes (shipped / stage / tracking) that do
+  // not always bump updated_at -- those rows look unchanged forever and were being missed permanently,
+  // which is why items sat in Ready to Ship until someone clicked the manual Pull Cloud button.
+  _deltaCycles++;
+  const forceFull=(_deltaCycles%5===1);
+  const since=forceFull?null:(DB.cloud&&DB.cloud.lastSyncedAt);
   try{
     const r = since ? await Cloud.getItemsSince(cloudSession.session_token,since) : await Cloud.getItems(cloudSession.session_token);
     if(!r.ok) return { ok:false, error:r.body, status:r.status };
@@ -2519,6 +2529,7 @@ async function boot(){
     try{ document.body.classList.toggle("sim-active", !!DB.simulationMode); const b0=document.getElementById("sim-banner"); if(b0) b0.classList.toggle("hidden", !DB.simulationMode); }catch(e){}
     try{ migrateRecentlySold(); }catch(e){ console.warn("recentlySold migration failed", e); }
     try{ const n=repairSoldStatus(); if(n) console.log("repaired "+n+" sold item(s) that weren't showing in Shipping"); }catch(e){ console.warn("sold-status repair failed", e); }
+    try{ alignWarehouseCostTiers(); }catch(e){}
     try{ ensureShippingStages(); }catch(e){ console.warn("shipping-stage repair failed", e); }
     try{ autoAdvanceFulfillment(); }catch(e){ console.warn("auto-advance failed", e); }
     try{ const n=repairOnHand(); if(n) console.log("normalised on-hand on "+n+" item(s) — one record is one physical copy"); }catch(e){ console.warn("on-hand repair failed", e); }
@@ -2698,10 +2709,15 @@ function pendingStorageBadgeHtml(id){
 // Create click) — used by Missing Item to show where else to check for a possible swap.
 function batchMates(it){ if(!it.storageBatchId) return []; return activeItems().filter(i=>i.storageBatchId===it.storageBatchId && i.id!==it.id); }
 function openProfitLossStatement(){
-  const all = soldItems().filter(function(it){
+  // Use the SAME definition of "sold" the Shipping screen uses (status === sold). soldItems()
+  // also sweeps in anything merely marked inactive -- ended/deactivated listings that never
+  // actually sold -- which was padding the statement with revenue that never happened.
+  const all = visibleItems().filter(function(it){
+    if(it.simulated) return false;
+    if(itemStatus(it)!=="sold") return false;
     const f=it.fulfillment||{};
-    const sp=parseFloat((f.soldPrice!=null?f.soldPrice:it.retail))||0;
-    return sp>0 && !it.simulated;
+    const sp=parseFloat((f.soldPrice!=null&&f.soldPrice!==""?f.soldPrice:it.retail))||0;
+    return sp>0;
   });
   if(!all.length){ uiAlert("No sold items with a recorded sale price yet — nothing to report."); return; }
   const num=function(v){ const n=parseFloat(v); return isNaN(n)?0:n; };
@@ -2876,8 +2892,12 @@ function autoAdvanceFulfillment(){
     if(itemStatus(it)!=="sold") return;
     if(f.cancelledAt||f.returnedAt||f.stage==="cancelled"||f.stage==="returned") return;
     if(!f.pickedAt) return;   // the PICK is the gate: nothing advances past Ready to Ship until it has been pulled
-    if(f.deliveredAt && f.stage!=="completed"){
-      f.stage="completed"; if(!f.completedAt) f.completedAt=f.deliveredAt; if(!f.sentToCatalogAt) f.sentToCatalogAt=new Date().toISOString();
+    // eBay exposes no true delivery date. InventoryIQ writes estimatedDeliveryAt (a window), so treat
+    // that as delivered once it is actually in the past; the 7-day-after-shipped sweep still backstops it.
+    var _est=f.estimatedDeliveryAt && Date.parse(f.estimatedDeliveryAt)<=Date.now() ? f.estimatedDeliveryAt : null;
+    var _del=f.deliveredAt || _est;
+    if(_del && f.stage!=="completed"){
+      f.stage="completed"; if(!f.completedAt) f.completedAt=_del; if(!f.sentToCatalogAt) f.sentToCatalogAt=new Date().toISOString();
       addHistory(it,"Auto-advanced to Completed \u2014 eBay reported delivered"); moved++;
     } else if(f.shippedAt && f.stage==="readyToShip"){
       f.stage="shipped"; if(!f.movedToShippingAt) f.movedToShippingAt=f.shippedAt;
@@ -3154,6 +3174,17 @@ function vendorPool(vendor){ if(!vendor) return null; if(!DB.vendorCosting[vendo
 function vendorAvgCost(vendor){ const p=DB.vendorCosting[vendor]; if(!p || !p.unitsRemaining) return null; return p.costRemaining/p.unitsRemaining; }
 // Warehouse vendor cost is a pure function of the listing price, via the editable tier table.
 // Returns the cost for a given price, or null if price isn't a usable number.
+// Canonical warehouse cost tiers, matching the shared vendor_cost_tiers table InventoryIQ owns in
+// Supabase. Both apps must derive cost the same way or the two report different profit on one item.
+const IQ_COST_TIERS=[{maxUnder:14.95,cost:1},{maxUnder:24.95,cost:2},{maxUnder:29.95,cost:3},{maxUnder:39.95,cost:5},{maxUnder:49.95,cost:6},{maxUnder:null,cost:7}];
+function alignWarehouseCostTiers(){
+  try{
+    const cur=JSON.stringify(DB.warehouseCostTiers||[]);
+    const want=JSON.stringify(IQ_COST_TIERS);
+    if(cur!==want){ DB.warehouseCostTiers=JSON.parse(want); save(); return true; }
+  }catch(e){}
+  return false;
+}
 function warehouseCostForPrice(price){
   const p=parseFloat(price); if(isNaN(p)) return null;
   const tiers=DB.warehouseCostTiers||[];
