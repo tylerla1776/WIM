@@ -516,7 +516,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.89", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.92", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -622,6 +622,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.92","P&L REBUILT: SUMMARY, OVERVIEW, AND A THREE-PART SALES LEDGER WITH ESTIMATES. Page 1 is a Profit and Loss Summary -- settled sales with their full cost breakdown, then a Projected Position adding estimates for sales not yet fully costed. Page 2 is the Sales Overview (by eBay category and by character, with margin). Page 3 onward is the Sales Ledger, split into Settled, Sales Pending (shipped but charges not posted) and Awaiting Shipment (sold, not yet shipped), each newest first with both sold and shipped dates. Unknown figures no longer print as $0.00, which read as genuinely free shipping -- every missing value now shows an ESTIMATE in gold with an asterisk: shipping at the average settled label cost, eBay fees at the average settled rate, with COGS and profit flowing from those. Estimates are replaced by real charges automatically as they post, and items move up through the sections on their own. Tables repeat their column headers on every page they span."],
+  ["3.4.91","PENDING SALES NOW SEPARATE NORMAL SETTLEMENT LAG FROM GENUINELY OVERDUE CHARGES. eBay bills a shipping label when it is bought and settles it days later, so an item that sat before shipping is not late -- the wait has to be measured from the SHIP date, not the sale date, or anything that waited on the shelf gets wrongly flagged. Pending sales now split into Awaiting Settlement (shipped within seven days, or not yet shipped -- normal) and Overdue (shipped over seven days ago with the charge still missing -- worth investigating), and overdue rows are labelled with how many days they have been waiting. Both stay out of the settled totals, because an order with no label cost has an unknown cost of goods and folding it in would count shipping as free and overstate profit."],
+  ["3.4.90","AN ORDER IS ONLY SETTLED WHEN BOTH THE eBAY FEE AND THE SHIPPING LABEL COST ARE KNOWN. Previously an order counted as settled the moment eBay fees arrived, even with no label cost yet -- and a missing label cost was being read as zero, so shipping fell out of cost of goods entirely and profit came out too high on those sales. Roughly twenty orders were inflating the totals that way. Missing label cost is now treated as missing rather than free: those orders move into Sales Pending Settlement until the label transaction posts, so Total COGS, Net Profit and Net Margin reflect only fully costed sales. Sales still waiting on a label cost are listed in the pending section with their gross sales, so nothing disappears."],
   ["3.4.89","THE P&L WAS DELETING THE WAREHOUSE MARKER FROM DESCRIPTIONS. Version 3.4.85 trimmed what looked like boilerplate off each listing description and stripped SKU W / SKU WAREHOUSE -- which is exactly the stamp used to verify an item came from the warehouse. Real warehouse items therefore printed as though they carried no marker at all and looked like legacy stock that had leaked in. Nothing was ever wrong with the items or the sync: the marker is now left intact and descriptions print as written, so SKU W is visible again for verification."],
   ["3.4.88","DELETIONS NOW REACH WIM IMMEDIATELY. Items deleted in InventoryIQ could linger in WIM because the normal item feed leaves deleted rows out entirely, so a deletion had no way to travel. WIM now asks for deletions on their own channel every sync, remembering how far it has already read so it only fetches new ones. A deleted item is removed outright -- out of shipping, completed, catalog and the P&L, including any sale attached to it -- because deleting it in InventoryIQ means it was never our inventory, not merely that it should be hidden from here on."],
   ["3.4.87","LEGACY STOCK NO LONGER LEAKS INTO WIM. The eBay account also sells older inventory that was never part of this system, and those rows were reaching Shipping, Completed, Catalog and the P&L. WIM now applies the same ownership test InventoryIQ uses, at the point items sync in, so a legacy row never enters WIM at all: anything deleted (tombstoned) in InventoryIQ is ignored forever even if it sold and has a valid order; anything listed before 1 Aug 2026 -- or with no readable listing date at all -- is treated as legacy; and rows with no real title, or whose title is just the eBay item number, are skipped as junk. Copies that got in before this rule are removed on the next sync."],
@@ -2776,112 +2779,170 @@ function openProfitLossStatement(){
   if(!all.length){ uiAlert("No sold items with a recorded sale price yet — nothing to report."); return; }
   const num=function(v){ const n=parseFloat(v); return isNaN(n)?0:n; };
   const money=function(n){ return "$"+(Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  const est=function(n){ return "<span class=\"estv\">"+money(n)+"*</span>"; };
   const pct=function(part,whole){ return (whole?(100*part/whole):0).toFixed(1)+"%"; };
-  const dt=function(v){ if(!v) return "—"; const d=new Date(v); return isNaN(d.getTime())?"—":d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
+  const dt=function(ms){ if(!ms) return "—"; const d=new Date(ms); return isNaN(d.getTime())?"—":d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
+
   const rows=all.map(function(it){
     const f=it.fulfillment||{};
     const sale=num(f.soldPrice!=null&&f.soldPrice!==""?f.soldPrice:it.retail);
     const unitCost=num(it.unitCost!=null?it.unitCost:it.cost);
-    const ship=num(f.shipCostPaid);
-    const fees=num(f.ebayFees);
+    const hasShip=(f.shipCostPaid!=null&&f.shipCostPaid!=="");
+    const hasFees=(f.ebayFees!=null&&f.ebayFees!=="");
     const refund=Math.abs(num(f.refundedAmount!=null?f.refundedAmount:f.refundAmount));
-    const cogs=unitCost+ship+fees;
-    const soldMs=(function(){ const c=[it.soldAt,f.soldAt,f.shippedAt,it.sold_date]; for(var i=0;i<c.length;i++){ if(c[i]){ var t=Date.parse(c[i]); if(!isNaN(t)) return t; } } return 0; })();
+    const shippedMs=(function(){ var t=Date.parse(f.shippedAt||""); return isNaN(t)?0:t; })();
+    const soldMs=(function(){ const c=[it.soldAt,f.soldAt,f.shippedAt]; for(var i=0;i<c.length;i++){ if(c[i]){ var t=Date.parse(c[i]); if(!isNaN(t)) return t; } } return 0; })();
     let desc=""; try{ desc=(it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){}
     desc=String(desc);
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
     if(desc.length>90) desc=desc.slice(0,90)+"…";
-    return { it:it, sale:sale, unitCost:unitCost, ship:ship, fees:fees, refund:refund, cogs:cogs,
-             profit:sale-cogs-refund, settled:(f.ebayFees!=null&&f.ebayFees!=="")||!!f.feesPulledAt, soldMs:soldMs, desc:desc,
+    const settled=hasFees&&hasShip;
+    const bucket=settled?"settled":(shippedMs?"pending":"awaiting");
+    return { it:it, sale:sale, unitCost:unitCost, hasShip:hasShip, hasFees:hasFees,
+             ship:hasShip?num(f.shipCostPaid):null, fees:hasFees?num(f.ebayFees):null,
+             refund:refund, settled:settled, bucket:bucket, shippedMs:shippedMs, soldMs:soldMs, desc:desc,
              cat:(it.section||"Uncategorized"), chr:(it.subCategory||"—"),
              feeLines:(Array.isArray(f.ebayFeeLines)?f.ebayFeeLines:null) };
   });
-  const settled=rows.filter(function(r){return r.settled;});
-  const pending=rows.filter(function(r){return !r.settled;});
-  const sum=function(list){ const T={sales:0,units:list.length,unitCost:0,ship:0,fees:0,refund:0,cogs:0,profit:0};
-    list.forEach(function(r){ T.sales+=r.sale; T.unitCost+=r.unitCost; T.ship+=r.ship; T.fees+=r.fees; T.refund+=r.refund; T.cogs+=r.cogs; T.profit+=r.profit; }); return T; };
-  const S=sum(settled), P=sum(pending), A=sum(rows);
+
+  const settledRows=rows.filter(function(r){return r.bucket==="settled";});
+  const pendingRows=rows.filter(function(r){return r.bucket==="pending";});
+  const awaitRows  =rows.filter(function(r){return r.bucket==="awaiting";});
+
+  // Estimates are derived from settled history: average label cost, and eBay's effective take rate.
+  const avgShip = settledRows.length ? settledRows.reduce(function(a,r){return a+r.ship;},0)/settledRows.length : 0;
+  const feeSales= settledRows.reduce(function(a,r){return a+r.sale;},0);
+  const feeTot  = settledRows.reduce(function(a,r){return a+r.fees;},0);
+  const feeRate = feeSales? (feeTot/feeSales) : 0;
+  rows.forEach(function(r){
+    r.eShip = r.hasShip ? r.ship : avgShip;
+    r.eFees = r.hasFees ? r.fees : r.sale*feeRate;
+    r.eCogs = r.unitCost + r.eShip + r.eFees;
+    r.eProfit = r.sale - r.eCogs - r.refund;
+    r.cogs = r.settled ? (r.unitCost+r.ship+r.fees) : null;
+    r.profit = r.settled ? (r.sale-r.cogs-r.refund) : null;
+  });
+  const agg=function(list,useEst){ const T={units:list.length,sales:0,unitCost:0,ship:0,fees:0,refund:0,cogs:0,profit:0};
+    list.forEach(function(r){ T.sales+=r.sale; T.unitCost+=r.unitCost; T.refund+=r.refund;
+      T.ship+=useEst?r.eShip:(r.ship||0); T.fees+=useEst?r.eFees:(r.fees||0);
+      T.cogs+=useEst?r.eCogs:(r.cogs||0); T.profit+=useEst?r.eProfit:(r.profit||0); });
+    return T; };
+  const S=agg(settledRows,false), PJ=agg(pendingRows,true), AW=agg(awaitRows,true), PROJ=agg(rows,true);
+
   const feeBreak={};
-  settled.forEach(function(r){ if(r.feeLines) r.feeLines.forEach(function(fl){ const k=(fl.type||fl.label||fl.feeType||fl.name||"Other Fee").toString(); feeBreak[k]=(feeBreak[k]||0)+Math.abs(num(fl.amount!=null?fl.amount:fl.value)); }); });
+  settledRows.forEach(function(r){ if(r.feeLines) r.feeLines.forEach(function(fl){ const k=(fl.type||fl.label||fl.feeType||fl.name||"Other Fee").toString(); feeBreak[k]=(feeBreak[k]||0)+Math.abs(num(fl.amount!=null?fl.amount:fl.value)); }); });
   const feeBreakRows=Object.keys(feeBreak).sort(function(a,b){return feeBreak[b]-feeBreak[a];}).map(function(k){return [k,feeBreak[k]];});
-  const groupBy=function(list,key){ const g={}; list.forEach(function(r){ const kk=r[key]||"—"; if(!g[kk]) g[kk]={units:0,sales:0,cost:0,profit:0}; g[kk].units++; g[kk].sales+=r.sale; g[kk].cost+=r.cogs+r.refund; g[kk].profit+=r.profit; });
-    return Object.keys(g).map(function(k){ return Object.assign({name:k},g[k]); }).sort(function(a,b){return b.sales-a.sales;}); };
-  const byCat=groupBy(settled,"cat"), byChar=groupBy(settled,"chr");
+
   const today=new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
-  const distRows=function(list){ return list.map(function(g){ return "<tr><td>"+esc(g.name)+"</td><td class=\"r\">"+g.units+"</td><td class=\"r\">"+money(g.sales)+"</td><td class=\"r\">"+money(g.cost)+"</td><td class=\"r "+(g.profit<0?"neg":"pos")+"\">"+money(g.profit)+"</td></tr>"; }).join(""); };
+
+  // ---------- PAGE 1 : summary ----------
   const sheet1=""
     +"<div class=\"sheet\">"
-    +"<div class=\"hd\"><h1>Profit &amp; Loss Statement</h1><div class=\"sub\">Generated "+esc(today)+" · settled sales only · "+S.units+" of "+A.units+" sold items finalized</div></div>"
+    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"sub\">Generated "+esc(today)+" · "+rows.length+" sold items · "+S.units+" settled, "+PJ.units+" pending, "+AW.units+" awaiting shipment</div></div>"
+    +"<h2>Settled Sales <span class=\"sm\">— final figures, all costs posted</span></h2>"
     +"<div class=\"kpis\">"
-    +"<div class=\"k\"><div class=\"kl\">Settled Sales</div><div class=\"kv\">"+money(S.sales)+"</div></div>"
-    +"<div class=\"k\"><div class=\"kl\">Items Settled</div><div class=\"kv\">"+S.units+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Sales</div><div class=\"kv\">"+money(S.sales)+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Units</div><div class=\"kv\">"+S.units+"</div></div>"
     +"<div class=\"k\"><div class=\"kl\">Total COGS</div><div class=\"kv\">"+money(S.cogs)+"</div></div>"
     +"<div class=\"k\"><div class=\"kl\">Net Profit</div><div class=\"kv "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</div></div>"
     +"<div class=\"k\"><div class=\"kl\">Net Margin</div><div class=\"kv\">"+pct(S.profit,S.sales)+"</div></div>"
     +"</div>"
-    +"<div class=\"note\">Totals above cover only <b>settled</b> sales — orders where eBay has posted final fees, so cost of goods and profit are complete and final. Sales still awaiting fee settlement are excluded and reported separately below, so no figure here is understated by fees that have not posted yet.</div>"
-    +"<h2>Cost of Goods Sold — Settled Sales</h2>"
-    +"<table class=\"t\"><tr><th>Cost</th><th class=\"r\">Amount</th><th class=\"r\">% of Sales</th></tr>"
+    +"<table class=\"t\"><thead><tr><th>Cost of Goods Sold</th><th class=\"r\">Amount</th><th class=\"r\">% of Sales</th></tr></thead><tbody>"
     +"<tr><td>Item Unit Cost</td><td class=\"r\">"+money(S.unitCost)+"</td><td class=\"r\">"+pct(S.unitCost,S.sales)+"</td></tr>"
     +"<tr><td>Shipping (carrier / label)</td><td class=\"r\">"+money(S.ship)+"</td><td class=\"r\">"+pct(S.ship,S.sales)+"</td></tr>"
-    +"<tr><td>eBay Fees"+(feeBreakRows.length?" (itemized below, incl. taxes)":"")+"</td><td class=\"r\">"+money(S.fees)+"</td><td class=\"r\">"+pct(S.fees,S.sales)+"</td></tr>"
+    +"<tr><td>eBay Fees"+(feeBreakRows.length?" (itemized, incl. taxes)":"")+"</td><td class=\"r\">"+money(S.fees)+"</td><td class=\"r\">"+pct(S.fees,S.sales)+"</td></tr>"
     +feeBreakRows.map(function(x){ return "<tr class=\"sub2\"><td>&nbsp;&nbsp;— "+esc(x[0])+"</td><td class=\"r\">"+money(x[1])+"</td><td class=\"r\"></td></tr>"; }).join("")
     +"<tr><td>Refunds</td><td class=\"r\">"+money(S.refund)+"</td><td class=\"r\">"+pct(S.refund,S.sales)+"</td></tr>"
     +"<tr class=\"tot\"><td>Total COGS</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r\">"+pct(S.cogs,S.sales)+"</td></tr>"
     +"<tr class=\"tot\"><td>Net Profit</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.sales)+"</td></tr>"
-    +"</table>"
-    +"<h2>Sales Pending Settlement</h2>"
-    +"<div class=\"note\">Sold and shipped, but eBay has not yet posted final fees (they post at settlement, typically days after the sale). Gross sales are known; cost of goods is not final, so these are held out of the totals above rather than reported at an understated cost.</div>"
-    +"<table class=\"t\"><tr><th>&nbsp;</th><th class=\"r\">Units</th><th class=\"r\">Gross Sales</th><th class=\"r\">Unit Cost Known</th><th class=\"r\">Fees Outstanding</th></tr>"
-    +"<tr><td>Awaiting fee settlement</td><td class=\"r\">"+P.units+"</td><td class=\"r\">"+money(P.sales)+"</td><td class=\"r\">"+money(P.unitCost)+"</td><td class=\"r\">not yet posted</td></tr>"
-    +"<tr class=\"tot\"><td>All sold items (settled + pending)</td><td class=\"r\">"+A.units+"</td><td class=\"r\">"+money(A.sales)+"</td><td class=\"r\">"+money(A.unitCost)+"</td><td class=\"r\"></td></tr>"
-    +"</table>"
-    +"<h2>Sales by eBay Category <span class=\"sm\">(settled)</span></h2>"
-    +"<table class=\"t\"><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th></tr>"+distRows(byCat)+"</table>"
-    +"<h2>Sales by Character <span class=\"sm\">(settled)</span></h2>"
-    +"<table class=\"t\"><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th></tr>"+distRows(byChar)+"</table>"
+    +"</tbody></table>"
+    +"<h2>Projected Position <span class=\"sm\">— settled plus estimates for sales not yet fully costed</span></h2>"
+    +"<div class=\"note\">Figures marked <span class=\"estv\">gold with an asterisk*</span> are estimates, not posted charges. Shipping is estimated at the average settled label cost ("+money(avgShip)+"); eBay fees at the average settled rate ("+(feeRate*100).toFixed(1)+"% of sale price). Each estimate is replaced by the real charge automatically as it posts.</div>"
+    +"<table class=\"t\"><thead><tr><th>Group</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"
+    +"<tr><td>Settled</td><td class=\"r\">"+S.units+"</td><td class=\"r\">"+money(S.sales)+"</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.sales)+"</td></tr>"
+    +"<tr><td>Sales Pending <span class=\"sm\">(shipped, charges not posted)</span></td><td class=\"r\">"+PJ.units+"</td><td class=\"r\">"+money(PJ.sales)+"</td><td class=\"r\">"+est(PJ.cogs)+"</td><td class=\"r\">"+est(PJ.profit)+"</td><td class=\"r\">"+pct(PJ.profit,PJ.sales)+"</td></tr>"
+    +"<tr><td>Awaiting Shipment <span class=\"sm\">(sold, not yet shipped)</span></td><td class=\"r\">"+AW.units+"</td><td class=\"r\">"+money(AW.sales)+"</td><td class=\"r\">"+est(AW.cogs)+"</td><td class=\"r\">"+est(AW.profit)+"</td><td class=\"r\">"+pct(AW.profit,AW.sales)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Projected Total</td><td class=\"r\">"+PROJ.units+"</td><td class=\"r\">"+money(PROJ.sales)+"</td><td class=\"r\">"+est(PROJ.cogs)+"</td><td class=\"r\">"+est(PROJ.profit)+"</td><td class=\"r\">"+pct(PROJ.profit,PROJ.sales)+"</td></tr>"
+    +"</tbody></table>"
     +"</div>";
-  const itemRows=rows.slice().sort(function(a,b){ return (b.soldMs||0)-(a.soldMs||0); }).map(function(r){
-    const img=r.it.image?("<img src=\""+esc(r.it.image)+"\" />"):"<div class=\"noimg\">—</div>";
-    return "<tr"+(r.settled?"":" class=\"pend\"")+"><td class=\"imgc\">"+img+"</td>"
-      +"<td><div class=\"ttl\">"+esc(r.it.desc||r.it.upc||"")+"</div>"
-      +(r.desc?"<div class=\"dsc\">"+esc(r.desc)+"</div>":"")
-      +"<div class=\"meta\">"+esc([r.it.sku||"",r.it.upc?("eBay "+r.it.upc):""].filter(Boolean).join(" · "))+(r.settled?"":" · <span class=\"est\">pending settlement</span>")+"</div></td>"
-      +"<td>"+esc(dt(r.soldMs||null))+"</td>"
-      +"<td>"+esc(r.it.condition||"")+"</td>"
-      +"<td class=\"r\">"+money(r.sale)+"</td>"
-      +"<td class=\"r\">"+money(r.unitCost)+"</td>"
-      +"<td class=\"r\">"+(r.settled?money(r.ship):"—")+"</td>"
-      +"<td class=\"r\">"+(r.settled?money(r.fees):"—")+"</td>"
-      +"<td class=\"r\">"+(r.settled?money(r.cogs):"—")+"</td>"
-      +"<td class=\"r "+(r.profit<0?"neg":"pos")+"\">"+(r.settled?money(r.profit):"—")+"</td></tr>";
-  }).join("");
+
+  // ---------- PAGE 2 : overview ----------
+  const groupBy=function(list,key){ const g={}; list.forEach(function(r){ const kk=r[key]||"—"; if(!g[kk]) g[kk]={units:0,sales:0,cost:0,profit:0};
+      g[kk].units++; g[kk].sales+=r.sale; g[kk].cost+=r.eCogs+r.refund; g[kk].profit+=r.eProfit; });
+    return Object.keys(g).map(function(k){ return Object.assign({name:k},g[k]); }).sort(function(a,b){return b.sales-a.sales;}); };
+  const distRows=function(list){ return list.map(function(g){ return "<tr><td>"+esc(g.name)+"</td><td class=\"r\">"+g.units+"</td><td class=\"r\">"+money(g.sales)+"</td><td class=\"r\">"+money(g.cost)+"</td><td class=\"r "+(g.profit<0?"neg":"pos")+"\">"+money(g.profit)+"</td><td class=\"r\">"+pct(g.profit,g.sales)+"</td></tr>"; }).join(""); };
   const sheet2=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sold Items</h1><div class=\"sub\">"+A.units+" items · newest sale first · "+P.units+" pending settlement</div></div>"
-    +"<table class=\"t items\"><colgroup><col class=\"c1\"><col class=\"c2\"><col class=\"c3\"><col class=\"c4\"><col class=\"c5\"><col class=\"c6\"><col class=\"c7\"><col class=\"c8\"><col class=\"c9\"><col class=\"c10\"></colgroup><tr><th>Photo</th><th>Title / Description</th><th>Sold</th><th>Cond.</th><th class=\"r\">Price</th><th class=\"r\">Unit Cost</th><th class=\"r\">Ship</th><th class=\"r\">eBay Fees</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th></tr>"+itemRows+"</table>"
+    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"sub\">All "+rows.length+" sold items · estimates included where charges have not posted</div></div>"
+    +"<h2>Sales by eBay Category</h2>"
+    +"<table class=\"t\"><thead><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"cat"))+"</tbody></table>"
+    +"<h2>Sales by Character</h2>"
+    +"<table class=\"t\"><thead><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"chr"))+"</tbody></table>"
     +"</div>";
+
+  // ---------- PAGE 3+ : sales ledger ----------
+  const ledgerRow=function(r){
+    const img=r.it.image?("<img src=\""+esc(r.it.image)+"\" />"):"<div class=\"noimg\">—</div>";
+    const shipCell = r.hasShip? money(r.ship) : est(r.eShip);
+    const feeCell  = r.hasFees? money(r.fees) : est(r.eFees);
+    const cogsCell = r.settled? money(r.cogs) : est(r.eCogs);
+    const profCell = r.settled? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
+    return "<tr><td class=\"imgc\">"+img+"</td>"
+      +"<td><div class=\"ttl\">"+esc(r.it.desc||r.it.upc||"")+"</div>"
+      +(r.desc?"<div class=\"dsc\">"+esc(r.desc)+"</div>":"")
+      +"<div class=\"meta\">"+esc([r.it.sku||"",r.it.upc?("eBay "+r.it.upc):""].filter(Boolean).join(" · "))+"</div></td>"
+      +"<td>"+esc(dt(r.soldMs))+"</td><td>"+esc(dt(r.shippedMs))+"</td>"
+      +"<td>"+esc(r.it.condition||"")+"</td>"
+      +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+money(r.unitCost)+"</td>"
+      +"<td class=\"r\">"+shipCell+"</td><td class=\"r\">"+feeCell+"</td>"
+      +"<td class=\"r\">"+cogsCell+"</td><td class=\"r\">"+profCell+"</td></tr>";
+  };
+  const byDate=function(a,b){ return (b.soldMs||0)-(a.soldMs||0); };
+  const ledgerTable=function(list){
+    return "<table class=\"t items\"><colgroup><col class=\"c1\"><col class=\"c2\"><col class=\"c3\"><col class=\"c3\"><col class=\"c4\">"
+      +"<col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"></colgroup>"
+      +"<thead><tr><th>Photo</th><th>Title / Description</th><th>Sold</th><th>Shipped</th><th>Cond.</th>"
+      +"<th class=\"r\">Price</th><th class=\"r\">Unit Cost</th><th class=\"r\">Ship</th><th class=\"r\">eBay Fees</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th></tr></thead>"
+      +"<tbody>"+list.slice().sort(byDate).map(ledgerRow).join("")+"</tbody></table>";
+  };
+  const section=function(title,sub,list){
+    if(!list.length) return "";
+    return "<h2>"+title+" <span class=\"sm\">"+sub+"</span></h2>"+ledgerTable(list);
+  };
+  const sheet3=""
+    +"<div class=\"sheet pagebreak\">"
+    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"sub\">"+rows.length+" sold items · newest sale first · <span class=\"estv\">gold*</span> = estimated, not yet posted</div></div>"
+    +section("Settled","— all charges posted, figures final",settledRows)
+    +section("Sales Pending","— shipped, eBay charges not posted yet",pendingRows)
+    +section("Awaiting Shipment","— sold, not yet shipped",awaitRows)
+    +"</div>";
+
   const css="<style>"
-    +"@page{size:letter;margin:0.4in;} *{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box;}"
+    +"@page{size:letter;margin:0.45in;} *{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box;}"
     +"body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a2e;margin:0;font-size:11px;}"
-    +".sheet{padding:0 0 20px 0;} .pagebreak{page-break-before:always;}"
-    +".hd{border-bottom:3px solid #1a2b4a;padding-bottom:8px;margin-bottom:12px;} h1{margin:0;font-size:22px;color:#1a2b4a;} .sub{color:#667;font-size:11px;margin-top:2px;}"
-    +"h2{font-size:13px;color:#1a2b4a;margin:16px 0 5px;border-bottom:1px solid #ccd;padding-bottom:3px;} h2 .sm{font-size:10px;color:#889;font-weight:400;}"
-    +".kpis{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:8px;} .k{flex:1;min-width:105px;border:1px solid #dde;border-radius:8px;padding:7px 9px;background:#f7f8fc;}"
-    +".kl{font-size:9px;color:#778;text-transform:uppercase;letter-spacing:.03em;} .kv{font-size:18px;font-weight:800;margin-top:2px;}"
-    +".note{font-size:10px;color:#556;background:#f7f8fc;border-left:3px solid #1a2b4a;padding:6px 9px;margin:6px 0 4px;}"
-    +"table.t{width:100%;border-collapse:collapse;margin-bottom:6px;} .t th{background:#1a2b4a;color:#fff;text-align:left;padding:5px 6px;font-size:10px;} .t td{padding:4px 6px;border-bottom:1px solid #eef;vertical-align:top;}"
-    +".t .r{text-align:right;} .tot td{font-weight:800;border-top:2px solid #1a2b4a;background:#f0f2f8;} .sub2 td{color:#778;font-size:10px;}"
-    +".pos{color:#1F7244;} .neg{color:#c0392b;} .pend{background:#fffdf5;}"
-    +"table.items{table-layout:fixed;font-size:9px;} .items th,.items td{padding:3px 3px;}"+".items col.c1{width:34px;} .items col.c2{width:auto;} .items col.c3{width:52px;} .items col.c4{width:52px;}"+".items col.c5,.items col.c6,.items col.c7,.items col.c8,.items col.c9,.items col.c10{width:44px;}"+".items img{width:28px;height:28px;object-fit:cover;border-radius:3px;} .imgc{width:34px;} .noimg{width:28px;height:28px;background:#eef;border-radius:3px;text-align:center;line-height:28px;color:#aab;}"
-    +".ttl{font-weight:600;} .dsc{font-size:9px;color:#667;margin-top:1px;} .meta{font-size:9px;color:#889;margin-top:1px;} .est{color:#b8860b;}"
+    +".sheet{padding:0 0 18px 0;} .pagebreak{page-break-before:always;}"
+    +".hd{border-bottom:3px solid #1a2b4a;padding-bottom:8px;margin-bottom:12px;} h1{margin:0;font-size:22px;color:#1a2b4a;letter-spacing:-.01em;} .sub{color:#667;font-size:11px;margin-top:3px;}"
+    +"h2{font-size:13px;color:#1a2b4a;margin:16px 0 5px;border-bottom:1px solid #ccd;padding-bottom:3px;page-break-after:avoid;} h2 .sm{font-size:10px;color:#889;font-weight:400;}"
+    +".kpis{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:10px;} .k{flex:1;min-width:100px;border:1px solid #dde;border-radius:8px;padding:7px 9px;background:#f7f8fc;}"
+    +".kl{font-size:9px;color:#778;text-transform:uppercase;letter-spacing:.04em;} .kv{font-size:18px;font-weight:800;margin-top:2px;}"
+    +".note{font-size:10px;color:#556;background:#fffdf3;border-left:3px solid #b8860b;padding:6px 9px;margin:6px 0;}"
+    +"table.t{width:100%;border-collapse:collapse;margin-bottom:8px;} .t th{background:#1a2b4a;color:#fff;text-align:left;padding:5px 6px;font-size:10px;font-weight:600;}"
+    +".t td{padding:4px 6px;border-bottom:1px solid #eef;vertical-align:top;} .t .r{text-align:right;}"
+    +"thead{display:table-header-group;} tr{page-break-inside:avoid;}"
+    +".tot td{font-weight:800;border-top:2px solid #1a2b4a;background:#f0f2f8;} .sub2 td{color:#778;font-size:10px;}"
+    +".pos{color:#1F7244;} .neg{color:#c0392b;} .estv{color:#b8860b;}"
+    +"table.items{table-layout:fixed;font-size:9px;} .items th,.items td{padding:3px 3px;}"
+    +".items col.c1{width:30px;} .items col.c2{width:auto;} .items col.c3{width:46px;} .items col.c4{width:46px;} .items col.c5{width:42px;}"
+    +".items img{width:26px;height:26px;object-fit:cover;border-radius:3px;} .imgc{width:30px;}"
+    +".noimg{width:26px;height:26px;background:#eef;border-radius:3px;text-align:center;line-height:26px;color:#aab;}"
+    +".ttl{font-weight:600;} .dsc{font-size:8px;color:#667;margin-top:1px;} .meta{font-size:8px;color:#889;margin-top:1px;}"
     +"</style>";
   let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
   ifr=document.createElement("iframe"); ifr.id="wim-print-frame"; ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
   document.body.appendChild(ifr);
   const doc=ifr.contentWindow.document; doc.open();
-  doc.write("<html><head><title>WIM — Profit and Loss</title>"+css+"</head><body>"+sheet1+sheet2+"</body></html>"); doc.close();
+  doc.write("<html><head><title>WIM — Profit and Loss</title>"+css+"</head><body>"+sheet1+sheet2+sheet3+"</body></html>"); doc.close();
   setTimeout(function(){ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },400);
 }
 
