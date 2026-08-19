@@ -457,6 +457,7 @@ const Cloud={
     return wimDesktop.invoke("supabase_rpc",{url:CLOUD_URL,anonKey:CLOUD_KEY,functionName:fn,payloadJson:JSON.stringify(payload)}); },
   login(teamCode,name,pin){ return Cloud.rpc("login",{p_team_code:teamCode,p_staff_name:name,p_pin:pin}); },
   getItems(token){ return Cloud.rpc("get_items",{p_session_token:token}); },
+  getTombstones(since){ return Cloud.rpc("get_tombstones",{p_since:since||null}); },
   getItemsSince(token,since){ return Cloud.rpc("get_items_since",{p_session_token:token,p_since:since}); },
   upsertItem(token,itemId,expectedUpdatedAt,data){ return Cloud.rpc("upsert_item",{p_session_token:token,p_item_id:itemId,p_expected_updated_at:expectedUpdatedAt,p_data:data}); },
   addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); },
@@ -515,7 +516,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.87", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.88", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +622,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.88","DELETIONS NOW REACH WIM IMMEDIATELY. Items deleted in InventoryIQ could linger in WIM because the normal item feed leaves deleted rows out entirely, so a deletion had no way to travel. WIM now asks for deletions on their own channel every sync, remembering how far it has already read so it only fetches new ones. A deleted item is removed outright -- out of shipping, completed, catalog and the P&L, including any sale attached to it -- because deleting it in InventoryIQ means it was never our inventory, not merely that it should be hidden from here on."],
   ["3.4.87","LEGACY STOCK NO LONGER LEAKS INTO WIM. The eBay account also sells older inventory that was never part of this system, and those rows were reaching Shipping, Completed, Catalog and the P&L. WIM now applies the same ownership test InventoryIQ uses, at the point items sync in, so a legacy row never enters WIM at all: anything deleted (tombstoned) in InventoryIQ is ignored forever even if it sold and has a valid order; anything listed before 1 Aug 2026 -- or with no readable listing date at all -- is treated as legacy; and rows with no real title, or whose title is just the eBay item number, are skipped as junk. Copies that got in before this rule are removed on the next sync."],
   ["3.4.86","P&L WAS HIDING FEES IT ALREADY HAD. An order counted as settled only if it carried the fees-pulled TIMESTAMP, but backfilled orders carry the real eBay fee amount without that stamp -- so sales with complete fee and shipping data were filed under Sales Pending Settlement and printed as dashes, making older complete sales look like missing data. Settled now means the fee amount itself is present. Older sales should now show their real fees, shipping cost, COGS and profit, and the pending section should hold only genuinely recent sales whose fees have not posted. If figures still look stale after this, run Pull Cloud so WIM has the latest rows."],
   ["3.4.85","P&L PRINTS ON NORMAL PORTRAIT PAPER AND THE DESCRIPTIONS ARE READABLE. The sold-items sheet was forced to landscape to fit; it is back to standard portrait letter with a fitted fixed-width layout. The description under each title was printing raw markup (&lt;p&gt; and similar) because the stored text is HTML-encoded and was being stripped in the wrong order -- it is now decoded first, then cleaned, with the SKU WAREHOUSE boilerplate removed and the eBay item number shown on the detail line instead, which is what actually verifies you are looking at the right item."],
@@ -1091,6 +1093,31 @@ function isOurInventoryRow(row){
   if(/^[0-9]{6,}$/.test(d)) return false;                // title is just an item number
   return true;
 }
+async function pullTombstones(){
+  // Deletions cannot travel on the normal item feed (get_items excludes deleted rows), so they come
+  // down their own channel. InventoryIQ deleting an item means "this was never our inventory", so the
+  // item is removed outright -- including from sold history and the P&L -- not merely hidden.
+  try{
+    if(!cloudSession) return 0;
+    if(!DB.cloud) DB.cloud={};
+    const r=await Cloud.getTombstones(DB.cloud.lastTombstoneAt||null);
+    if(!r||!r.ok||!r.body) return 0;
+    let list=[]; try{ list=JSON.parse(r.body); }catch(e){ return 0; }
+    if(!Array.isArray(list)||!list.length) return 0;
+    let removed=0, newest=DB.cloud.lastTombstoneAt||null;
+    list.forEach(function(t){
+      const num=t&&(t.item_number||t.itemNumber); if(num) _tombstones.add(String(num));
+      const id=t&&t.id;
+      const before=DB.items.length;
+      DB.items=DB.items.filter(function(x){ return !(num&&x.upc===String(num)) && !(id&&x.id===id); });
+      if(DB.items.length!==before){ removed++; if(id) _lastPushed.delete(id); }
+      const d=t&&t.deleted_at; if(d&&(!newest||Date.parse(d)>Date.parse(newest))) newest=d;
+    });
+    DB.cloud.lastTombstoneAt=newest;
+    if(removed){ save(); try{ wimRefreshAll(); }catch(e){} }
+    return removed;
+  }catch(e){ return 0; }
+}
 function applyCloudRows(rows){
   if(!Array.isArray(rows)||!rows.length) return 0;
   if(!DB.items) DB.items=[];
@@ -1186,7 +1213,7 @@ async function syncSlotsPull(){
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
-  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
+  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ await pullTombstones(); }catch(e){} try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
   await syncSlotsPull();
   await pullCategories();
   return r;
@@ -14484,6 +14511,7 @@ function openCloudSyncTest(){
       if(!DB.items) DB.items=[];
       applyCloudRows(rows);   // maps fields AND runs enrichment: adopt category, vendor=Warehouse, cost from price
       _firstPullDone=true;
+      try{ await pullTombstones(); }catch(e){}
       try{ ensureShippingStages(); }catch(e){}
       try{ autoAdvanceFulfillment(); }catch(e){}
       try{ checkAutoComplete(); }catch(e){}
