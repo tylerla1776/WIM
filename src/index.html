@@ -515,7 +515,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.86", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.87", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -621,6 +621,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.87","LEGACY STOCK NO LONGER LEAKS INTO WIM. The eBay account also sells older inventory that was never part of this system, and those rows were reaching Shipping, Completed, Catalog and the P&L. WIM now applies the same ownership test InventoryIQ uses, at the point items sync in, so a legacy row never enters WIM at all: anything deleted (tombstoned) in InventoryIQ is ignored forever even if it sold and has a valid order; anything listed before 1 Aug 2026 -- or with no readable listing date at all -- is treated as legacy; and rows with no real title, or whose title is just the eBay item number, are skipped as junk. Copies that got in before this rule are removed on the next sync."],
   ["3.4.86","P&L WAS HIDING FEES IT ALREADY HAD. An order counted as settled only if it carried the fees-pulled TIMESTAMP, but backfilled orders carry the real eBay fee amount without that stamp -- so sales with complete fee and shipping data were filed under Sales Pending Settlement and printed as dashes, making older complete sales look like missing data. Settled now means the fee amount itself is present. Older sales should now show their real fees, shipping cost, COGS and profit, and the pending section should hold only genuinely recent sales whose fees have not posted. If figures still look stale after this, run Pull Cloud so WIM has the latest rows."],
   ["3.4.85","P&L PRINTS ON NORMAL PORTRAIT PAPER AND THE DESCRIPTIONS ARE READABLE. The sold-items sheet was forced to landscape to fit; it is back to standard portrait letter with a fitted fixed-width layout. The description under each title was printing raw markup (&lt;p&gt; and similar) because the stored text is HTML-encoded and was being stripped in the wrong order -- it is now decoded first, then cleaned, with the SKU WAREHOUSE boilerplate removed and the eBay item number shown on the detail line instead, which is what actually verifies you are looking at the right item."],
   ["3.4.84","P&L NOW REPORTS SETTLED SALES SEPARATELY FROM SALES PENDING SETTLEMENT. Orders whose eBay fees have not posted yet were being counted at an understated cost, which inflated profit and margin. The headline totals -- sales, COGS, net profit, net margin -- now cover only SETTLED sales, meaning orders where eBay has posted final fees so the cost of goods is complete. Everything still awaiting fee settlement is reported in its own Sales Pending Settlement section with its gross sales and known unit cost, so nothing is hidden and nothing is counted at a cost that is not final. The category and character breakdowns follow the same settled-only basis. SOLD ITEMS SHEET: now sorted by date sold (newest first) with a Sold column, the listing description under each title so you can verify the right item, pending rows shaded and marked, and printed landscape so the cost columns fit."],
@@ -1073,6 +1074,23 @@ const _lastPushed = new Map();
 const _tombstones = new Set(); let _firstPullDone = false;  // tombstone item_numbers + "have we pulled once yet" gate
 function _markPushed(it){ try{ _lastPushed.set(it.id, JSON.stringify(itemToCloudData(it))); }catch(e){} }
 
+const WIM_CUTOFF_MS=Date.parse("2026-08-01T00:00:00Z");
+// Is this shared row part of OUR inventory? The eBay account also carries legacy stock that was
+// never in this system. InventoryIQ marks those out three ways, and anything failing the test must
+// never enter WIM at all -- keeping it out here keeps it out of Shipping, Completed, Catalog and P&L.
+function isOurInventoryRow(row){
+  if(!row) return false;
+  if(row.deleted_at) return false;                       // tombstoned in InventoryIQ = legacy, ignore forever
+  var lt=null;
+  try{ lt=(row.listing&&(row.listing.listedAt||row.listing.listed_at))||null; }catch(e){}
+  var ms=Date.parse(lt||row.created_at||"");
+  if(isNaN(ms)||ms<WIM_CUTOFF_MS) return false;          // pre-cutoff, or undated (undated = legacy)
+  var d=(row.description==null?"":String(row.description)).trim();
+  if(!d) return false;
+  if(row.item_number && d===String(row.item_number)) return false;
+  if(/^[0-9]{6,}$/.test(d)) return false;                // title is just an item number
+  return true;
+}
 function applyCloudRows(rows){
   if(!Array.isArray(rows)||!rows.length) return 0;
   if(!DB.items) DB.items=[];
@@ -1084,6 +1102,14 @@ function applyCloudRows(rows){
       const _before=DB.items.length;
       DB.items=DB.items.filter(it=> it.id!==row.id && !(row.item_number && it.upc===row.item_number) );
       if(DB.items.length!==_before){ byId.delete(row.id); _lastPushed.delete(row.id); changed++; }
+      continue;
+    }
+    if(!isOurInventoryRow(row)){
+      // Not ours (legacy stock on the same eBay account). Never import it, and drop any copy
+      // that got in before this rule existed.
+      const _b=DB.items.length;
+      DB.items=DB.items.filter(x=> x.id!==row.id && !(row.item_number && x.upc===row.item_number) );
+      if(DB.items.length!==_b){ byId.delete(row.id); _lastPushed.delete(row.id); changed++; }
       continue;
     }
     let it=byId.get(row.id);
