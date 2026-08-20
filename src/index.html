@@ -458,6 +458,7 @@ const Cloud={
   login(teamCode,name,pin){ return Cloud.rpc("login",{p_team_code:teamCode,p_staff_name:name,p_pin:pin}); },
   getItems(token){ return Cloud.rpc("get_items",{p_session_token:token}); },
   getTombstones(since){ return Cloud.rpc("get_tombstones",{p_since:since||null}); },
+  getSales(since){ return Cloud.rpc("get_sales",{p_since:since||null}); },
   getItemsSince(token,since){ return Cloud.rpc("get_items_since",{p_session_token:token,p_since:since}); },
   upsertItem(token,itemId,expectedUpdatedAt,data){ return Cloud.rpc("upsert_item",{p_session_token:token,p_item_id:itemId,p_expected_updated_at:expectedUpdatedAt,p_data:data}); },
   addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); },
@@ -516,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.93", BUILD_DATE="2026-08-19", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.95", BUILD_DATE="2026-08-20", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -622,6 +623,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.95","P&L NOW READS THE SHARED SALES LEDGER — REPEAT SALES FINALLY COUNT. Revenue was derived from the inventory record, which holds one row per listing, so a listing that sold six times could only ever report one sale and the rest were invisible. WIM now syncs the shared sales ledger (one row per order line) and builds the whole statement from it, so every sale of a repeat-selling listing counts, each with its own price, fees, label cost and unit cost frozen as posted at the time -- editing a cost band later can no longer restate past profit. Cancelled and returned sales are marked and their refunds netted out. The summary carries a cross-check against the old inventory-derived basis so the two can be reconciled. Sales sync every cycle, tracking updates rather than sale dates, so costs that settle days later are picked up."],
+  ["3.4.94","SALES WITH NO RECORDED PRICE ARE NO LONGER DROPPED SILENTLY. A sold item with no sale price cannot be costed, so it was quietly left out of the statement entirely -- real revenue could go missing with nothing on the page to show it. Those sales now appear in a Sales Missing Data section at the end of the ledger with their sold date, eBay item number and any fees or shipping already charged, and the count is called out in the ledger header. They stay out of the totals, because a sale with no price cannot be costed, but they are visible so the gap can be traced and fixed at source."],
   ["3.4.93","P&L WORDING AND TOTALS. Sales Pending and Awaiting Shipment are now one section, Sales Pending Final Costs, since both are simply waiting on final shipping and fee charges. Settled is renamed Finalized Sales (all transaction costs finalized), Projected Position is now Totals Including Estimates, Shipping (carrier/label) is Shipping and Fulfillment, and eBay Fees is eBay Selling Fees. Each Sales Ledger section now ends with a total line carrying price, unit cost, shipping, eBay fees, COGS and profit, shown in gold where any figure in that section is still an estimate."],
   ["3.4.92","P&L REBUILT: SUMMARY, OVERVIEW, AND A THREE-PART SALES LEDGER WITH ESTIMATES. Page 1 is a Profit and Loss Summary -- settled sales with their full cost breakdown, then a Projected Position adding estimates for sales not yet fully costed. Page 2 is the Sales Overview (by eBay category and by character, with margin). Page 3 onward is the Sales Ledger, split into Settled, Sales Pending (shipped but charges not posted) and Awaiting Shipment (sold, not yet shipped), each newest first with both sold and shipped dates. Unknown figures no longer print as $0.00, which read as genuinely free shipping -- every missing value now shows an ESTIMATE in gold with an asterisk: shipping at the average settled label cost, eBay fees at the average settled rate, with COGS and profit flowing from those. Estimates are replaced by real charges automatically as they post, and items move up through the sections on their own. Tables repeat their column headers on every page they span."],
   ["3.4.91","PENDING SALES NOW SEPARATE NORMAL SETTLEMENT LAG FROM GENUINELY OVERDUE CHARGES. eBay bills a shipping label when it is bought and settles it days later, so an item that sat before shipping is not late -- the wait has to be measured from the SHIP date, not the sale date, or anything that waited on the shelf gets wrongly flagged. Pending sales now split into Awaiting Settlement (shipped within seven days, or not yet shipped -- normal) and Overdue (shipped over seven days ago with the charge still missing -- worth investigating), and overdue rows are labelled with how many days they have been waiting. Both stay out of the settled totals, because an order with no label cost has an unknown cost of goods and folding it in would count shipping as free and overstate profit."],
@@ -1098,6 +1101,33 @@ function isOurInventoryRow(row){
   if(/^[0-9]{6,}$/.test(d)) return false;                // title is just an item number
   return true;
 }
+async function pullSales(){
+  // The sales ledger is the accounting record: one row per order line, so a listing that sold
+  // several times has several rows. The high-water mark tracks updated_at, NOT sold_at -- fees and
+  // label costs settle days after a sale, so a row is updated long after it was first written.
+  try{
+    if(!cloudSession) return 0;
+    if(!DB.cloud) DB.cloud={};
+    if(!Array.isArray(DB.sales)) DB.sales=[];
+    const r=await Cloud.getSales(DB.cloud.lastSaleSyncAt||null);
+    if(!r||!r.ok||!r.body) return 0;
+    let list=[]; try{ list=JSON.parse(r.body); }catch(e){ return 0; }
+    if(!Array.isArray(list)||!list.length) return 0;
+    const key=function(x){ return String(x.order_id||"")+"|"+String(x.item_number||""); };
+    const byKey={}; DB.sales.forEach(function(x,i){ byKey[key(x)]=i; });
+    let added=0, updated=0, newest=DB.cloud.lastSaleSyncAt||null;
+    list.forEach(function(row){
+      const k=key(row);
+      if(byKey[k]!=null){ DB.sales[byKey[k]]=row; updated++; }
+      else { byKey[k]=DB.sales.length; DB.sales.push(row); added++; }
+      const u=row.updated_at||row.created_at;
+      if(u&&(!newest||Date.parse(u)>Date.parse(newest))) newest=u;
+    });
+    DB.cloud.lastSaleSyncAt=newest;
+    if(added||updated) save();
+    return added+updated;
+  }catch(e){ return 0; }
+}
 async function pullTombstones(){
   // Deletions cannot travel on the normal item feed (get_items excludes deleted rows), so they come
   // down their own channel. InventoryIQ deleting an item means "this was never our inventory", so the
@@ -1218,7 +1248,7 @@ async function syncSlotsPull(){
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
-  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ await pullTombstones(); }catch(e){} try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
+  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ await pullTombstones(); }catch(e){} try{ await pullSales(); }catch(e){} try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
   await syncSlotsPull();
   await pullCategories();
   return r;
@@ -2770,48 +2800,47 @@ function pendingStorageBadgeHtml(id){
 // Create click) — used by Missing Item to show where else to check for a possible swap.
 function batchMates(it){ if(!it.storageBatchId) return []; return activeItems().filter(i=>i.storageBatchId===it.storageBatchId && i.id!==it.id); }
 function openProfitLossStatement(){
-  const all = visibleItems().filter(function(it){
-    if(it.simulated) return false;
-    if(itemStatus(it)!=="sold") return false;
-    const f=it.fulfillment||{};
-    const sp=parseFloat((f.soldPrice!=null&&f.soldPrice!==""?f.soldPrice:it.retail))||0;
-    return sp>0;
-  });
-  if(!all.length){ uiAlert("No sold items with a recorded sale price yet — nothing to report."); return; }
   const num=function(v){ const n=parseFloat(v); return isNaN(n)?0:n; };
   const money=function(n){ return "$"+(Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); };
   const est=function(n){ return "<span class=\"estv\">"+money(n)+"*</span>"; };
   const pct=function(part,whole){ return (whole?(100*part/whole):0).toFixed(1)+"%"; };
   const dt=function(ms){ if(!ms) return "—"; const d=new Date(ms); return isNaN(d.getTime())?"—":d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
+  const ms=function(v){ const t=Date.parse(v||""); return isNaN(t)?0:t; };
 
-  const rows=all.map(function(it){
-    const f=it.fulfillment||{};
-    const sale=num(f.soldPrice!=null&&f.soldPrice!==""?f.soldPrice:it.retail);
-    const unitCost=num(it.unitCost!=null?it.unitCost:it.cost);
-    const hasShip=(f.shipCostPaid!=null&&f.shipCostPaid!=="");
-    const hasFees=(f.ebayFees!=null&&f.ebayFees!=="");
-    const refund=Math.abs(num(f.refundedAmount!=null?f.refundedAmount:f.refundAmount));
-    const shippedMs=(function(){ var t=Date.parse(f.shippedAt||""); return isNaN(t)?0:t; })();
-    const soldMs=(function(){ const c=[it.soldAt,f.soldAt,f.shippedAt]; for(var i=0;i<c.length;i++){ if(c[i]){ var t=Date.parse(c[i]); if(!isNaN(t)) return t; } } return 0; })();
-    let desc=""; try{ desc=(it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){}
+  const ledger=(DB.sales||[]);
+  if(!ledger.length){ uiAlert("No sales in the ledger yet. Sync with the cloud first — the P&L now reads the shared sales ledger."); return; }
+
+  const itemByNum={}, itemById={};
+  (DB.items||[]).forEach(function(it){ if(it.upc) itemByNum[String(it.upc)]=it; if(it.id) itemById[it.id]=it; });
+
+  const rows=ledger.map(function(s){
+    const it=(s.item_id&&itemById[s.item_id])||(s.item_number&&itemByNum[String(s.item_number)])||null;
+    const sale=num(s.sold_price);
+    const unitCost=num(s.unit_cost);
+    const hasFees=(s.ebay_fees!=null&&s.ebay_fees!=="")&&!!s.fees_posted_at;
+    const hasShip=(s.ship_cost!=null&&s.ship_cost!=="");
+    const refund=Math.abs(num(s.refund_amount));
+    const units=parseInt(s.units,10)||1;
+    let desc=""; try{ desc=(it&&it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){}
     desc=String(desc);
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
     if(desc.length>90) desc=desc.slice(0,90)+"…";
     const settled=hasFees&&hasShip;
-    const bucket=settled?"settled":(shippedMs?"pending":"awaiting");
-    return { it:it, sale:sale, unitCost:unitCost, hasShip:hasShip, hasFees:hasFees,
-             ship:hasShip?num(f.shipCostPaid):null, fees:hasFees?num(f.ebayFees):null,
-             refund:refund, settled:settled, bucket:bucket, shippedMs:shippedMs, soldMs:soldMs, desc:desc,
-             cat:(it.section||"Uncategorized"), chr:(it.subCategory||"—"),
-             feeLines:(Array.isArray(f.ebayFeeLines)?f.ebayFeeLines:null) };
+    return { s:s, it:it, title:(s.title||(it&&it.desc)||"(untitled)"), desc:desc,
+             sku:(it&&it.sku)||"", itemNumber:s.item_number||"", orderId:s.order_id||"",
+             condition:(it&&it.condition)||"", cat:(it&&it.section)||"Uncategorized", chr:(it&&it.subCategory)||"—",
+             image:(it&&it.image)||"", units:units,
+             sale:sale, unitCost:unitCost, refund:refund,
+             ship:hasShip?num(s.ship_cost):null, fees:hasFees?num(s.ebay_fees):null,
+             hasShip:hasShip, hasFees:hasFees, settled:settled,
+             cancelled:!!s.cancelled_at, returned:!!s.returned_at,
+             soldMs:ms(s.sold_at), shippedMs:ms(s.shipped_at) };
   });
 
-  const settledRows=rows.filter(function(r){return r.bucket==="settled";});
-  const pendingRows=rows.filter(function(r){return r.bucket==="pending";});
-  const awaitRows  =rows.filter(function(r){return r.bucket==="awaiting";});
+  const settledRows=rows.filter(function(r){return r.settled;});
+  const pendAll=rows.filter(function(r){return !r.settled;});
 
-  // Estimates are derived from settled history: average label cost, and eBay's effective take rate.
   const avgShip = settledRows.length ? settledRows.reduce(function(a,r){return a+r.ship;},0)/settledRows.length : 0;
   const feeSales= settledRows.reduce(function(a,r){return a+r.sale;},0);
   const feeTot  = settledRows.reduce(function(a,r){return a+r.fees;},0);
@@ -2829,19 +2858,18 @@ function openProfitLossStatement(){
       T.ship+=useEst?r.eShip:(r.ship||0); T.fees+=useEst?r.eFees:(r.fees||0);
       T.cogs+=useEst?r.eCogs:(r.cogs||0); T.profit+=useEst?r.eProfit:(r.profit||0); });
     return T; };
-  const pendAll=pendingRows.concat(awaitRows);
   const S=agg(settledRows,false), PEND=agg(pendAll,true), PROJ=agg(rows,true);
 
-  const feeBreak={};
-  settledRows.forEach(function(r){ if(r.feeLines) r.feeLines.forEach(function(fl){ const k=(fl.type||fl.label||fl.feeType||fl.name||"Other Fee").toString(); feeBreak[k]=(feeBreak[k]||0)+Math.abs(num(fl.amount!=null?fl.amount:fl.value)); }); });
-  const feeBreakRows=Object.keys(feeBreak).sort(function(a,b){return feeBreak[b]-feeBreak[a];}).map(function(k){return [k,feeBreak[k]];});
+  // Reconciliation: what the old item-derived basis would have reported.
+  const itemSold=(DB.items||[]).filter(function(it){ return !it.simulated && itemStatus(it)==="sold"; });
+  const itemSales=itemSold.reduce(function(a,it){ const f=it.fulfillment||{}; return a+(parseFloat(f.soldPrice!=null&&f.soldPrice!==""?f.soldPrice:it.retail)||0); },0);
 
   const today=new Date().toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
+  const span=(function(){ const t=rows.map(function(r){return r.soldMs;}).filter(Boolean).sort(); return t.length?(dt(t[0])+" – "+dt(t[t.length-1])):"—"; })();
 
-  // ---------- PAGE 1 : summary ----------
   const sheet1=""
     +"<div class=\"sheet\">"
-    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"sub\">Generated "+esc(today)+" · "+rows.length+" sold items · "+S.units+" finalized, "+PEND.units+" pending final costs</div></div>"
+    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"sub\">Generated "+esc(today)+" · "+esc(span)+" · "+rows.length+" sales · "+S.units+" finalized, "+PEND.units+" pending final costs</div></div>"
     +"<h2>Finalized Sales <span class=\"sm\">— all transaction costs finalized</span></h2>"
     +"<div class=\"kpis\">"
     +"<div class=\"k\"><div class=\"kl\">Sales</div><div class=\"kv\">"+money(S.sales)+"</div></div>"
@@ -2853,74 +2881,70 @@ function openProfitLossStatement(){
     +"<table class=\"t\"><thead><tr><th>Cost of Goods Sold</th><th class=\"r\">Amount</th><th class=\"r\">% of Sales</th></tr></thead><tbody>"
     +"<tr><td>Item Unit Cost</td><td class=\"r\">"+money(S.unitCost)+"</td><td class=\"r\">"+pct(S.unitCost,S.sales)+"</td></tr>"
     +"<tr><td>Shipping &amp; Fulfillment</td><td class=\"r\">"+money(S.ship)+"</td><td class=\"r\">"+pct(S.ship,S.sales)+"</td></tr>"
-    +"<tr><td>eBay Selling Fees"+(feeBreakRows.length?" (itemized, incl. taxes)":"")+"</td><td class=\"r\">"+money(S.fees)+"</td><td class=\"r\">"+pct(S.fees,S.sales)+"</td></tr>"
-    +feeBreakRows.map(function(x){ return "<tr class=\"sub2\"><td>&nbsp;&nbsp;— "+esc(x[0])+"</td><td class=\"r\">"+money(x[1])+"</td><td class=\"r\"></td></tr>"; }).join("")
+    +"<tr><td>eBay Selling Fees</td><td class=\"r\">"+money(S.fees)+"</td><td class=\"r\">"+pct(S.fees,S.sales)+"</td></tr>"
     +"<tr><td>Refunds</td><td class=\"r\">"+money(S.refund)+"</td><td class=\"r\">"+pct(S.refund,S.sales)+"</td></tr>"
     +"<tr class=\"tot\"><td>Total COGS</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r\">"+pct(S.cogs,S.sales)+"</td></tr>"
     +"<tr class=\"tot\"><td>Net Profit</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.sales)+"</td></tr>"
     +"</tbody></table>"
     +"<h2>Totals Including Estimates <span class=\"sm\">— finalized sales plus estimates for sales still awaiting final costs</span></h2>"
-    +"<div class=\"note\">Figures marked <span class=\"estv\">gold with an asterisk*</span> are estimates, not posted charges. Shipping is estimated at the average settled label cost ("+money(avgShip)+"); eBay fees at the average settled rate ("+(feeRate*100).toFixed(1)+"% of sale price). Each estimate is replaced by the real charge automatically as it posts.</div>"
+    +"<div class=\"note\">Figures marked <span class=\"estv\">gold with an asterisk*</span> are estimates, not posted charges. Shipping is estimated at the average finalized label cost ("+money(avgShip)+"); eBay fees at the average finalized rate ("+(feeRate*100).toFixed(1)+"% of sale price). Each estimate is replaced by the real charge automatically as it posts.</div>"
     +"<table class=\"t\"><thead><tr><th>Group</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"
     +"<tr><td>Finalized Sales</td><td class=\"r\">"+S.units+"</td><td class=\"r\">"+money(S.sales)+"</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.sales)+"</td></tr>"
     +"<tr><td>Sales Pending Final Costs <span class=\"sm\">(shipping and fee charges not posted yet)</span></td><td class=\"r\">"+PEND.units+"</td><td class=\"r\">"+money(PEND.sales)+"</td><td class=\"r\">"+est(PEND.cogs)+"</td><td class=\"r\">"+est(PEND.profit)+"</td><td class=\"r\">"+pct(PEND.profit,PEND.sales)+"</td></tr>"
-    +"<tr class=\"tot\"><td>Projected Total</td><td class=\"r\">"+PROJ.units+"</td><td class=\"r\">"+money(PROJ.sales)+"</td><td class=\"r\">"+est(PROJ.cogs)+"</td><td class=\"r\">"+est(PROJ.profit)+"</td><td class=\"r\">"+pct(PROJ.profit,PROJ.sales)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Total</td><td class=\"r\">"+PROJ.units+"</td><td class=\"r\">"+money(PROJ.sales)+"</td><td class=\"r\">"+est(PROJ.cogs)+"</td><td class=\"r\">"+est(PROJ.profit)+"</td><td class=\"r\">"+pct(PROJ.profit,PROJ.sales)+"</td></tr>"
     +"</tbody></table>"
+    +"<div class=\"note\">Source: shared sales ledger — one row per order line, so a listing that sold several times counts every sale. Cross-check: the older inventory-derived basis counted "+itemSold.length+" sold items totalling "+money(itemSales)+", against "+rows.length+" sales totalling "+money(PROJ.sales)+" here. A gap is expected where one listing sold more than once.</div>"
     +"</div>";
 
-  // ---------- PAGE 2 : overview ----------
   const groupBy=function(list,key){ const g={}; list.forEach(function(r){ const kk=r[key]||"—"; if(!g[kk]) g[kk]={units:0,sales:0,cost:0,profit:0};
       g[kk].units++; g[kk].sales+=r.sale; g[kk].cost+=r.eCogs+r.refund; g[kk].profit+=r.eProfit; });
     return Object.keys(g).map(function(k){ return Object.assign({name:k},g[k]); }).sort(function(a,b){return b.sales-a.sales;}); };
   const distRows=function(list){ return list.map(function(g){ return "<tr><td>"+esc(g.name)+"</td><td class=\"r\">"+g.units+"</td><td class=\"r\">"+money(g.sales)+"</td><td class=\"r\">"+money(g.cost)+"</td><td class=\"r "+(g.profit<0?"neg":"pos")+"\">"+money(g.profit)+"</td><td class=\"r\">"+pct(g.profit,g.sales)+"</td></tr>"; }).join(""); };
   const sheet2=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"sub\">All "+rows.length+" sold items · estimates included where charges have not posted</div></div>"
+    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"sub\">All "+rows.length+" sales · estimates included where charges have not posted</div></div>"
     +"<h2>Sales by eBay Category</h2>"
     +"<table class=\"t\"><thead><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"cat"))+"</tbody></table>"
     +"<h2>Sales by Character</h2>"
     +"<table class=\"t\"><thead><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"chr"))+"</tbody></table>"
     +"</div>";
 
-  // ---------- PAGE 3+ : sales ledger ----------
   const ledgerRow=function(r){
-    const img=r.it.image?("<img src=\""+esc(r.it.image)+"\" />"):"<div class=\"noimg\">—</div>";
+    const img=r.image?("<img src=\""+esc(r.image)+"\" />"):"<div class=\"noimg\">—</div>";
     const shipCell = r.hasShip? money(r.ship) : est(r.eShip);
     const feeCell  = r.hasFees? money(r.fees) : est(r.eFees);
     const cogsCell = r.settled? money(r.cogs) : est(r.eCogs);
     const profCell = r.settled? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
+    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":"");
     return "<tr><td class=\"imgc\">"+img+"</td>"
-      +"<td><div class=\"ttl\">"+esc(r.it.desc||r.it.upc||"")+"</div>"
+      +"<td><div class=\"ttl\">"+esc(r.title)+(r.units>1?(" <b>× "+r.units+"</b>"):"")+"</div>"
       +(r.desc?"<div class=\"dsc\">"+esc(r.desc)+"</div>":"")
-      +"<div class=\"meta\">"+esc([r.it.sku||"",r.it.upc?("eBay "+r.it.upc):""].filter(Boolean).join(" · "))+"</div></td>"
+      +"<div class=\"meta\">"+esc([r.sku,r.itemNumber?("eBay "+r.itemNumber):"",r.orderId?("order "+r.orderId):""].filter(Boolean).join(" · "))+flag+"</div></td>"
       +"<td>"+esc(dt(r.soldMs))+"</td><td>"+esc(dt(r.shippedMs))+"</td>"
-      +"<td>"+esc(r.it.condition||"")+"</td>"
+      +"<td>"+esc(r.condition)+"</td>"
       +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+money(r.unitCost)+"</td>"
       +"<td class=\"r\">"+shipCell+"</td><td class=\"r\">"+feeCell+"</td>"
       +"<td class=\"r\">"+cogsCell+"</td><td class=\"r\">"+profCell+"</td></tr>";
   };
   const byDate=function(a,b){ return (b.soldMs||0)-(a.soldMs||0); };
   const ledgerTable=function(list){
+    const T=agg(list,true), anyEst=list.some(function(r){return !r.settled;});
     return "<table class=\"t items\"><colgroup><col class=\"c1\"><col class=\"c2\"><col class=\"c3\"><col class=\"c3\"><col class=\"c4\">"
       +"<col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"></colgroup>"
       +"<thead><tr><th>Photo</th><th>Title / Description</th><th>Sold</th><th>Shipped</th><th>Cond.</th>"
       +"<th class=\"r\">Price</th><th class=\"r\">Unit Cost</th><th class=\"r\">Ship</th><th class=\"r\">eBay Fees</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th></tr></thead>"
       +"<tbody>"+list.slice().sort(byDate).map(ledgerRow).join("")+"</tbody>"
-      +(function(){ var T=agg(list,true), anyEst=list.some(function(r){return !r.settled;});
-        return "<tfoot><tr class=\"tot\"><td></td><td>Total — "+list.length+" item"+(list.length===1?"":"s")+"</td><td></td><td></td><td></td>"
-          +"<td class=\"r\">"+money(T.sales)+"</td><td class=\"r\">"+money(T.unitCost)+"</td>"
-          +"<td class=\"r\">"+(anyEst?est(T.ship):money(T.ship))+"</td><td class=\"r\">"+(anyEst?est(T.fees):money(T.fees))+"</td>"
-          +"<td class=\"r\">"+(anyEst?est(T.cogs):money(T.cogs))+"</td>"
-          +"<td class=\"r\">"+(anyEst?est(T.profit):("<span class=\""+(T.profit<0?"neg":"pos")+"\">"+money(T.profit)+"</span>"))+"</td></tr></tfoot>"; })()
+      +"<tfoot><tr class=\"tot\"><td></td><td>Total — "+list.length+" sale"+(list.length===1?"":"s")+"</td><td></td><td></td><td></td>"
+      +"<td class=\"r\">"+money(T.sales)+"</td><td class=\"r\">"+money(T.unitCost)+"</td>"
+      +"<td class=\"r\">"+(anyEst?est(T.ship):money(T.ship))+"</td><td class=\"r\">"+(anyEst?est(T.fees):money(T.fees))+"</td>"
+      +"<td class=\"r\">"+(anyEst?est(T.cogs):money(T.cogs))+"</td>"
+      +"<td class=\"r\">"+(anyEst?est(T.profit):("<span class=\""+(T.profit<0?"neg":"pos")+"\">"+money(T.profit)+"</span>"))+"</td></tr></tfoot>"
       +"</table>";
   };
-  const section=function(title,sub,list){
-    if(!list.length) return "";
-    return "<h2>"+title+" <span class=\"sm\">"+sub+"</span></h2>"+ledgerTable(list);
-  };
+  const section=function(title,sub,list){ return list.length?("<h2>"+title+" <span class=\"sm\">"+sub+"</span></h2>"+ledgerTable(list)):""; };
   const sheet3=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"sub\">"+rows.length+" sold items · newest sale first · <span class=\"estv\">gold*</span> = estimated, not yet posted</div></div>"
+    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"sub\">"+rows.length+" sales · newest first · <span class=\"estv\">gold*</span> = estimated</div></div>"
     +section("Finalized Sales","— all transaction costs finalized",settledRows)
     +section("Sales Pending Final Costs","— shipping and eBay charges not posted yet",pendAll)
     +"</div>";
@@ -2937,7 +2961,7 @@ function openProfitLossStatement(){
     +"table.t{width:100%;border-collapse:collapse;margin-bottom:8px;} .t th{background:#1a2b4a;color:#fff;text-align:left;padding:5px 6px;font-size:10px;font-weight:600;}"
     +".t td{padding:4px 6px;border-bottom:1px solid #eef;vertical-align:top;} .t .r{text-align:right;}"
     +"thead{display:table-header-group;} tr{page-break-inside:avoid;}"
-    +".tot td{font-weight:800;border-top:2px solid #1a2b4a;background:#f0f2f8;} .sub2 td{color:#778;font-size:10px;}"
+    +".tot td{font-weight:800;border-top:2px solid #1a2b4a;background:#f0f2f8;}"
     +".pos{color:#1F7244;} .neg{color:#c0392b;} .estv{color:#b8860b;}"
     +"table.items{table-layout:fixed;font-size:9px;} .items th,.items td{padding:3px 3px;}"
     +".items col.c1{width:30px;} .items col.c2{width:auto;} .items col.c3{width:46px;} .items col.c4{width:46px;} .items col.c5{width:42px;}"
@@ -14579,7 +14603,7 @@ function openCloudSyncTest(){
       if(!DB.items) DB.items=[];
       applyCloudRows(rows);   // maps fields AND runs enrichment: adopt category, vendor=Warehouse, cost from price
       _firstPullDone=true;
-      try{ await pullTombstones(); }catch(e){}
+      try{ await pullTombstones(); }catch(e){} try{ await pullSales(); }catch(e){}
       try{ ensureShippingStages(); }catch(e){}
       try{ autoAdvanceFulfillment(); }catch(e){}
       try{ checkAutoComplete(); }catch(e){}
