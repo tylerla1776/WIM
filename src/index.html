@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.95", BUILD_DATE="2026-08-20", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.4.99", BUILD_DATE="2026-09-02", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,10 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.4.99","COPY NUMBERS NOW SHOW ON THE PRINTED SALES LEDGER ROWS TOO, not just the export column — a sale of the second copy of a listing reads 307111885277-2 under its title, so the printed statement and the spreadsheet agree."],
+  ["3.4.98","EVERY COPY OF A MULTI-QUANTITY LISTING NOW HAS ITS OWN NUMBER. A listing put up with several copies has several physical books sharing one eBay item number, so there was no way to tell them apart on paper. Each copy now carries a suffix — 307111885277-1, -2, -3 — fixed for the life of that copy; single-quantity listings stay bare as before. The sales ledger BF / SKU column now carries that number instead of the shelf code, which was the wrong thing for a permanent record because it changes whenever the slot re-sequences and means nothing once the item ships. Copies of sales already on the books are numbered by sale date, oldest first."],
+  ["3.4.97","SALES LEDGER EXPORT NOW MATCHES THE EXISTING BOOKKEEPING FORMAT. The export used its own column layout, so it could not drop into the ledger already in use. It now writes the same columns in the same order as the legacy Quarter Ledger — Invoice #, Date, Other Notes, Location, Item Sold, BF / SKU, COGS, Shipping, eBay Fees, eBay Ad Fees, Refund, Sold, Profit — oldest sale first, with Profit left as a live spreadsheet formula so editing any cost recalculates it. Costs that have not posted read Pending rather than blank or zero, and the formula ignores that text, so a row corrects itself once the real charge arrives. Refunded, returned and cancelled sales are marked in Location the way the old book used it, unit cost fills the COGS column, and the warehouse SKU fills BF / SKU. Other Notes and eBay Ad Fees are left empty — notes are written by hand, and eBay does not yet break advertising fees out separately. The export covers whichever period is chosen for the statement."],
+  ["3.4.96","P&L BY MONTH, QUARTER OR YEAR, PLUS A SALES LEDGER EXPORT. The statement was a single running total. Clicking P&L Statement now opens a period picker: choose a year on its own for the full year, or pick specific months or quarters (several at once if you want, e.g. Q1 and Q2). A sale belongs to the month it SOLD in -- from the first instant of the month to the last -- no matter when its costs finally settle, so an item sold late in August stays in August and simply moves from pending to finalized as its shipping and fees arrive. The chosen period is printed on every page. Alongside Generate P&L there is now Export Sales Ledger, which writes the ledger for that same period to a spreadsheet file (opens in Excel) with a column per figure -- sold and shipped dates, item and order ids, category, character, price, unit cost, shipping, fees, refund, COGS, profit, margin and cost status."],
   ["3.4.95","P&L NOW READS THE SHARED SALES LEDGER — REPEAT SALES FINALLY COUNT. Revenue was derived from the inventory record, which holds one row per listing, so a listing that sold six times could only ever report one sale and the rest were invisible. WIM now syncs the shared sales ledger (one row per order line) and builds the whole statement from it, so every sale of a repeat-selling listing counts, each with its own price, fees, label cost and unit cost frozen as posted at the time -- editing a cost band later can no longer restate past profit. Cancelled and returned sales are marked and their refunds netted out. The summary carries a cross-check against the old inventory-derived basis so the two can be reconciled. Sales sync every cycle, tracking updates rather than sale dates, so costs that settle days later are picked up."],
   ["3.4.94","SALES WITH NO RECORDED PRICE ARE NO LONGER DROPPED SILENTLY. A sold item with no sale price cannot be costed, so it was quietly left out of the statement entirely -- real revenue could go missing with nothing on the page to show it. Those sales now appear in a Sales Missing Data section at the end of the ledger with their sold date, eBay item number and any fees or shipping already charged, and the count is called out in the ledger header. They stay out of the totals, because a sale with no price cannot be costed, but they are visible so the gap can be traced and fixed at source."],
   ["3.4.93","P&L WORDING AND TOTALS. Sales Pending and Awaiting Shipment are now one section, Sales Pending Final Costs, since both are simply waiting on final shipping and fee charges. Settled is renamed Finalized Sales (all transaction costs finalized), Projected Position is now Totals Including Estimates, Shipping (carrier/label) is Shipping and Fulfillment, and eBay Fees is eBay Selling Fees. Each Sales Ledger section now ends with a total line carrying price, unit cost, shipping, eBay fees, COGS and profit, shown in gold where any figure in that section is still an estimate."],
@@ -2799,7 +2803,184 @@ function pendingStorageBadgeHtml(id){
 // Everything created in the same batch as this item (one Add Item save, or one Bulk Add
 // Create click) — used by Missing Item to show where else to check for a possible swap.
 function batchMates(it){ if(!it.storageBatchId) return []; return activeItems().filter(i=>i.storageBatchId===it.storageBatchId && i.id!==it.id); }
+const PL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function plPeriodLabel(year,months){
+  if(!months||!months.length) return "Full Year "+year;
+  const ms=months.slice().sort(function(a,b){return a-b;});
+  const q=[[0,1,2],[3,4,5],[6,7,8],[9,10,11]];
+  const qsel=[]; for(var i=0;i<4;i++){ if(q[i].every(function(m){return ms.indexOf(m)>=0;})) qsel.push(i); }
+  if(qsel.length && qsel.reduce(function(a,i){return a+3;},0)===ms.length){
+    return qsel.map(function(i){return "Q"+(i+1);}).join(", ")+" "+year;
+  }
+  if(ms.length===1) return PL_MONTHS[ms[0]]+" "+year;
+  return ms.map(function(m){return PL_MONTHS[m].slice(0,3);}).join(", ")+" "+year;
+}
+function plSelectedFromUI(box){
+  const year=parseInt(box.querySelector("#pl-year").value,10);
+  const mode=box.querySelector("#pl-mode").value;
+  let months=[];
+  if(mode==="months"){
+    Array.prototype.forEach.call(box.querySelectorAll(".pl-m:checked"),function(c){ months.push(parseInt(c.value,10)); });
+  } else if(mode==="quarters"){
+    Array.prototype.forEach.call(box.querySelectorAll(".pl-q:checked"),function(c){
+      const q=parseInt(c.value,10); months=months.concat([q*3,q*3+1,q*3+2]);
+    });
+  }
+  return { year:year, months:months, label:plPeriodLabel(year,months) };
+}
+// Copy numbering for multi-quantity listings. A listing put up with 8 copies has 8 physical
+// books that share one eBay item number, so each copy carries a suffix -- 307111885277-1,
+// -2 and so on -- assigned at listing time and fixed for the life of that copy. Single-quantity
+// listings stay bare. For sales already on the books the copies are numbered by sale date,
+// oldest first, which is a reconstruction but a stable one.
+function copyCountsForNumber(){
+  const counts={};
+  (DB.sales||[]).forEach(function(s){ const k=String(s.item_number||""); if(!k) return; counts[k]=(counts[k]||0)+(parseInt(s.units,10)||1); });
+  (DB.items||[]).forEach(function(it){
+    const k=String(it.upc||""); if(!k) return;
+    let n=0;
+    try{ if(it.fulfillment&&Array.isArray(it.fulfillment.positions)) n=it.fulfillment.positions.length; }catch(e){}
+    const oh=parseInt(it.onHand,10); if(!isNaN(oh)&&oh>n) n=oh;
+    if(n>(counts[k]||0)) counts[k]=n;
+  });
+  return counts;
+}
+function saleCopyNumbers(){
+  // returns { "<order_id>|<item_number>": copyIndex } for sales of multi-copy listings
+  const counts=copyCountsForNumber(), byNum={}, out={};
+  (DB.sales||[]).forEach(function(s){ const k=String(s.item_number||""); if(!k) return; (byNum[k]=byNum[k]||[]).push(s); });
+  Object.keys(byNum).forEach(function(k){
+    if((counts[k]||0)<2) return;                       // single-copy listing stays bare
+    byNum[k].sort(function(a,b){ return (Date.parse(a.sold_at||"")||0)-(Date.parse(b.sold_at||"")||0); });
+    byNum[k].forEach(function(s,i){ out[String(s.order_id||"")+"|"+k]=i+1; });
+  });
+  return out;
+}
+function itemNumberWithCopy(itemNumber, copyIdx){
+  const base=String(itemNumber||"");
+  return (base && copyIdx) ? (base+"-"+copyIdx) : base;
+}
+function exportSalesLedgerCsv(sel){
+  // Matches the legacy "Quarter Ledger" layout exactly, so exports drop straight into the existing
+  // bookkeeping: Invoice # | Date | Other Notes | Location | Item Sold | BF / SKU | COGS | Shipping |
+  // eBay Fees | eBay Ad Fees | Refund | Sold | Profit, with Profit left as a live Excel formula.
+  const inPeriod=function(v){
+    if(!sel) return true;
+    const t=Date.parse(v||""); if(isNaN(t)) return false;
+    const d=new Date(t);
+    if(d.getFullYear()!==sel.year) return false;
+    if(sel.months&&sel.months.length) return sel.months.indexOf(d.getMonth())>=0;
+    return true;
+  };
+  const rows=(DB.sales||[]).filter(function(s){ return inPeriod(s.sold_at); })
+    .sort(function(a,b){ return (Date.parse(a.sold_at||"")||0)-(Date.parse(b.sold_at||"")||0); });
+  if(!rows.length){ uiAlert("No sales in "+((sel&&sel.label)||"that period")+"."); return; }
+  const byNum={}, byId={};
+  (DB.items||[]).forEach(function(it){ if(it.upc) byNum[String(it.upc)]=it; if(it.id) byId[it.id]=it; });
+  const n=function(v){ const x=parseFloat(v); return isNaN(x)?null:x; };
+  const d=function(v){ const t=Date.parse(v||""); if(isNaN(t)) return ""; const dd=new Date(t);
+    return (dd.getMonth()+1)+"/"+dd.getDate()+"/"+dd.getFullYear(); };
+  const cell=function(v){ if(v==null) return ""; const t=String(v); return /[",\n]/.test(t)?('"'+t.replace(/"/g,'""')+'"'):t; };
+  const copyNo=saleCopyNumbers();
+
+  const cols=["Invoice #","Date","Other Notes","Location","Item Sold","BF / SKU","COGS","Shipping",
+              "eBay Fees","eBay Ad Fees","Refund","Sold","Profit"];
+  const lines=[cols.join(",")];
+  let r=1;
+  rows.forEach(function(s){
+    r++;                                   // spreadsheet row number (row 1 is the header)
+    const it=(s.item_id&&byId[s.item_id])||(s.item_number&&byNum[String(s.item_number)])||null;
+    const sale=n(s.sold_price);
+    const uc=n(s.unit_cost);
+    const fees=(s.fees_posted_at&&n(s.ebay_fees)!=null)?n(s.ebay_fees):null;
+    const ship=(n(s.ship_cost)!=null)?n(s.ship_cost):null;
+    const refund=Math.abs(n(s.refund_amount)||0);
+    // Refund / cancellation state goes in Location, matching how the legacy book used that column.
+    let loc="";
+    if(s.cancelled_at) loc="Cancelled";
+    else if(s.returned_at) loc="Returned";
+    else if(refund) loc=(sale!=null&&refund<sale)?"Partial Refund":"Refund";
+    // Costs that have not posted yet read "Pending" rather than an empty cell or a misleading 0.
+    // SUM() ignores text, so the profit formula still works and self-corrects once the real cost lands.
+    const shipCell = ship!=null ? ship.toFixed(2) : "Pending";
+    const feesCell = fees!=null ? fees.toFixed(2) : "Pending";
+    lines.push([
+      cell(s.order_id||""),                        // Invoice #
+      d(s.sold_at),                                // Date
+      "",                                          // Other Notes — filled in by hand
+      cell(loc),                                   // Location (refund state)
+      cell(s.title||(it&&it.desc)||""),            // Item Sold
+      cell(itemNumberWithCopy(s.item_number, copyNo[String(s.order_id||"")+"|"+String(s.item_number||"")])),   // BF / SKU = eBay item number, suffixed per copy
+      uc!=null?uc.toFixed(2):"",                   // COGS
+      shipCell,                                    // Shipping
+      feesCell,                                    // eBay Fees
+      "",                                          // eBay Ad Fees — not broken out by eBay yet
+      refund?refund.toFixed(2):"",                 // Refund
+      sale!=null?sale.toFixed(2):"",               // Sold
+      '"=L'+r+'-SUM(G'+r+':K'+r+')"'               // Profit (live formula)
+    ].join(","));
+  });
+  const csv="\ufeff"+lines.join("\r\n");
+  const name="BH_Flips_Sales_Ledger_"+(((sel&&sel.label)||"All_time").replace(/[^A-Za-z0-9]+/g,"_"))+".csv";
+  try{
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
+  }catch(e){ uiAlert("Export failed: "+(e&&e.message||e)); }
+}
+
 function openProfitLossStatement(){
+  if(!(DB.sales||[]).length){ uiAlert("No sales in the ledger yet. Sync with the cloud first — the P&L reads the shared sales ledger."); return; }
+  const years={}; (DB.sales||[]).forEach(function(s){ const t=Date.parse(s.sold_at||""); if(!isNaN(t)) years[new Date(t).getFullYear()]=1; });
+  const yl=Object.keys(years).map(Number).sort(function(a,b){return b-a;});
+  if(!yl.length) yl.push(new Date().getFullYear());
+  const old=document.getElementById("pl-picker"); if(old) old.remove();
+  const wrap=document.createElement("div"); wrap.id="pl-picker";
+  wrap.style.cssText="position:fixed;inset:0;background:rgba(15,20,35,.55);z-index:99999;display:flex;align-items:center;justify-content:center;";
+  wrap.innerHTML=
+    '<div style="background:#fff;border-radius:12px;width:440px;max-width:94vw;box-shadow:0 18px 50px rgba(0,0,0,.3);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;overflow:hidden;">'
+    +'<div style="background:#1a2b4a;color:#fff;padding:12px 16px;font-size:15px;font-weight:700;">Profit &amp; Loss — choose a period</div>'
+    +'<div style="padding:14px 16px;font-size:13px;color:#1a1a2e;">'
+    +'<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">'
+    +'<label style="width:52px;color:#556;">Year</label>'
+    +'<select id="pl-year" style="flex:1;padding:6px;border:1px solid #ccd;border-radius:6px;">'+yl.map(function(y){return '<option value="'+y+'">'+y+'</option>';}).join("")+'</select>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">'
+    +'<label style="width:52px;color:#556;">Period</label>'
+    +'<select id="pl-mode" style="flex:1;padding:6px;border:1px solid #ccd;border-radius:6px;">'
+    +'<option value="year">Full year</option><option value="months">Specific month(s)</option><option value="quarters">Quarter(s)</option></select>'
+    +'</div>'
+    +'<div id="pl-months" style="display:none;flex-wrap:wrap;gap:4px 10px;margin:6px 0 10px;">'
+    +PL_MONTHS.map(function(m,i){return '<label style="width:30%;font-size:12px;"><input type="checkbox" class="pl-m" value="'+i+'"> '+m.slice(0,3)+'</label>';}).join("")
+    +'</div>'
+    +'<div id="pl-quarters" style="display:none;flex-wrap:wrap;gap:4px 14px;margin:6px 0 10px;">'
+    +[0,1,2,3].map(function(q){return '<label style="font-size:12px;"><input type="checkbox" class="pl-q" value="'+q+'"> Q'+(q+1)+' <span style="color:#889;">('+PL_MONTHS[q*3].slice(0,3)+'–'+PL_MONTHS[q*3+2].slice(0,3)+')</span></label>';}).join("")
+    +'</div>'
+    +'<div style="font-size:11px;color:#667;background:#f7f8fc;border-left:3px solid #1a2b4a;padding:6px 9px;">A sale belongs to the month it sold in. Costs that settle later keep flowing into that month, moving sales from pending to finalized over time.</div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;background:#f7f8fc;border-top:1px solid #eef;">'
+    +'<button id="pl-cancel" style="padding:7px 12px;border:1px solid #ccd;background:#fff;border-radius:7px;cursor:pointer;">Cancel</button>'
+    +'<button id="pl-csv" style="padding:7px 12px;border:1px solid #1a2b4a;background:#fff;color:#1a2b4a;border-radius:7px;cursor:pointer;font-weight:600;">Export Sales Ledger</button>'
+    +'<button id="pl-go" style="padding:7px 14px;border:0;background:#1a2b4a;color:#fff;border-radius:7px;cursor:pointer;font-weight:700;">Generate P&amp;L</button>'
+    +'</div></div>';
+  document.body.appendChild(wrap);
+  const mode=wrap.querySelector("#pl-mode");
+  const sync=function(){
+    wrap.querySelector("#pl-months").style.display=(mode.value==="months")?"flex":"none";
+    wrap.querySelector("#pl-quarters").style.display=(mode.value==="quarters")?"flex":"none";
+  };
+  mode.onchange=sync; sync();
+  const close=function(){ wrap.remove(); };
+  wrap.querySelector("#pl-cancel").onclick=close;
+  wrap.onclick=function(e){ if(e.target===wrap) close(); };
+  wrap.querySelector("#pl-go").onclick=function(){ const sel=plSelectedFromUI(wrap); close(); renderProfitLoss(sel); };
+  wrap.querySelector("#pl-csv").onclick=function(){ const sel=plSelectedFromUI(wrap); close(); exportSalesLedgerCsv(sel); };
+}
+
+function renderProfitLoss(sel){
+  // sel = { year, months:[0-11], label }  — a sale belongs to the month it SOLD in, regardless of
+  // when its costs finally settle. Costs keep trickling into that month's pending section.
   const num=function(v){ const n=parseFloat(v); return isNaN(n)?0:n; };
   const money=function(n){ return "$"+(Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); };
   const est=function(n){ return "<span class=\"estv\">"+money(n)+"*</span>"; };
@@ -2807,9 +2988,18 @@ function openProfitLossStatement(){
   const dt=function(ms){ if(!ms) return "—"; const d=new Date(ms); return isNaN(d.getTime())?"—":d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
   const ms=function(v){ const t=Date.parse(v||""); return isNaN(t)?0:t; };
 
-  const ledger=(DB.sales||[]);
-  if(!ledger.length){ uiAlert("No sales in the ledger yet. Sync with the cloud first — the P&L now reads the shared sales ledger."); return; }
+  const inPeriod=function(v){
+    if(!sel) return true;
+    const t=Date.parse(v||""); if(isNaN(t)) return false;
+    const d=new Date(t);
+    if(d.getFullYear()!==sel.year) return false;
+    if(sel.months && sel.months.length) return sel.months.indexOf(d.getMonth())>=0;
+    return true;
+  };
+  const ledger=(DB.sales||[]).filter(function(s){ return inPeriod(s.sold_at); });
+  if(!ledger.length){ uiAlert("No sales in "+((sel&&sel.label)||"that period")+"."); return; }
 
+  const _copyNos=saleCopyNumbers();
   const itemByNum={}, itemById={};
   (DB.items||[]).forEach(function(it){ if(it.upc) itemByNum[String(it.upc)]=it; if(it.id) itemById[it.id]=it; });
 
@@ -2829,6 +3019,7 @@ function openProfitLossStatement(){
     const settled=hasFees&&hasShip;
     return { s:s, it:it, title:(s.title||(it&&it.desc)||"(untitled)"), desc:desc,
              sku:(it&&it.sku)||"", itemNumber:s.item_number||"", orderId:s.order_id||"",
+             copyNo:_copyNos[String(s.order_id||"")+"|"+String(s.item_number||"")]||0,
              condition:(it&&it.condition)||"", cat:(it&&it.section)||"Uncategorized", chr:(it&&it.subCategory)||"—",
              image:(it&&it.image)||"", units:units,
              sale:sale, unitCost:unitCost, refund:refund,
@@ -2869,7 +3060,7 @@ function openProfitLossStatement(){
 
   const sheet1=""
     +"<div class=\"sheet\">"
-    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"sub\">Generated "+esc(today)+" · "+esc(span)+" · "+rows.length+" sales · "+S.units+" finalized, "+PEND.units+" pending final costs</div></div>"
+    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">Generated "+esc(today)+" · "+esc(span)+" · "+rows.length+" sales · "+S.units+" finalized, "+PEND.units+" pending final costs</div></div>"
     +"<h2>Finalized Sales <span class=\"sm\">— all transaction costs finalized</span></h2>"
     +"<div class=\"kpis\">"
     +"<div class=\"k\"><div class=\"kl\">Sales</div><div class=\"kv\">"+money(S.sales)+"</div></div>"
@@ -2893,7 +3084,6 @@ function openProfitLossStatement(){
     +"<tr><td>Sales Pending Final Costs <span class=\"sm\">(shipping and fee charges not posted yet)</span></td><td class=\"r\">"+PEND.units+"</td><td class=\"r\">"+money(PEND.sales)+"</td><td class=\"r\">"+est(PEND.cogs)+"</td><td class=\"r\">"+est(PEND.profit)+"</td><td class=\"r\">"+pct(PEND.profit,PEND.sales)+"</td></tr>"
     +"<tr class=\"tot\"><td>Total</td><td class=\"r\">"+PROJ.units+"</td><td class=\"r\">"+money(PROJ.sales)+"</td><td class=\"r\">"+est(PROJ.cogs)+"</td><td class=\"r\">"+est(PROJ.profit)+"</td><td class=\"r\">"+pct(PROJ.profit,PROJ.sales)+"</td></tr>"
     +"</tbody></table>"
-    +"<div class=\"note\">Source: shared sales ledger — one row per order line, so a listing that sold several times counts every sale. Cross-check: the older inventory-derived basis counted "+itemSold.length+" sold items totalling "+money(itemSales)+", against "+rows.length+" sales totalling "+money(PROJ.sales)+" here. A gap is expected where one listing sold more than once.</div>"
     +"</div>";
 
   const groupBy=function(list,key){ const g={}; list.forEach(function(r){ const kk=r[key]||"—"; if(!g[kk]) g[kk]={units:0,sales:0,cost:0,profit:0};
@@ -2902,7 +3092,7 @@ function openProfitLossStatement(){
   const distRows=function(list){ return list.map(function(g){ return "<tr><td>"+esc(g.name)+"</td><td class=\"r\">"+g.units+"</td><td class=\"r\">"+money(g.sales)+"</td><td class=\"r\">"+money(g.cost)+"</td><td class=\"r "+(g.profit<0?"neg":"pos")+"\">"+money(g.profit)+"</td><td class=\"r\">"+pct(g.profit,g.sales)+"</td></tr>"; }).join(""); };
   const sheet2=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"sub\">All "+rows.length+" sales · estimates included where charges have not posted</div></div>"
+    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">All "+rows.length+" sales · estimates included where charges have not posted</div></div>"
     +"<h2>Sales by eBay Category</h2>"
     +"<table class=\"t\"><thead><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"cat"))+"</tbody></table>"
     +"<h2>Sales by Character</h2>"
@@ -2919,7 +3109,7 @@ function openProfitLossStatement(){
     return "<tr><td class=\"imgc\">"+img+"</td>"
       +"<td><div class=\"ttl\">"+esc(r.title)+(r.units>1?(" <b>× "+r.units+"</b>"):"")+"</div>"
       +(r.desc?"<div class=\"dsc\">"+esc(r.desc)+"</div>":"")
-      +"<div class=\"meta\">"+esc([r.sku,r.itemNumber?("eBay "+r.itemNumber):"",r.orderId?("order "+r.orderId):""].filter(Boolean).join(" · "))+flag+"</div></td>"
+      +"<div class=\"meta\">"+esc([r.sku,r.itemNumber?("eBay "+itemNumberWithCopy(r.itemNumber,r.copyNo)):"",r.orderId?("order "+r.orderId):""].filter(Boolean).join(" · "))+flag+"</div></td>"
       +"<td>"+esc(dt(r.soldMs))+"</td><td>"+esc(dt(r.shippedMs))+"</td>"
       +"<td>"+esc(r.condition)+"</td>"
       +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+money(r.unitCost)+"</td>"
@@ -2944,7 +3134,7 @@ function openProfitLossStatement(){
   const section=function(title,sub,list){ return list.length?("<h2>"+title+" <span class=\"sm\">"+sub+"</span></h2>"+ledgerTable(list)):""; };
   const sheet3=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"sub\">"+rows.length+" sales · newest first · <span class=\"estv\">gold*</span> = estimated</div></div>"
+    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">"+rows.length+" sales · newest first · <span class=\"estv\">gold*</span> = estimated</div></div>"
     +section("Finalized Sales","— all transaction costs finalized",settledRows)
     +section("Sales Pending Final Costs","— shipping and eBay charges not posted yet",pendAll)
     +"</div>";
@@ -2953,6 +3143,7 @@ function openProfitLossStatement(){
     +"@page{size:letter;margin:0.45in;} *{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box;}"
     +"body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a2e;margin:0;font-size:11px;}"
     +".sheet{padding:0 0 18px 0;} .pagebreak{page-break-before:always;}"
+    +".per{font-size:13px;font-weight:700;color:#b8860b;margin-top:2px;}"
     +".hd{border-bottom:3px solid #1a2b4a;padding-bottom:8px;margin-bottom:12px;} h1{margin:0;font-size:22px;color:#1a2b4a;letter-spacing:-.01em;} .sub{color:#667;font-size:11px;margin-top:3px;}"
     +"h2{font-size:13px;color:#1a2b4a;margin:16px 0 5px;border-bottom:1px solid #ccd;padding-bottom:3px;page-break-after:avoid;} h2 .sm{font-size:10px;color:#889;font-weight:400;}"
     +".kpis{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:10px;} .k{flex:1;min-width:100px;border:1px solid #dde;border-radius:8px;padding:7px 9px;background:#f7f8fc;}"
@@ -2976,6 +3167,7 @@ function openProfitLossStatement(){
   doc.write("<html><head><title>WIM — Profit and Loss</title>"+css+"</head><body>"+sheet1+sheet2+sheet3+"</body></html>"); doc.close();
   setTimeout(function(){ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },400);
 }
+
 
 function soldItems(){ return visibleItems().filter(i=>i.sold||itemStatus(i)==="inactive"); }
 function listedItems(){ return visibleItems().filter(i=>itemStatus(i)==="listed"); }
