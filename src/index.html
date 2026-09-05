@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.4.99", BUILD_DATE="2026-09-02", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.1", BUILD_DATE="2026-09-05", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.1","SALES FOR DELETED ITEMS NOW DROP OUT OF THE ACCOUNTING. An item deleted after it had already sold left its sale behind in the ledger, still counting as revenue -- two such sales were overstating income by $61.90. Those sales are now flagged at the source and WIM removes them on sync and ignores any already held locally, so both the P&L and the Excel export exclude them. Refunds and frozen unit costs were fixed at the source in the same round: a refunded sale now nets to zero instead of counting as full revenue, and every sale carries its cost of goods calculated from what the buyer actually paid rather than the asking price."],
+  ["3.5.0","SALES LEDGER NOW EXPORTS AS A FORMATTED EXCEL WORKBOOK. It was a plain CSV, so every column came out the same narrow width with no styling and dates as text. It is now a real Excel file: set column widths matching the existing ledger, a dark header row with white bold text and a frozen top row, real date and two-decimal number formats, Pending shown in gold italic, and Profit as a live formula. Invoice # now carries the eBay item number (with its copy suffix where a listing had several copies) and BF / SKU is left empty for hand entry, matching how the book is actually kept. COGS is no longer blank: where a sale did not record a unit cost, it falls back to the warehouse price bands so the column always carries a real figure."],
   ["3.4.99","COPY NUMBERS NOW SHOW ON THE PRINTED SALES LEDGER ROWS TOO, not just the export column — a sale of the second copy of a listing reads 307111885277-2 under its title, so the printed statement and the spreadsheet agree."],
   ["3.4.98","EVERY COPY OF A MULTI-QUANTITY LISTING NOW HAS ITS OWN NUMBER. A listing put up with several copies has several physical books sharing one eBay item number, so there was no way to tell them apart on paper. Each copy now carries a suffix — 307111885277-1, -2, -3 — fixed for the life of that copy; single-quantity listings stay bare as before. The sales ledger BF / SKU column now carries that number instead of the shelf code, which was the wrong thing for a permanent record because it changes whenever the slot re-sequences and means nothing once the item ships. Copies of sales already on the books are numbered by sale date, oldest first."],
   ["3.4.97","SALES LEDGER EXPORT NOW MATCHES THE EXISTING BOOKKEEPING FORMAT. The export used its own column layout, so it could not drop into the ledger already in use. It now writes the same columns in the same order as the legacy Quarter Ledger — Invoice #, Date, Other Notes, Location, Item Sold, BF / SKU, COGS, Shipping, eBay Fees, eBay Ad Fees, Refund, Sold, Profit — oldest sale first, with Profit left as a live spreadsheet formula so editing any cost recalculates it. Costs that have not posted read Pending rather than blank or zero, and the formula ignores that text, so a row corrects itself once the real charge arrives. Refunded, returned and cancelled sales are marked in Location the way the old book used it, unit cost fills the COGS column, and the warehouse SKU fills BF / SKU. Other Notes and eBay Ad Fees are left empty — notes are written by hand, and eBay does not yet break advertising fees out separately. The export covers whichever period is chosen for the statement."],
@@ -1122,6 +1124,14 @@ async function pullSales(){
     let added=0, updated=0, newest=DB.cloud.lastSaleSyncAt||null;
     list.forEach(function(row){
       const k=key(row);
+      // A sale carrying deleted_at belongs to an item tombstoned after it sold -- it was never our
+      // inventory, so it must leave the ledger rather than keep inflating revenue.
+      if(row.deleted_at){
+        if(byKey[k]!=null){ DB.sales.splice(byKey[k],1); byKey={}; DB.sales.forEach(function(x,i){ byKey[key(x)]=i; }); updated++; }
+        const u0=row.updated_at||row.deleted_at;
+        if(u0&&(!newest||Date.parse(u0)>Date.parse(newest))) newest=u0;
+        return;
+      }
       if(byKey[k]!=null){ DB.sales[byKey[k]]=row; updated++; }
       else { byKey[k]=DB.sales.length; DB.sales.push(row); added++; }
       const u=row.updated_at||row.created_at;
@@ -2861,9 +2871,8 @@ function itemNumberWithCopy(itemNumber, copyIdx){
   return (base && copyIdx) ? (base+"-"+copyIdx) : base;
 }
 function exportSalesLedgerCsv(sel){
-  // Matches the legacy "Quarter Ledger" layout exactly, so exports drop straight into the existing
-  // bookkeeping: Invoice # | Date | Other Notes | Location | Item Sold | BF / SKU | COGS | Shipping |
-  // eBay Fees | eBay Ad Fees | Refund | Sold | Profit, with Profit left as a live Excel formula.
+  // Writes a real Excel workbook (SpreadsheetML), not a bare CSV, so column widths, number formats,
+  // header styling and live formulas all survive. Layout matches the existing Quarter Ledger exactly.
   const inPeriod=function(v){
     if(!sel) return true;
     const t=Date.parse(v||""); if(isNaN(t)) return false;
@@ -2872,58 +2881,96 @@ function exportSalesLedgerCsv(sel){
     if(sel.months&&sel.months.length) return sel.months.indexOf(d.getMonth())>=0;
     return true;
   };
-  const rows=(DB.sales||[]).filter(function(s){ return inPeriod(s.sold_at); })
+  const rows=(DB.sales||[]).filter(function(s){ return !s.deleted_at && inPeriod(s.sold_at); })
     .sort(function(a,b){ return (Date.parse(a.sold_at||"")||0)-(Date.parse(b.sold_at||"")||0); });
   if(!rows.length){ uiAlert("No sales in "+((sel&&sel.label)||"that period")+"."); return; }
   const byNum={}, byId={};
   (DB.items||[]).forEach(function(it){ if(it.upc) byNum[String(it.upc)]=it; if(it.id) byId[it.id]=it; });
   const n=function(v){ const x=parseFloat(v); return isNaN(x)?null:x; };
-  const d=function(v){ const t=Date.parse(v||""); if(isNaN(t)) return ""; const dd=new Date(t);
-    return (dd.getMonth()+1)+"/"+dd.getDate()+"/"+dd.getFullYear(); };
-  const cell=function(v){ if(v==null) return ""; const t=String(v); return /[",\n]/.test(t)?('"'+t.replace(/"/g,'""')+'"'):t; };
+  const xesc=function(v){ return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); };
   const copyNo=saleCopyNumbers();
 
-  const cols=["Invoice #","Date","Other Notes","Location","Item Sold","BF / SKU","COGS","Shipping",
-              "eBay Fees","eBay Ad Fees","Refund","Sold","Profit"];
-  const lines=[cols.join(",")];
+  const cols=[
+    {t:"Invoice #",    w:110},
+    {t:"Date",         w:70},
+    {t:"Other Notes",  w:95},
+    {t:"Location",     w:85},
+    {t:"Item Sold",    w:330},
+    {t:"BF / SKU",     w:80},
+    {t:"COGS",         w:60},
+    {t:"Shipping",     w:65},
+    {t:"eBay Fees",    w:68},
+    {t:"eBay Ad Fees", w:80},
+    {t:"Refund",       w:62},
+    {t:"Sold",         w:62},
+    {t:"Profit",       w:70}
+  ];
+
+  let body="";
   let r=1;
   rows.forEach(function(s){
-    r++;                                   // spreadsheet row number (row 1 is the header)
+    r++;
     const it=(s.item_id&&byId[s.item_id])||(s.item_number&&byNum[String(s.item_number)])||null;
     const sale=n(s.sold_price);
-    const uc=n(s.unit_cost);
+    // Unit cost is written on the sale at the time it is made. Where that is missing, fall back to
+    // the warehouse price bands so the COGS column is never silently blank.
+    let uc=n(s.unit_cost);
+    if(uc==null && sale!=null && typeof warehouseCostForPrice==="function"){ try{ uc=n(warehouseCostForPrice(sale)); }catch(e){} }
+    if(uc==null && it){ uc=n(it.unitCost!=null?it.unitCost:it.cost); }
     const fees=(s.fees_posted_at&&n(s.ebay_fees)!=null)?n(s.ebay_fees):null;
     const ship=(n(s.ship_cost)!=null)?n(s.ship_cost):null;
     const refund=Math.abs(n(s.refund_amount)||0);
-    // Refund / cancellation state goes in Location, matching how the legacy book used that column.
     let loc="";
     if(s.cancelled_at) loc="Cancelled";
     else if(s.returned_at) loc="Returned";
     else if(refund) loc=(sale!=null&&refund<sale)?"Partial Refund":"Refund";
-    // Costs that have not posted yet read "Pending" rather than an empty cell or a misleading 0.
-    // SUM() ignores text, so the profit formula still works and self-corrects once the real cost lands.
-    const shipCell = ship!=null ? ship.toFixed(2) : "Pending";
-    const feesCell = fees!=null ? fees.toFixed(2) : "Pending";
-    lines.push([
-      cell(s.order_id||""),                        // Invoice #
-      d(s.sold_at),                                // Date
-      "",                                          // Other Notes — filled in by hand
-      cell(loc),                                   // Location (refund state)
-      cell(s.title||(it&&it.desc)||""),            // Item Sold
-      cell(itemNumberWithCopy(s.item_number, copyNo[String(s.order_id||"")+"|"+String(s.item_number||"")])),   // BF / SKU = eBay item number, suffixed per copy
-      uc!=null?uc.toFixed(2):"",                   // COGS
-      shipCell,                                    // Shipping
-      feesCell,                                    // eBay Fees
-      "",                                          // eBay Ad Fees — not broken out by eBay yet
-      refund?refund.toFixed(2):"",                 // Refund
-      sale!=null?sale.toFixed(2):"",               // Sold
-      '"=L'+r+'-SUM(G'+r+':K'+r+')"'               // Profit (live formula)
-    ].join(","));
+    const dstr=(function(v){ const t=Date.parse(v||""); if(isNaN(t)) return ""; const d=new Date(t);
+      return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"T00:00:00.000"; })(s.sold_at);
+    const numCell=function(v,style){ return v==null?('<Cell ss:StyleID="'+style+'"/>'):('<Cell ss:StyleID="'+style+'"><Data ss:Type="Number">'+v.toFixed(2)+'</Data></Cell>'); };
+    const pendCell=function(v){ return v==null?('<Cell ss:StyleID="sPend"><Data ss:Type="String">Pending</Data></Cell>'):numCell(v,"sMoney"); };
+    body+='<Row>'
+      +'<Cell ss:StyleID="sTxt"><Data ss:Type="String">'+xesc(itemNumberWithCopy(s.item_number, copyNo[String(s.order_id||"")+"|"+String(s.item_number||"")]))+'</Data></Cell>'
+      +(dstr?('<Cell ss:StyleID="sDate"><Data ss:Type="DateTime">'+dstr+'</Data></Cell>'):'<Cell ss:StyleID="sDate"/>')
+      +'<Cell ss:StyleID="sTxt"/>'
+      +'<Cell ss:StyleID="sTxt"><Data ss:Type="String">'+xesc(loc)+'</Data></Cell>'
+      +'<Cell ss:StyleID="sTxt"><Data ss:Type="String">'+xesc(s.title||(it&&it.desc)||"")+'</Data></Cell>'
+      +'<Cell ss:StyleID="sTxt"/>'
+      +numCell(uc,"sMoney")
+      +pendCell(ship)
+      +pendCell(fees)
+      +'<Cell ss:StyleID="sMoney"/>'
+      +numCell(refund?refund:null,"sMoney")
+      +numCell(sale,"sMoney")
+      +'<Cell ss:StyleID="sMoney" ss:Formula="=RC[-1]-SUM(RC[-6]:RC[-2])"/>'
+      +'</Row>';
   });
-  const csv="\ufeff"+lines.join("\r\n");
-  const name="BH_Flips_Sales_Ledger_"+(((sel&&sel.label)||"All_time").replace(/[^A-Za-z0-9]+/g,"_"))+".csv";
+
+  const xml='<?xml version="1.0"?>'
+    +'<?mso-application progid="Excel.Sheet"?>'
+    +'<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office"'
+    +' xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+    +'<Styles>'
+    +'<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/><Font ss:FontName="Calibri" ss:Size="11"/></Style>'
+    +'<Style ss:ID="sHead"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>'
+    +'<Interior ss:Color="#1A2B4A" ss:Pattern="Solid"/><Font ss:Color="#FFFFFF" ss:Bold="1"/>'
+    +'<Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>'
+    +'<Style ss:ID="sTxt"><Alignment ss:Vertical="Top"/></Style>'
+    +'<Style ss:ID="sDate"><NumberFormat ss:Format="m/d/yyyy"/></Style>'
+    +'<Style ss:ID="sMoney"><NumberFormat ss:Format="0.00"/></Style>'
+    +'<Style ss:ID="sPend"><Font ss:Color="#B8860B" ss:Italic="1"/></Style>'
+    +'</Styles>'
+    +'<Worksheet ss:Name="Quarter Ledger"><Table>'
+    +cols.map(function(c){ return '<Column ss:AutoFitWidth="0" ss:Width="'+c.w+'"/>'; }).join("")
+    +'<Row ss:StyleID="sHead">'+cols.map(function(c){ return '<Cell ss:StyleID="sHead"><Data ss:Type="String">'+xesc(c.t)+'</Data></Cell>'; }).join("")+'</Row>'
+    +body
+    +'</Table>'
+    +'<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/>'
+    +'<SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane></WorksheetOptions>'
+    +'</Worksheet></Workbook>';
+
+  const name="BH_Flips_Sales_Ledger_"+(((sel&&sel.label)||"All_time").replace(/[^A-Za-z0-9]+/g,"_"))+".xls";
   try{
-    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const blob=new Blob([xml],{type:"application/vnd.ms-excel"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
     setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
@@ -2996,7 +3043,7 @@ function renderProfitLoss(sel){
     if(sel.months && sel.months.length) return sel.months.indexOf(d.getMonth())>=0;
     return true;
   };
-  const ledger=(DB.sales||[]).filter(function(s){ return inPeriod(s.sold_at); });
+  const ledger=(DB.sales||[]).filter(function(s){ return !s.deleted_at && inPeriod(s.sold_at); });
   if(!ledger.length){ uiAlert("No sales in "+((sel&&sel.label)||"that period")+"."); return; }
 
   const _copyNos=saleCopyNumbers();
