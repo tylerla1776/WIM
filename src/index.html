@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.1", BUILD_DATE="2026-09-05", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.2", BUILD_DATE="2026-09-05", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.2","THE SALES LEDGER NOW RE-READS ITSELF IN FULL PERIODICALLY. Sales were synced by asking only for rows changed since last time, which depends on every write updating the change stamp -- and a missed stamp strands that row permanently, keeping its old figures while everything appears healthy. That is how two deleted sales carried on counting as revenue. Every fifth sync now pulls the entire ledger and treats it as authoritative, dropping anything the server no longer returns, so a missed stamp costs a few minutes instead of going unnoticed indefinitely. The same protection already covers inventory."],
   ["3.5.1","SALES FOR DELETED ITEMS NOW DROP OUT OF THE ACCOUNTING. An item deleted after it had already sold left its sale behind in the ledger, still counting as revenue -- two such sales were overstating income by $61.90. Those sales are now flagged at the source and WIM removes them on sync and ignores any already held locally, so both the P&L and the Excel export exclude them. Refunds and frozen unit costs were fixed at the source in the same round: a refunded sale now nets to zero instead of counting as full revenue, and every sale carries its cost of goods calculated from what the buyer actually paid rather than the asking price."],
   ["3.5.0","SALES LEDGER NOW EXPORTS AS A FORMATTED EXCEL WORKBOOK. It was a plain CSV, so every column came out the same narrow width with no styling and dates as text. It is now a real Excel file: set column widths matching the existing ledger, a dark header row with white bold text and a frozen top row, real date and two-decimal number formats, Pending shown in gold italic, and Profit as a live formula. Invoice # now carries the eBay item number (with its copy suffix where a listing had several copies) and BF / SKU is left empty for hand entry, matching how the book is actually kept. COGS is no longer blank: where a sale did not record a unit cost, it falls back to the warehouse price bands so the column always carries a real figure."],
   ["3.4.99","COPY NUMBERS NOW SHOW ON THE PRINTED SALES LEDGER ROWS TOO, not just the export column — a sale of the second copy of a listing reads 307111885277-2 under its title, so the printed statement and the spreadsheet agree."],
@@ -1107,6 +1108,7 @@ function isOurInventoryRow(row){
   if(/^[0-9]{6,}$/.test(d)) return false;                // title is just an item number
   return true;
 }
+let _saleCycles=0;
 async function pullSales(){
   // The sales ledger is the accounting record: one row per order line, so a listing that sold
   // several times has several rows. The high-water mark tracks updated_at, NOT sold_at -- fees and
@@ -1115,7 +1117,13 @@ async function pullSales(){
     if(!cloudSession) return 0;
     if(!DB.cloud) DB.cloud={};
     if(!Array.isArray(DB.sales)) DB.sales=[];
-    const r=await Cloud.getSales(DB.cloud.lastSaleSyncAt||null);
+    // Every 5th cycle, ask for the whole ledger rather than only what changed. A delta sync depends on
+    // every writer bumping updated_at, and a missed bump silently strands a row forever -- the row keeps
+    // its old values and nothing anywhere looks broken, which is exactly how deleted sales kept counting
+    // as revenue. A periodic full pull means a missed bump costs minutes, not permanence.
+    _saleCycles++;
+    const forceFullSales=(_saleCycles%5===1);
+    const r=await Cloud.getSales(forceFullSales?null:(DB.cloud.lastSaleSyncAt||null));
     if(!r||!r.ok||!r.body) return 0;
     let list=[]; try{ list=JSON.parse(r.body); }catch(e){ return 0; }
     if(!Array.isArray(list)||!list.length) return 0;
@@ -1137,6 +1145,14 @@ async function pullSales(){
       const u=row.updated_at||row.created_at;
       if(u&&(!newest||Date.parse(u)>Date.parse(newest))) newest=u;
     });
+    if(forceFullSales){
+      // Full pull: the server's list is authoritative, so anything held locally that it no longer
+      // returns has been removed at the source and must go.
+      const live={}; list.forEach(function(x){ if(!x.deleted_at) live[key(x)]=1; });
+      const before=DB.sales.length;
+      DB.sales=DB.sales.filter(function(x){ return live[key(x)]; });
+      if(DB.sales.length!==before) updated+=(before-DB.sales.length);
+    }
     DB.cloud.lastSaleSyncAt=newest;
     if(added||updated) save();
     return added+updated;
