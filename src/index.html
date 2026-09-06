@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.2", BUILD_DATE="2026-09-05", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.3", BUILD_DATE="2026-09-07", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.3","CANCELLED AND RETURNED SALES ARE NOW TREATED AS FINISHED AND CARRY NO VALUE. They were sitting under Sales Pending Final Costs waiting on charges that will never arrive, showing an estimated price, fees and profit for a sale that did not happen. A cancelled or returned sale is finalized -- there is nothing left to settle -- so it now appears under Finalized Sales with dashes across price, cost, shipping, fees and profit, and contributes nothing to any total. They are also excluded from the averages used to estimate charges on other sales, so a voided order can no longer drag those estimates down."],
   ["3.5.2","THE SALES LEDGER NOW RE-READS ITSELF IN FULL PERIODICALLY. Sales were synced by asking only for rows changed since last time, which depends on every write updating the change stamp -- and a missed stamp strands that row permanently, keeping its old figures while everything appears healthy. That is how two deleted sales carried on counting as revenue. Every fifth sync now pulls the entire ledger and treats it as authoritative, dropping anything the server no longer returns, so a missed stamp costs a few minutes instead of going unnoticed indefinitely. The same protection already covers inventory."],
   ["3.5.1","SALES FOR DELETED ITEMS NOW DROP OUT OF THE ACCOUNTING. An item deleted after it had already sold left its sale behind in the ledger, still counting as revenue -- two such sales were overstating income by $61.90. Those sales are now flagged at the source and WIM removes them on sync and ignores any already held locally, so both the P&L and the Excel export exclude them. Refunds and frozen unit costs were fixed at the source in the same round: a refunded sale now nets to zero instead of counting as full revenue, and every sale carries its cost of goods calculated from what the buyer actually paid rather than the asking price."],
   ["3.5.0","SALES LEDGER NOW EXPORTS AS A FORMATTED EXCEL WORKBOOK. It was a plain CSV, so every column came out the same narrow width with no styling and dates as text. It is now a real Excel file: set column widths matching the existing ledger, a dark header row with white bold text and a frozen top row, real date and two-decimal number formats, Pending shown in gold italic, and Profit as a live formula. Invoice # now carries the eBay item number (with its copy suffix where a listing had several copies) and BF / SKU is left empty for hand entry, matching how the book is actually kept. COGS is no longer blank: where a sale did not record a unit cost, it falls back to the warehouse price bands so the column always carries a real figure."],
@@ -3079,8 +3080,12 @@ function renderProfitLoss(sel){
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
     if(desc.length>90) desc=desc.slice(0,90)+"…";
-    const settled=hasFees&&hasShip;
-    return { s:s, it:it, title:(s.title||(it&&it.desc)||"(untitled)"), desc:desc,
+    const voided=!!(s.cancelled_at||s.returned_at);
+    // A cancelled or returned sale is finished, not pending -- there is nothing left to settle. It
+    // carries no value either way, so it contributes zero and prints as dashes rather than as a sale
+    // with costs attached that were never really borne.
+    const settled=voided?true:(hasFees&&hasShip);
+    return { s:s, it:it, voided:voided, title:(s.title||(it&&it.desc)||"(untitled)"), desc:desc,
              sku:(it&&it.sku)||"", itemNumber:s.item_number||"", orderId:s.order_id||"",
              copyNo:_copyNos[String(s.order_id||"")+"|"+String(s.item_number||"")]||0,
              condition:(it&&it.condition)||"", cat:(it&&it.section)||"Uncategorized", chr:(it&&it.subCategory)||"—",
@@ -3095,11 +3100,17 @@ function renderProfitLoss(sel){
   const settledRows=rows.filter(function(r){return r.settled;});
   const pendAll=rows.filter(function(r){return !r.settled;});
 
-  const avgShip = settledRows.length ? settledRows.reduce(function(a,r){return a+r.ship;},0)/settledRows.length : 0;
-  const feeSales= settledRows.reduce(function(a,r){return a+r.sale;},0);
-  const feeTot  = settledRows.reduce(function(a,r){return a+r.fees;},0);
+  const realSettled=settledRows.filter(function(r){ return !r.voided; });
+  const avgShip = realSettled.length ? realSettled.reduce(function(a,r){return a+r.ship;},0)/realSettled.length : 0;
+  const feeSales= realSettled.reduce(function(a,r){return a+r.sale;},0);
+  const feeTot  = realSettled.reduce(function(a,r){return a+r.fees;},0);
   const feeRate = feeSales? (feeTot/feeSales) : 0;
   rows.forEach(function(r){
+    if(r.voided){
+      r.sale=0; r.unitCost=0; r.refund=0; r.ship=0; r.fees=0;
+      r.eShip=0; r.eFees=0; r.eCogs=0; r.eProfit=0; r.cogs=0; r.profit=0;
+      return;
+    }
     r.eShip = r.hasShip ? r.ship : avgShip;
     r.eFees = r.hasFees ? r.fees : r.sale*feeRate;
     r.eCogs = r.unitCost + r.eShip + r.eFees;
@@ -3164,10 +3175,11 @@ function renderProfitLoss(sel){
 
   const ledgerRow=function(r){
     const img=r.image?("<img src=\""+esc(r.image)+"\" />"):"<div class=\"noimg\">—</div>";
-    const shipCell = r.hasShip? money(r.ship) : est(r.eShip);
-    const feeCell  = r.hasFees? money(r.fees) : est(r.eFees);
-    const cogsCell = r.settled? money(r.cogs) : est(r.eCogs);
-    const profCell = r.settled? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
+    const dash="—";
+    const shipCell = r.voided? dash : (r.hasShip? money(r.ship) : est(r.eShip));
+    const feeCell  = r.voided? dash : (r.hasFees? money(r.fees) : est(r.eFees));
+    const cogsCell = r.voided? dash : (r.settled? money(r.cogs) : est(r.eCogs));
+    const profCell = r.voided? dash : (r.settled? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit));
     const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":"");
     return "<tr><td class=\"imgc\">"+img+"</td>"
       +"<td><div class=\"ttl\">"+esc(r.title)+(r.units>1?(" <b>× "+r.units+"</b>"):"")+"</div>"
@@ -3175,7 +3187,7 @@ function renderProfitLoss(sel){
       +"<div class=\"meta\">"+esc([r.sku,r.itemNumber?("eBay "+itemNumberWithCopy(r.itemNumber,r.copyNo)):"",r.orderId?("order "+r.orderId):""].filter(Boolean).join(" · "))+flag+"</div></td>"
       +"<td>"+esc(dt(r.soldMs))+"</td><td>"+esc(dt(r.shippedMs))+"</td>"
       +"<td>"+esc(r.condition)+"</td>"
-      +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+money(r.unitCost)+"</td>"
+      +"<td class=\"r\">"+(r.voided?"—":money(r.sale))+"</td><td class=\"r\">"+(r.voided?"—":money(r.unitCost))+"</td>"
       +"<td class=\"r\">"+shipCell+"</td><td class=\"r\">"+feeCell+"</td>"
       +"<td class=\"r\">"+cogsCell+"</td><td class=\"r\">"+profCell+"</td></tr>";
   };
