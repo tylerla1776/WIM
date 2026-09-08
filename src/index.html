@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.5", BUILD_DATE="2026-09-07", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.6", BUILD_DATE="2026-09-07", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.6","SHIPPING COSTS NOW CARRY A REASON, AND A ZERO IS NO LONGER MISTAKEN FOR MISSING DATA. A sale can have no postage for good reasons -- it travelled in the same box as another order that paid the label, or the buyer collected it in person -- and a sale can carry the whole label for a combined shipment. Each of those is now recognised as a settled, final figure and the line says which it is, instead of the sale sitting in pending waiting on a charge that will never arrive. Only a cost with no explanation at all is still treated as outstanding. Note that recent corrections at the source mean shipping is now recorded on many sales that previously showed none, so margins will be lower and more accurate than earlier statements; legacy sales are still awaiting their shipping costs and their blanks should not yet be read as free postage."],
   ["3.5.5","A SALE BEING REFUNDED STAYS PENDING UNTIL THE MONEY ACTUALLY MOVES. Cancelled and returned sales were written down to zero the moment they were flagged, which claimed an outcome that had not happened yet -- eBay can take days to settle a refund, and until it does the sale is still on the books. Such a sale now stays under Sales Pending Final Costs marked refund in process, keeping its price and known charges, and only drops to zero once the refund settles, at which point it moves to finalized with dashes across every figure. Nothing is written off before the money has moved, and nothing lingers as revenue once it has."],
   ["3.5.4","WAREHOUSE, LEGACY OR COMBINED, AND SHARED-BOX POSTAGE. The eBay account also carries older stock that was never warehouse inventory, and both now record their sales. The P&L picker has a Books setting -- Warehouse, Legacy or Combined -- alongside the period, so each can be read on its own or together, and the choice prints on every page and carries into the spreadsheet export. In a combined view each line says which set it came from. Where several books ship in one box on one label, only the order that paid carries the postage and the others are marked as shipped in another order's box: that is a true zero, not a missing cost, so those sales count as finalized rather than sitting pending on a charge that will never arrive."],
   ["3.5.3","CANCELLED AND RETURNED SALES ARE NOW TREATED AS FINISHED AND CARRY NO VALUE. They were sitting under Sales Pending Final Costs waiting on charges that will never arrive, showing an estimated price, fees and profit for a sale that did not happen. A cancelled or returned sale is finalized -- there is nothing left to settle -- so it now appears under Finalized Sales with dashes across price, cost, shipping, fees and profit, and contributes nothing to any total. They are also excluded from the averages used to estimate charges on other sales, so a voided order can no longer drag those estimates down."],
@@ -2942,7 +2943,7 @@ function exportSalesLedgerCsv(sel){
     if(uc==null && sale!=null && typeof warehouseCostForPrice==="function"){ try{ uc=n(warehouseCostForPrice(sale)); }catch(e){} }
     if(uc==null && it){ uc=n(it.unitCost!=null?it.unitCost:it.cost); }
     const fees=(s.fees_posted_at&&n(s.ebay_fees)!=null)?n(s.ebay_fees):null;
-    const ship=(s.ship_status==="covered")?0:((n(s.ship_cost)!=null)?n(s.ship_cost):null);
+    const ship=(s.ship_status==="covered"||s.ship_status==="pickup")?0:((n(s.ship_cost)!=null)?n(s.ship_cost):null);
     const refund=Math.abs(n(s.refund_amount)||0);
     let loc="";
     if(s.cancelled_at) loc="Cancelled";
@@ -3086,8 +3087,14 @@ function renderProfitLoss(sel){
     const sale=num(s.sold_price);
     const unitCost=num(s.unit_cost);
     const hasFees=(s.ebay_fees!=null&&s.ebay_fees!=="")&&!!s.fees_posted_at;
-    const covered=(s.ship_status==="covered");
-    const hasShip=covered||(s.ship_cost!=null&&s.ship_cost!=="");
+    const shipStatus=s.ship_status||"";
+    const covered=(shipStatus==="covered");
+    const pickup=(shipStatus==="pickup");
+    const reassigned=(shipStatus==="reassigned");
+    // A shipping cost is settled whenever a status explains it: covered and pickup are true zeros
+    // (postage paid on another order, or collected in person), reassigned carries the real amount.
+    // Only a null cost with no status is genuinely still outstanding.
+    const hasShip=!!shipStatus||(s.ship_cost!=null&&s.ship_cost!=="");
     const refund=Math.abs(num(s.refund_amount));
     const units=parseInt(s.units,10)||1;
     let desc=""; try{ desc=(it&&it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){}
@@ -3111,7 +3118,8 @@ function renderProfitLoss(sel){
              sale:sale, unitCost:unitCost, refund:refund,
              ship:hasShip?num(s.ship_cost):null, fees:hasFees?num(s.ebay_fees):null,
              hasShip:hasShip, hasFees:hasFees, settled:settled,
-             covered:covered, channel:(s.channel||"wim"), refundPending:refundPending,
+             covered:covered, pickup:pickup, reassigned:reassigned, shipStatus:shipStatus,
+             channel:(s.channel||"wim"), refundPending:refundPending,
              cancelled:!!s.cancelled_at, returned:!!s.returned_at,
              soldMs:ms(s.sold_at), shippedMs:ms(s.shipped_at) };
   });
@@ -3201,7 +3209,7 @@ function renderProfitLoss(sel){
     const profCell = r.voided? dash : (r.settled? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit));
     const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":"");
     const chTag = (chWant==="combined")?(" · "+(r.channel==="legacy"?"Legacy":"Warehouse")):"";
-    const covTag = r.covered?" · shipped in another order's box":"";
+    const covTag = r.covered?" · shipped in another order's box":(r.pickup?" · collected in person":(r.reassigned?" · carries the label for a combined shipment":""));
     const refTag = r.refundPending?" · <span class=\"estv\">refund in process</span>":"";
     return "<tr><td class=\"imgc\">"+img+"</td>"
       +"<td><div class=\"ttl\">"+esc(r.title)+(r.units>1?(" <b>× "+r.units+"</b>"):"")+"</div>"
