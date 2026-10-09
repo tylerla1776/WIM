@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.10", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.11", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.11","THE STATEMENT WAS LOOKING FOR LISTING DESCRIPTIONS IN THE WRONG PLACE. Sold items printed with no description underneath, which is what a sale is verified against. The statement read listing.description, a field that only exists on listings pulled in from eBay -- a listing built in WIM keeps its buyer description under listing.descBody, or as a reference to a saved template in Description Manager, and neither was ever read. Every place the description can live is now checked in order, so warehouse-built listings print their description. This was my error, not a data problem: nothing was missing from the record. Photos follow the same fix -- a sale now falls back to the first photo on the item where no featured photo was set, instead of printing an empty box. Descriptions and photos frozen onto the sale itself still take precedence once InventoryIQ deploys those two columns."],
   ["3.5.10","A RETURN ON ONE COPY NO LONGER READS AS A RETURN OF THE WHOLE LISTING, AND EVERY SALE NOW CARRIES ITS OWN PHOTO AND DESCRIPTION. A listing that sold thirteen times and had a single copy come back was showing as a blanket return with no sales against it, because a return was recorded against the listing rather than against the order it belonged to. Cancellations, refunds and returns are now read per order from the shared sales ledger and the per-order flags InventoryIQ writes, so one returned copy is one return, listed with the invoice number of the order it came from, and the other twelve sales stand untouched. Where a listing sold more than once the Restock button is replaced with Resolve, since quantity on a repeat-selling listing is managed in InventoryIQ and putting the whole listing back from one returned copy would be wrong. Reasons picked and returns marked resolved are now kept against the individual order instead of the listing. Separately, the photo and description shown for a sale are now read off the sale itself, frozen as they were when it sold, rather than looked up from the current inventory record -- sales whose listing had since been deleted or never synced were printing with no photo and no description, which are exactly what a sale is verified against. Older sales written before those were recorded still fall back to the inventory record."],
   ["3.5.9","AN EXPORTED SALES LEDGER NOW OPENS ITSELF. After choosing where to save it you had to go and find the file to look at it. It now opens in Excel straight after saving, and the confirmation popup that had to be dismissed first is gone."],
   ["3.5.8","THE SALES LEDGER EXPORT NOW SAVES PROPERLY AND MATCHES THE EXISTING BOOK. Choosing Export Sales Ledger opened a blank window and produced nothing: the desktop app quietly ignores an ordinary web download, so the file was never written. It now opens a real Save dialog and writes wherever you choose. The workbook matches the ledger already in use -- the same dark blue header in white bold, the same column widths, dates written as Aug 1, 2026, dollar formatting on every money column, a frozen header row, and Profit as a live formula. In a combined export the warehouse rows are picked out in amber so they stand apart from legacy at a glance."],
@@ -2897,6 +2898,33 @@ function itemNumberWithCopy(itemNumber, copyIdx){
   const base=String(itemNumber||"");
   return (base && copyIdx) ? (base+"-"+copyIdx) : base;
 }
+// The text buyers read on the listing. WIM keeps it under listing.descBody, or as a reference to a
+// saved template in Description Manager -- listing.description only exists on listings pulled in
+// from eBay. Reading only the latter is why warehouse-built items printed with no description at
+// all on the statement. Every place it can live is checked, nearest first.
+function itemListingDescription(it){
+  if(!it) return "";
+  const L=it.listing||{};
+  if(L.description) return String(L.description);
+  if(L.descBody) return String(L.descBody);
+  if(L.descriptionId){
+    try{
+      const t=(DB.descriptions||[]).find(function(x){ return x.id===L.descriptionId; });
+      if(t&&t.body) return String(t.body);
+    }catch(e){}
+  }
+  if(L.desc) return String(L.desc);
+  return "";
+}
+// The featured photo, falling back to the first photo on the item -- an item whose featured photo
+// was never set still has its photos, and a statement row with no picture cannot be verified.
+function itemAnyPhoto(it){
+  if(!it) return "";
+  if(it.image) return String(it.image);
+  try{ if(Array.isArray(it.images)&&it.images.length) return String(it.images[0]||""); }catch(e){}
+  try{ const L=it.listing||{}; if(Array.isArray(L.images)&&L.images.length) return String(L.images[0]||""); }catch(e){}
+  return "";
+}
 function exportSalesLedgerCsv(sel){
   // Writes a real Excel workbook (SpreadsheetML), not a bare CSV, so column widths, number formats,
   // header styling and live formulas all survive. Layout matches the existing Quarter Ledger exactly.
@@ -3123,7 +3151,7 @@ function renderProfitLoss(sel){
     // listing was later deleted or never synced still shows what was sold. The listing is only
     // consulted for older rows written before those columns existed.
     let desc=String(s.description||"");
-    if(!desc){ try{ desc=(it&&it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){} }
+    if(!desc) desc=itemListingDescription(it);
     desc=String(desc);
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
@@ -3140,7 +3168,7 @@ function renderProfitLoss(sel){
              sku:(it&&it.sku)||"", itemNumber:s.item_number||"", orderId:s.order_id||"",
              copyNo:_copyNos[String(s.order_id||"")+"|"+String(s.item_number||"")]||0,
              condition:(it&&it.condition)||"", cat:(it&&it.section)||"Uncategorized", chr:(it&&it.subCategory)||"—",
-             image:(s.image_url||(it&&it.image)||""), units:units,
+             image:(s.image_url||itemAnyPhoto(it)), units:units,
              sale:sale, unitCost:unitCost, refund:refund,
              ship:hasShip?num(s.ship_cost):null, fees:hasFees?num(s.ebay_fees):null,
              hasShip:hasShip, hasFees:hasFees, settled:settled,
