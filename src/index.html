@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.6", BUILD_DATE="2026-09-07", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.10", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,10 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.10","A RETURN ON ONE COPY NO LONGER READS AS A RETURN OF THE WHOLE LISTING, AND EVERY SALE NOW CARRIES ITS OWN PHOTO AND DESCRIPTION. A listing that sold thirteen times and had a single copy come back was showing as a blanket return with no sales against it, because a return was recorded against the listing rather than against the order it belonged to. Cancellations, refunds and returns are now read per order from the shared sales ledger and the per-order flags InventoryIQ writes, so one returned copy is one return, listed with the invoice number of the order it came from, and the other twelve sales stand untouched. Where a listing sold more than once the Restock button is replaced with Resolve, since quantity on a repeat-selling listing is managed in InventoryIQ and putting the whole listing back from one returned copy would be wrong. Reasons picked and returns marked resolved are now kept against the individual order instead of the listing. Separately, the photo and description shown for a sale are now read off the sale itself, frozen as they were when it sold, rather than looked up from the current inventory record -- sales whose listing had since been deleted or never synced were printing with no photo and no description, which are exactly what a sale is verified against. Older sales written before those were recorded still fall back to the inventory record."],
+  ["3.5.9","AN EXPORTED SALES LEDGER NOW OPENS ITSELF. After choosing where to save it you had to go and find the file to look at it. It now opens in Excel straight after saving, and the confirmation popup that had to be dismissed first is gone."],
+  ["3.5.8","THE SALES LEDGER EXPORT NOW SAVES PROPERLY AND MATCHES THE EXISTING BOOK. Choosing Export Sales Ledger opened a blank window and produced nothing: the desktop app quietly ignores an ordinary web download, so the file was never written. It now opens a real Save dialog and writes wherever you choose. The workbook matches the ledger already in use -- the same dark blue header in white bold, the same column widths, dates written as Aug 1, 2026, dollar formatting on every money column, a frozen header row, and Profit as a live formula. In a combined export the warehouse rows are picked out in amber so they stand apart from legacy at a glance."],
+  ["3.5.7","A REFUNDED SALE NOW SHOWS WHAT IT ACTUALLY COST, NOT ZERO. Refunded and cancelled sales were written down to nothing, which read as though a returned order cost nothing -- it does not. eBay credits back its selling fee but keeps the fixed per-order charge, and the postage has already been spent, so a fully refunded sale is a real loss. The statement now shows that residual: the sale, the refund against it, the postage and the retained fee, giving the true out of pocket figure. The returned book itself is not counted as a loss, since it comes back to the shelf and can sell again. No fee amount is written into the calculation anywhere -- the residual falls out of the sale, the fees and the refund, so it stays correct if eBay changes its rates."],
   ["3.5.6","SHIPPING COSTS NOW CARRY A REASON, AND A ZERO IS NO LONGER MISTAKEN FOR MISSING DATA. A sale can have no postage for good reasons -- it travelled in the same box as another order that paid the label, or the buyer collected it in person -- and a sale can carry the whole label for a combined shipment. Each of those is now recognised as a settled, final figure and the line says which it is, instead of the sale sitting in pending waiting on a charge that will never arrive. Only a cost with no explanation at all is still treated as outstanding. Note that recent corrections at the source mean shipping is now recorded on many sales that previously showed none, so margins will be lower and more accurate than earlier statements; legacy sales are still awaiting their shipping costs and their blanks should not yet be read as free postage."],
   ["3.5.5","A SALE BEING REFUNDED STAYS PENDING UNTIL THE MONEY ACTUALLY MOVES. Cancelled and returned sales were written down to zero the moment they were flagged, which claimed an outcome that had not happened yet -- eBay can take days to settle a refund, and until it does the sale is still on the books. Such a sale now stays under Sales Pending Final Costs marked refund in process, keeping its price and known charges, and only drops to zero once the refund settles, at which point it moves to finalized with dashes across every figure. Nothing is written off before the money has moved, and nothing lingers as revenue once it has."],
   ["3.5.4","WAREHOUSE, LEGACY OR COMBINED, AND SHARED-BOX POSTAGE. The eBay account also carries older stock that was never warehouse inventory, and both now record their sales. The P&L picker has a Books setting -- Warehouse, Legacy or Combined -- alongside the period, so each can be read on its own or together, and the choice prints on every page and carries into the spreadsheet export. In a combined view each line says which set it came from. Where several books ship in one box on one label, only the order that paid carries the postage and the others are marked as shipped in another order's box: that is a true zero, not a missing cost, so those sales count as finalized rather than sitting pending on a charge that will never arrive."],
@@ -2931,6 +2935,7 @@ function exportSalesLedgerCsv(sel){
     {t:"Profit",       w:70}
   ];
 
+  const bothChannels=((sel&&sel.channel)==="combined");
   let body="";
   let r=1;
   rows.forEach(function(s){
@@ -2951,41 +2956,48 @@ function exportSalesLedgerCsv(sel){
     else if(refund) loc=(sale!=null&&refund<sale)?"Partial Refund":"Refund";
     const dstr=(function(v){ const t=Date.parse(v||""); if(isNaN(t)) return ""; const d=new Date(t);
       return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"T00:00:00.000"; })(s.sold_at);
+    // In a combined ledger the warehouse rows are picked out in amber, as in the existing book.
+    const HL=(bothChannels&&(s.channel||"wim")!=="legacy");
+    const S_TXT=HL?"hTxt":"sTxt", S_DATE=HL?"hDate":"sDate", S_MONEY=HL?"hMoney":"sMoney", S_PEND=HL?"hPend":"sPend";
     const numCell=function(v,style){ return v==null?('<Cell ss:StyleID="'+style+'"/>'):('<Cell ss:StyleID="'+style+'"><Data ss:Type="Number">'+v.toFixed(2)+'</Data></Cell>'); };
-    const pendCell=function(v){ return v==null?('<Cell ss:StyleID="sPend"><Data ss:Type="String">Pending</Data></Cell>'):numCell(v,"sMoney"); };
+    const pendCell=function(v){ return v==null?('<Cell ss:StyleID="'+S_PEND+'"><Data ss:Type="String">Pending</Data></Cell>'):numCell(v,S_MONEY); };
     body+='<Row>'
-      +'<Cell ss:StyleID="sTxt"><Data ss:Type="String">'+xesc(itemNumberWithCopy(s.item_number, copyNo[String(s.order_id||"")+"|"+String(s.item_number||"")]))+'</Data></Cell>'
-      +(dstr?('<Cell ss:StyleID="sDate"><Data ss:Type="DateTime">'+dstr+'</Data></Cell>'):'<Cell ss:StyleID="sDate"/>')
-      +'<Cell ss:StyleID="sTxt"/>'
-      +'<Cell ss:StyleID="sTxt"><Data ss:Type="String">'+xesc(loc)+'</Data></Cell>'
-      +'<Cell ss:StyleID="sTxt"><Data ss:Type="String">'+xesc(s.title||(it&&it.desc)||"")+'</Data></Cell>'
-      +'<Cell ss:StyleID="sTxt"/>'
-      +numCell(uc,"sMoney")
+      +'<Cell ss:StyleID="'+S_TXT+'"><Data ss:Type="String">'+xesc(itemNumberWithCopy(s.item_number, copyNo[String(s.order_id||"")+"|"+String(s.item_number||"")]))+'</Data></Cell>'
+      +(dstr?('<Cell ss:StyleID="'+S_DATE+'"><Data ss:Type="DateTime">'+dstr+'</Data></Cell>'):'<Cell ss:StyleID="'+S_DATE+'"/>')
+      +'<Cell ss:StyleID="'+S_TXT+'"/>'
+      +'<Cell ss:StyleID="'+S_TXT+'"><Data ss:Type="String">'+xesc(loc)+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+S_TXT+'"><Data ss:Type="String">'+xesc(s.title||(it&&it.desc)||"")+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+S_TXT+'"/>'
+      +numCell(uc,S_MONEY)
       +pendCell(ship)
       +pendCell(fees)
-      +'<Cell ss:StyleID="sMoney"/>'
-      +numCell(refund?refund:null,"sMoney")
-      +numCell(sale,"sMoney")
-      +'<Cell ss:StyleID="sMoney" ss:Formula="=RC[-1]-SUM(RC[-6]:RC[-2])"/>'
+      +'<Cell ss:StyleID="'+S_MONEY+'"/>'
+      +numCell(refund?refund:null,S_MONEY)
+      +numCell(sale,S_MONEY)
+      +'<Cell ss:StyleID="'+S_MONEY+'" ss:Formula="=RC[-1]-SUM(RC[-6]:RC[-2])"/>'
       +'</Row>';
   });
 
+  const W=[75,96,145,131,483,154,75,64,64,82,64,89,105];
   const xml='<?xml version="1.0"?>'
     +'<?mso-application progid="Excel.Sheet"?>'
     +'<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office"'
     +' xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
     +'<Styles>'
     +'<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/><Font ss:FontName="Calibri" ss:Size="11"/></Style>'
-    +'<Style ss:ID="sHead"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>'
-    +'<Interior ss:Color="#1A2B4A" ss:Pattern="Solid"/><Font ss:Color="#FFFFFF" ss:Bold="1"/>'
-    +'<Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>'
-    +'<Style ss:ID="sTxt"><Alignment ss:Vertical="Top"/></Style>'
-    +'<Style ss:ID="sDate"><NumberFormat ss:Format="m/d/yyyy"/></Style>'
-    +'<Style ss:ID="sMoney"><NumberFormat ss:Format="0.00"/></Style>'
-    +'<Style ss:ID="sPend"><Font ss:Color="#B8860B" ss:Italic="1"/></Style>'
+    +'<Style ss:ID="sHead"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>'
+    +'<Interior ss:Color="#1F4E79" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="sTxt"/>'
+    +'<Style ss:ID="sDate"><NumberFormat ss:Format="mmm d&quot;, &quot;yyyy"/></Style>'
+    +'<Style ss:ID="sMoney"><NumberFormat ss:Format="\\$#,##0.00_-"/></Style>'
+    +'<Style ss:ID="sPend"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#B8860B" ss:Italic="1"/></Style>'
+    +'<Style ss:ID="hTxt"><Interior ss:Color="#FFC000" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="hDate"><Interior ss:Color="#FFC000" ss:Pattern="Solid"/><NumberFormat ss:Format="mmm d&quot;, &quot;yyyy"/></Style>'
+    +'<Style ss:ID="hMoney"><Interior ss:Color="#FFC000" ss:Pattern="Solid"/><NumberFormat ss:Format="\\$#,##0.00_-"/></Style>'
+    +'<Style ss:ID="hPend"><Interior ss:Color="#FFC000" ss:Pattern="Solid"/><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#B8860B" ss:Italic="1"/></Style>'
     +'</Styles>'
     +'<Worksheet ss:Name="Quarter Ledger"><Table>'
-    +cols.map(function(c){ return '<Column ss:AutoFitWidth="0" ss:Width="'+c.w+'"/>'; }).join("")
+    +W.map(function(w){ return '<Column ss:AutoFitWidth="0" ss:Width="'+w+'"/>'; }).join("")
     +'<Row ss:StyleID="sHead">'+cols.map(function(c){ return '<Cell ss:StyleID="sHead"><Data ss:Type="String">'+xesc(c.t)+'</Data></Cell>'; }).join("")+'</Row>'
     +body
     +'</Table>'
@@ -2994,12 +3006,22 @@ function exportSalesLedgerCsv(sel){
     +'</Worksheet></Workbook>';
 
   const name="BH_Flips_Sales_Ledger_"+(((sel&&sel.label)||"All_time").replace(/[^A-Za-z0-9]+/g,"_"))+".xls";
-  try{
-    const blob=new Blob([xml],{type:"application/vnd.ms-excel"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
-    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
-  }catch(e){ uiAlert("Export failed: "+(e&&e.message||e)); }
+  // The desktop webview ignores a browser download -- the click simply blanked the window -- so the
+  // file is handed to a real OS save dialog instead.
+  (async function(){
+    try{
+      const b64=btoa(unescape(encodeURIComponent(xml)));
+      if(window.wimDesktop&&wimDesktop.invoke){
+        const saved=await wimDesktop.invoke("wim_save_export",{ filename:name, base64Data:b64 });
+        // it opens on its own now, so no popup to dismiss first
+        return;
+      }
+      const blob=new Blob([xml],{type:"application/vnd.ms-excel"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
+      setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
+    }catch(e){ uiAlert("Export failed: "+(e&&e.message||e)); }
+  })();
 }
 
 function openProfitLossStatement(){
@@ -3097,7 +3119,11 @@ function renderProfitLoss(sel){
     const hasShip=!!shipStatus||(s.ship_cost!=null&&s.ship_cost!=="");
     const refund=Math.abs(num(s.refund_amount));
     const units=parseInt(s.units,10)||1;
-    let desc=""; try{ desc=(it&&it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){}
+    // Photo and description are frozen onto the sale row when the sale is written, so a sale whose
+    // listing was later deleted or never synced still shows what was sold. The listing is only
+    // consulted for older rows written before those columns existed.
+    let desc=String(s.description||"");
+    if(!desc){ try{ desc=(it&&it.listing&&(it.listing.description||it.listing.desc))||""; }catch(e){} }
     desc=String(desc);
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
@@ -3114,7 +3140,7 @@ function renderProfitLoss(sel){
              sku:(it&&it.sku)||"", itemNumber:s.item_number||"", orderId:s.order_id||"",
              copyNo:_copyNos[String(s.order_id||"")+"|"+String(s.item_number||"")]||0,
              condition:(it&&it.condition)||"", cat:(it&&it.section)||"Uncategorized", chr:(it&&it.subCategory)||"—",
-             image:(it&&it.image)||"", units:units,
+             image:(s.image_url||(it&&it.image)||""), units:units,
              sale:sale, unitCost:unitCost, refund:refund,
              ship:hasShip?num(s.ship_cost):null, fees:hasFees?num(s.ebay_fees):null,
              hasShip:hasShip, hasFees:hasFees, settled:settled,
@@ -3134,8 +3160,16 @@ function renderProfitLoss(sel){
   const feeRate = feeSales? (feeTot/feeSales) : 0;
   rows.forEach(function(r){
     if(r.voided){
-      r.sale=0; r.unitCost=0; r.refund=0; r.ship=0; r.fees=0;
-      r.eShip=0; r.eFees=0; r.eCogs=0; r.eProfit=0; r.cogs=0; r.profit=0;
+      // The book comes back, so its unit cost is not lost here -- but the postage is spent and eBay
+      // keeps its fixed per-order fee. Those are the real out-of-pocket cost of a returned sale.
+      r.unitCost=0;
+      r.eShip = r.hasShip ? r.ship : 0;
+      r.eFees = r.hasFees ? r.fees : 0;
+      r.ship = r.eShip; r.fees = r.eFees;
+      r.eCogs = r.eShip + r.eFees;
+      r.cogs = r.eCogs;
+      r.eProfit = r.sale - r.eCogs - r.refund;
+      r.profit = r.eProfit;
       return;
     }
     r.eShip = r.hasShip ? r.ship : avgShip;
@@ -3202,11 +3236,10 @@ function renderProfitLoss(sel){
 
   const ledgerRow=function(r){
     const img=r.image?("<img src=\""+esc(r.image)+"\" />"):"<div class=\"noimg\">—</div>";
-    const dash="—";
-    const shipCell = r.voided? dash : (r.hasShip? money(r.ship) : est(r.eShip));
-    const feeCell  = r.voided? dash : (r.hasFees? money(r.fees) : est(r.eFees));
-    const cogsCell = r.voided? dash : (r.settled? money(r.cogs) : est(r.eCogs));
-    const profCell = r.voided? dash : (r.settled? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit));
+    const shipCell = r.hasShip? money(r.ship) : (r.voided? money(0) : est(r.eShip));
+    const feeCell  = r.hasFees? money(r.fees) : (r.voided? money(0) : est(r.eFees));
+    const cogsCell = (r.settled||r.voided)? money(r.cogs) : est(r.eCogs);
+    const profCell = (r.settled||r.voided)? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
     const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":"");
     const chTag = (chWant==="combined")?(" · "+(r.channel==="legacy"?"Legacy":"Warehouse")):"";
     const covTag = r.covered?" · shipped in another order's box":(r.pickup?" · collected in person":(r.reassigned?" · carries the label for a combined shipment":""));
@@ -3217,7 +3250,7 @@ function renderProfitLoss(sel){
       +"<div class=\"meta\">"+esc([r.sku,r.itemNumber?("eBay "+itemNumberWithCopy(r.itemNumber,r.copyNo)):"",r.orderId?("order "+r.orderId):""].filter(Boolean).join(" · "))+chTag+covTag+refTag+flag+"</div></td>"
       +"<td>"+esc(dt(r.soldMs))+"</td><td>"+esc(dt(r.shippedMs))+"</td>"
       +"<td>"+esc(r.condition)+"</td>"
-      +"<td class=\"r\">"+(r.voided?"—":money(r.sale))+"</td><td class=\"r\">"+(r.voided?"—":money(r.unitCost))+"</td>"
+      +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+(r.voided?"—":money(r.unitCost))+"</td>"
       +"<td class=\"r\">"+shipCell+"</td><td class=\"r\">"+feeCell+"</td>"
       +"<td class=\"r\">"+cogsCell+"</td><td class=\"r\">"+profCell+"</td></tr>";
   };
@@ -5296,7 +5329,7 @@ function actionCountBadge(label){
   else if(label==="Cancelled Orders") n=cancelledOrderItems().length;
   else if(label==="Storage Queue") n=pendingStorageItems().length;
   else if(label==="Refunds") n=refundedOrderItems().length;
-  else if(label==="Cancellations, Refunds, Returns") n=cancelledOrderItems().length+refundedOrderItems().length+returnedOrderItems().length;
+  else if(label==="Cancellations, Refunds, Returns") n=cancelledOrderEntries().length+refundedOrderEntries().length+returnedOrderEntries().length;
   else if(label==="SKU not Listed") n=unlistedActive().length;
   else if(label==="Communication") n=(parseInt(DB.lastInboxUnread,10)||0);
   if(!n) return "";
@@ -16175,6 +16208,117 @@ function openDiscrepancies(){
 function cancelledOrderItems(){ return visibleItems().filter(i=>i.fulfillment && (i.fulfillment.cancelled || i.fulfillment.cancelledAt || i.fulfillment.stage==="cancelled") && !i.fulfillment.restocked); }
 function refundedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && (i.fulfillment.refunded || i.fulfillment.refundAmount)); }
 function returnedOrderItems(){ return visibleItems().filter(i=>i.fulfillment && (i.fulfillment.returned || i.fulfillment.returnedAt || i.fulfillment.stage==="returned") && !i.fulfillment.returnResolved); }
+// ---- Post-sale exceptions, counted per ORDER rather than per listing -----------------------
+// A listing that sold thirteen times and had one order returned is ONE return, not thirteen.
+// InventoryIQ records each cancellation, refund and return against its own order -- on the sale
+// row in the shared ledger, and under fulfillment.orderFlags[orderId] on the item -- and only
+// writes the plain item-level flags for listings that sold exactly once. So the ledger is read
+// first, the per-order flags second, and the item-level flags last, for single-sale listings and
+// for anything logged here by hand before this change.
+// WIM's own annotations (reason picked, marked resolved) are kept per order under
+// fulfillment.wimOrderNotes so they never collide with the fields InventoryIQ owns.
+function orderNoteFor(it,orderId){
+  if(!it) return {};
+  const f=it.fulfillment||{};
+  if(!orderId) return { reason:f.returnReason||f.refundReason||"", reasonOther:f.refundReasonOther||"",
+                        resolved:!!(f.returnResolved||f.restocked) };
+  const m=f.wimOrderNotes||{};
+  return m[String(orderId)]||{};
+}
+function setOrderNote(it,orderId,patch){
+  if(!it) return;
+  if(!it.fulfillment) it.fulfillment={};
+  const f=it.fulfillment;
+  if(!orderId){ Object.keys(patch).forEach(function(k){ f[k==="reason"?"refundReason":k]=patch[k]; }); save(); return; }
+  if(!f.wimOrderNotes) f.wimOrderNotes={};
+  const cur=f.wimOrderNotes[String(orderId)]||{};
+  Object.keys(patch).forEach(function(k){ cur[k]=patch[k]; });
+  f.wimOrderNotes[String(orderId)]=cur;
+  save();
+}
+// How many separate sales a listing has on record. One means the item-level flags are safe to
+// trust and a restock puts the single copy back; more than one means quantity is InventoryIQ's to
+// manage and WIM must not reactivate the whole listing off one returned copy.
+function saleCountForItem(it){
+  if(!it) return 0;
+  let n=0;
+  (DB.sales||[]).forEach(function(s){
+    if(s.deleted_at) return;
+    if((s.item_id&&s.item_id===it.id)||(it.upc&&String(s.item_number||"")===String(it.upc))) n++;
+  });
+  return n;
+}
+function orderExceptionEntries(kind){
+  const byId={}, byNum={};
+  (DB.items||[]).forEach(function(it){ if(it.id) byId[it.id]=it; if(it.upc) byNum[String(it.upc)]=it; });
+  const copyNo=saleCopyNumbers();
+  const out=[], seen={}, fromLedger={};
+  const flagsOf=function(it,orderId){
+    const f=(it&&it.fulfillment)||{};
+    let o={};
+    try{ o=(f.orderFlags&&f.orderFlags[String(orderId)])||{}; }catch(e){}
+    return { buyer:o.buyer||f.buyer||"",
+             cancelReason:o.cancelReason||f.cancelReason||"",
+             cancelInitiator:o.cancelInitiator||f.cancelInitiator||"",
+             refundFull:(o.refundFull!=null?o.refundFull:f.refundFull),
+             refundAmount:(o.refundAmount!=null?o.refundAmount:f.refundAmount) };
+  };
+  const push=function(it,orderId,itemNumber,at,amount,extra){
+    const k=(it?it.id:("#"+itemNumber))+"|"+(orderId||"");
+    if(seen[k]) return; seen[k]=1;
+    const fl=flagsOf(it,orderId);
+    const copy=copyNo[String(orderId||"")+"|"+String(itemNumber||"")]||0;
+    const note=orderNoteFor(it,orderId);
+    out.push({ it:it, orderId:String(orderId||""), itemNumber:String(itemNumber||""),
+               invoice:itemNumberWithCopy(itemNumber,copy),
+               at:at||"", amount:amount, buyer:fl.buyer,
+               cancelReason:fl.cancelReason, cancelInitiator:fl.cancelInitiator,
+               refundFull:(extra&&extra.refundFull!=null)?extra.refundFull:fl.refundFull,
+               title:(extra&&extra.title)||(it&&it.desc)||"(untitled)",
+               sku:(it&&it.sku)||"", saleCount:saleCountForItem(it),
+               note:note, resolved:!!note.resolved });
+  };
+  // 1. The shared sales ledger -- one row per order line, so every affected order appears once.
+  (DB.sales||[]).forEach(function(s){
+    if(s.deleted_at) return;
+    const refunded=(s.refund_amount!=null&&s.refund_amount!=="");
+    if(kind==="cancelled" && !s.cancelled_at) return;
+    if(kind==="returned"  && !s.returned_at)  return;
+    if(kind==="refunded"  && !refunded)       return;
+    const it=(s.item_id&&byId[s.item_id])||(s.item_number&&byNum[String(s.item_number)])||null;
+    const at=(kind==="cancelled")?s.cancelled_at:((kind==="returned")?s.returned_at:(s.refunded_at||s.updated_at));
+    push(it,s.order_id,s.item_number,at,refunded?Math.abs(parseFloat(s.refund_amount)||0):null,
+         { title:s.title||"" });
+    if(it) fromLedger[it.id]=1;
+  });
+  // 2. Item-level flags: single-sale listings, and anything logged by hand in WIM.
+  (visibleItems()||[]).forEach(function(it){
+    const f=it.fulfillment; if(!f) return;
+    // Already accounted for by its own order line in the ledger -- the item-level flag is the same
+    // event seen a second time, and adding it again would double-count the exception.
+    if(fromLedger[it.id]) return;
+    if(kind==="cancelled" && !(f.cancelled||f.cancelledAt||f.stage==="cancelled")) return;
+    if(kind==="returned"  && !(f.returned||f.returnedAt||f.stage==="returned"))    return;
+    if(kind==="refunded"  && !(f.refunded||f.refundAmount))                        return;
+    const at=(kind==="cancelled")?f.cancelledAt:((kind==="returned")?f.returnedAt:f.refundedAt);
+    push(it,f.orderId||"",it.upc||"",at,
+         (kind==="refunded")?Math.abs(parseFloat(f.refundAmount)||0):null,null);
+  });
+  // Already dealt with -- restocked, or marked resolved here.
+  const live=out.filter(function(e){
+    const f=(e.it&&e.it.fulfillment)||{};
+    if(e.resolved) return false;
+    if(kind==="cancelled" && f.restocked && e.saleCount<=1) return false;
+    if(kind==="returned"  && f.returnResolved && e.saleCount<=1) return false;
+    return true;
+  });
+  live.sort(function(a,b){ return (Date.parse(b.at||"")||0)-(Date.parse(a.at||"")||0); });
+  return live;
+}
+function cancelledOrderEntries(){ return orderExceptionEntries("cancelled"); }
+function refundedOrderEntries(){  return orderExceptionEntries("refunded"); }
+function returnedOrderEntries(){  return orderExceptionEntries("returned"); }
+
 function openCancelledOrders(){
   if(openWindows["cancelled-orders"]){ focusWin(openWindows["cancelled-orders"].el); return; }
   const {body}=buildWindow({id:"cancelled-orders",title:"Cancelled Orders",width:1000,height:600,
@@ -16263,7 +16407,7 @@ function openCancellationsRefundsReturns(){
     toolbar:`<span style="font-size:12px;color:#555;padding-left:4px;">All post-sale exceptions in one place — a cancelled sold item is automatically pulled out of Shipping so nothing ships by mistake</span>`});
   let tab="cancellations";
   function render(){
-    const cCount=cancelledOrderItems().length, rCount=refundedOrderItems().length, tCount=returnedOrderItems().length;
+    const cCount=cancelledOrderEntries().length, rCount=refundedOrderEntries().length, tCount=returnedOrderEntries().length;
     const tabBtn=(k,label,n)=>`<div class="tab ${tab===k?'active':''}" data-tab="${k}" style="padding:9px 18px;cursor:pointer;font-weight:600;font-size:13px;${tab===k?'background:#0f6cbd;color:#fff;':'color:#5a6472;'}">${label}${n?" ("+n+")":""}</div>`;
     body.innerHTML=`<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;">
       <div class="tabs" style="display:flex;border-bottom:1px solid var(--line);">
@@ -16281,11 +16425,11 @@ function openCancellationsRefundsReturns(){
   function wireEnvelopes(scope){ scope.querySelectorAll("[data-buyer]").forEach(s=>s.onclick=()=>openCommunication(s.dataset.buyer)); }
 
   function renderCancellations(panel){
-    const rows=cancelledOrderItems().sort((a,b)=>new Date(b.fulfillment.cancelledAt||0)-new Date(a.fulfillment.cancelledAt||0));
+    const rows=cancelledOrderEntries();
     panel.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
         <button class="btn" id="cc-check">Check for Cancellations</button><span class="smallhint" id="cc-msg"></span>
         <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} cancelled order(s) awaiting restock.</span></div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th>Warehouse SKU</th><th>Cancelled</th><th>Reason</th><th>Requested By</th><th style="width:34px;">&#9993;</th><th></th></tr></thead><tbody id="cc-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th style="width:130px;">Invoice #</th><th>Warehouse SKU</th><th>Cancelled</th><th>Reason</th><th>Requested By</th><th style="width:34px;">&#9993;</th><th style="width:170px;"></th></tr></thead><tbody id="cc-tb"></tbody></table></div>`;
     const msg=panel.querySelector("#cc-msg"), tb=panel.querySelector("#cc-tb");
     panel.querySelector("#cc-check").onclick=async ()=>{
       msg.style.color="#555"; msg.textContent="Checking…";
@@ -16293,30 +16437,44 @@ function openCancellationsRefundsReturns(){
         msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly cancelled."; render();
       }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
     };
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No cancelled orders waiting on restock.</td></tr>`; return; }
-    rows.forEach(it=>{ const f=it.fulfillment; const tr=document.createElement("tr");
-      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${f.cancelledAt?fmtDay(f.cancelledAt):""}</td><td>${esc(f.cancelReason||"—")}</td><td>${esc(f.cancelInitiator||"—")}</td><td class="cc">${envCell(f.buyer)}</td>`;
-      const td=document.createElement("td"); td.className="cc"; const b=document.createElement("button"); b.className="btn sm primary"; b.textContent="Restock";
-      b.title="Puts this item back into active inventory and reposts the listing on eBay";
-      b.onclick=async ()=>{ b.disabled=true; b.textContent="Restocking…";
-        try{ it.sold=false; it.soldAt=null; it.soldBy=null; f.restocked=true; f.restockedAt=new Date().toISOString();
-          it.listing.status="none"; it.listing.offerId=null; it.listing.ebayListingId=null;
-          addHistory(it,"Restocked after cancelled order — reposting to eBay"); save();
-          const res=await publishToEbay(it);
-          addHistory(it, res&&res.ok?"Repost to eBay succeeded after restock":"Restocked, but repost to eBay needs attention — open the item to try again");
-          save(); render();
-        }catch(e){ uiAlert("Restock failed: "+(e&&e.message?e.message:e)); b.disabled=false; b.textContent="Restock"; }
-      };
-      td.appendChild(b); tr.appendChild(td); tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No cancelled orders waiting on restock.</td></tr>`; return; }
+    rows.forEach((e,i)=>{ const it=e.it; const tr=document.createElement("tr");
+      tr.innerHTML=`<td>${esc(e.title)}</td><td>${esc(e.invoice||"—")}</td><td>${esc(e.sku)}</td><td>${e.at?fmtDay(e.at):""}</td><td>${esc(e.cancelReason||"—")}</td><td>${esc(e.cancelInitiator||"—")}</td><td class="cc">${envCell(e.buyer)}</td>`;
+      const td=document.createElement("td"); td.className="cc";
+      if(!it){ td.innerHTML=`<span class="smallhint">Listing not in WIM</span>`; }
+      else if(e.saleCount>1){
+        // This listing sold more than once, so its quantity is InventoryIQ's to manage -- putting the
+        // whole listing back from one cancelled copy would be wrong. Clear it from the list instead.
+        const b=document.createElement("button"); b.className="btn sm"; b.textContent="Resolve";
+        b.title="Quantity on a multi-sale listing is managed in InventoryIQ — this clears the order from this list";
+        b.onclick=()=>{ setOrderNote(it,e.orderId,{resolved:true,resolvedAt:new Date().toISOString()}); addHistory(it,"Cancelled order "+(e.orderId||"")+" marked resolved"); save(); render(); };
+        td.appendChild(b);
+      } else {
+        const f=it.fulfillment||(it.fulfillment={});
+        const b=document.createElement("button"); b.className="btn sm primary"; b.textContent="Restock";
+        b.title="Puts this item back into active inventory and reposts the listing on eBay";
+        b.onclick=async ()=>{ b.disabled=true; b.textContent="Restocking…";
+          try{ it.sold=false; it.soldAt=null; it.soldBy=null; f.restocked=true; f.restockedAt=new Date().toISOString();
+            setOrderNote(it,e.orderId,{resolved:true,resolvedAt:f.restockedAt});
+            it.listing.status="none"; it.listing.offerId=null; it.listing.ebayListingId=null;
+            addHistory(it,"Restocked after cancelled order — reposting to eBay"); save();
+            const res=await publishToEbay(it);
+            addHistory(it, res&&res.ok?"Repost to eBay succeeded after restock":"Restocked, but repost to eBay needs attention — open the item to try again");
+            save(); render();
+          }catch(err){ uiAlert("Restock failed: "+(err&&err.message?err.message:err)); b.disabled=false; b.textContent="Restock"; }
+        };
+        td.appendChild(b);
+      }
+      tr.appendChild(td); if(it) tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr); });
     wireEnvelopes(panel);
   }
 
   function renderRefunds(panel){
-    const rows=refundedOrderItems().sort((a,b)=>new Date(b.fulfillment.refundedAt||0)-new Date(a.fulfillment.refundedAt||0));
+    const rows=refundedOrderEntries();
     panel.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
         <button class="btn" id="rf-check">Check for Refunds</button><span class="smallhint" id="rf-msg"></span>
         <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} refund(s) on record.</span></div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th>Warehouse SKU</th><th>Refunded</th><th>Type</th><th>Amount</th><th style="width:200px;">Reason</th><th style="width:34px;">&#9993;</th><th style="width:90px;"></th></tr></thead><tbody id="rf-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th style="width:130px;">Invoice #</th><th>Warehouse SKU</th><th>Refunded</th><th>Type</th><th>Amount</th><th style="width:200px;">Reason</th><th style="width:34px;">&#9993;</th><th style="width:150px;"></th></tr></thead><tbody id="rf-tb"></tbody></table></div>`;
     const msg=panel.querySelector("#rf-msg"), tb=panel.querySelector("#rf-tb");
     panel.querySelector("#rf-check").onclick=async ()=>{
       msg.style.color="#555"; msg.textContent="Checking…";
@@ -16324,32 +16482,37 @@ function openCancellationsRefundsReturns(){
         msg.style.color=r.found?"#c0392b":"#1f7244"; msg.textContent="Checked "+r.checked+" order(s) — "+r.found+" newly refunded."; render();
       }catch(e){ msg.style.color="#c0392b"; msg.textContent=e&&e.message?e.message:String(e); }
     };
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No refunds on record.</td></tr>`; return; }
-    rows.forEach(it=>{ const f=it.fulfillment; const tr=document.createElement("tr");
-      const reasonSel=`<select class="cmb sm" data-reason="${esc(it.id)}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${f.refundReason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
-      const otherInput = f.refundReason==="Other" ? `<input class="txt sm" data-reasonother="${esc(it.id)}" value="${esc(f.refundReasonOther||"")}" placeholder="Briefly describe…" style="width:100%;margin-top:4px;">` : "";
-      const restockBtn = it.sold ? `<button class="btn sm" data-restock="${esc(it.id)}" title="Only if the item physically came back — puts it in a real slot and reactivates it">Restock</button>` : `<span class="smallhint" style="color:#1f7244;">Back in stock</span>`;
-      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${f.refundedAt?fmtDay(f.refundedAt):""}</td><td>${f.refundFull?"Full":"Partial"}</td><td>$${esc(f.refundAmount||"0.00")}</td><td>${reasonSel}${otherInput}</td><td class="cc">${envCell(f.buyer)}</td><td class="cc">${restockBtn}</td>`;
-      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr);
-      tr.querySelector("[data-reason]").onchange=(e)=>{ f.refundReason=e.target.value; if(f.refundReason!=="Other") f.refundReasonOther=""; save(); render(); };
-      const oi=tr.querySelector("[data-reasonother]"); if(oi) oi.oninput=(e)=>{ f.refundReasonOther=e.target.value; save(); };
-      const rb=tr.querySelector("[data-restock]"); if(rb) rb.onclick=()=>{ uiConfirm("Restock \""+esc(it.desc)+"\"? Only do this once the item has physically come back — this puts it in a real slot and makes it available again.", ()=>{ reactivateItem(it, ()=>{}); render(); }); };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="9" style="color:#888;">No refunds on record.</td></tr>`; return; }
+    rows.forEach((e,i)=>{ const it=e.it; const tr=document.createElement("tr");
+      const reasonSel=`<select class="cmb sm" data-reason="${i}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${e.note.reason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
+      const otherInput = e.note.reason==="Other" ? `<input class="txt sm" data-reasonother="${i}" value="${esc(e.note.reasonOther||"")}" placeholder="Briefly describe…" style="width:100%;margin-top:4px;">` : "";
+      let act=`<span class="smallhint">Listing not in WIM</span>`;
+      if(it && e.saleCount>1) act=`<button class="btn sm" data-resolve="${i}" title="Quantity on a multi-sale listing is managed in InventoryIQ — this clears the order from this list">Resolve</button>`;
+      else if(it) act = it.sold ? `<button class="btn sm" data-restock="${i}" title="Only if the item physically came back — puts it in a real slot and reactivates it">Restock</button>` : `<span class="smallhint" style="color:#1f7244;">Back in stock</span>`;
+      tr.innerHTML=`<td>${esc(e.title)}</td><td>${esc(e.invoice||"—")}</td><td>${esc(e.sku)}</td><td>${e.at?fmtDay(e.at):""}</td><td>${e.refundFull?"Full":"Partial"}</td><td>$${esc((e.amount==null?0:e.amount).toFixed(2))}</td><td>${reasonSel}${otherInput}</td><td class="cc">${envCell(e.buyer)}</td><td class="cc">${act}</td>`;
+      if(it) tr.ondblclick=()=>openItemDetail(it,"edit");
+      tb.appendChild(tr);
+      const rs=tr.querySelector("[data-reason]");
+      if(rs) rs.onchange=(ev)=>{ setOrderNote(it,e.orderId,{reason:ev.target.value, reasonOther:(ev.target.value==="Other"?(e.note.reasonOther||""):"")}); render(); };
+      const oi=tr.querySelector("[data-reasonother]"); if(oi) oi.oninput=(ev)=>{ setOrderNote(it,e.orderId,{reasonOther:ev.target.value}); };
+      const rv=tr.querySelector("[data-resolve]"); if(rv) rv.onclick=()=>{ setOrderNote(it,e.orderId,{resolved:true,resolvedAt:new Date().toISOString()}); addHistory(it,"Refunded order "+(e.orderId||"")+" marked resolved"); save(); render(); };
+      const rb=tr.querySelector("[data-restock]"); if(rb) rb.onclick=()=>{ uiConfirm("Restock \""+esc(e.title)+"\"? Only do this once the item has physically come back — this puts it in a real slot and makes it available again.", ()=>{ setOrderNote(it,e.orderId,{resolved:true,resolvedAt:new Date().toISOString()}); reactivateItem(it, ()=>{}); render(); }); };
     });
     wireEnvelopes(panel);
   }
 
   function renderReturns(panel){
-    const rows=returnedOrderItems().sort((a,b)=>new Date(b.fulfillment.returnedAt||0)-new Date(a.fulfillment.returnedAt||0));
+    const rows=returnedOrderEntries();
     // Candidates a return could be logged against: sold items that actually shipped/completed.
     const loggable=visibleItems().filter(i=>i.fulfillment && (i.fulfillment.stage==="shipped"||i.fulfillment.stage==="completed") && !i.fulfillment.returned).sort((a,b)=>new Date(b.fulfillment.soldAt||0)-new Date(a.fulfillment.soldAt||0));
     panel.innerHTML=`<div style="padding:10px 14px;display:flex;align-items:center;gap:10px;">
         <button class="btn" id="rt-check">Check for Returns</button><span class="smallhint" id="rt-msg"></span>
         <span style="flex:1;"></span><span style="font-size:12.5px;">${rows.length} open return(s).</span></div>
-      <div class="note" style="margin:0 14px 10px;">Returns are pulled automatically from eBay's returns system when you click Check for Returns. You can also log one manually below if needed. (Auto-matching a return back to its item relies on eBay's listing ID — if a pulled return doesn't attach to the right item, log it manually and let me know.)</div>
+      <div class="note" style="margin:0 14px 10px;">Returns are recorded against the individual order, so a listing that sold several times and had one copy come back shows one return — not the whole listing. InventoryIQ detects them from eBay; Check for Returns also pulls them on demand, and one can be logged by hand below.</div>
       <div style="padding:0 14px 8px;display:flex;align-items:center;gap:8px;">
         <select class="cmb" id="rt-pick" style="max-width:340px;"><option value="">Log a return manually…</option>${loggable.slice(0,100).map(i=>`<option value="${esc(i.id)}">${esc(i.desc)} — ${esc(i.fulfillment.buyer||"")}</option>`).join("")}</select>
         <button class="btn sm" id="rt-add">Log Return</button></div>
-      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th>Warehouse SKU</th><th>Buyer</th><th>Return Opened</th><th style="width:200px;">Reason</th><th style="width:34px;">&#9993;</th><th style="width:170px;"></th></tr></thead><tbody id="rt-tb"></tbody></table></div>`;
+      <div class="resultwrap" style="margin:0 14px 14px;"><table class="res"><thead><tr><th>Title</th><th style="width:130px;">Invoice #</th><th>Warehouse SKU</th><th>Buyer</th><th>Return Opened</th><th style="width:200px;">Reason</th><th style="width:34px;">&#9993;</th><th style="width:170px;"></th></tr></thead><tbody id="rt-tb"></tbody></table></div>`;
     const tb=panel.querySelector("#rt-tb"), rmsg=panel.querySelector("#rt-msg");
     panel.querySelector("#rt-check").onclick=async ()=>{
       rmsg.style.color="#555"; rmsg.textContent="Checking eBay for returns…";
@@ -16361,15 +16524,18 @@ function openCancellationsRefundsReturns(){
       it.fulfillment.returned=true; it.fulfillment.returnedAt=new Date().toISOString();
       addHistory(it,"Return opened (logged manually)"); save(); render();
     };
-    if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="color:#888;">No open returns.</td></tr>`; return; }
-    rows.forEach(it=>{ const f=it.fulfillment; const tr=document.createElement("tr");
-      const reasonSel=`<select class="cmb sm" data-rreason="${esc(it.id)}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${f.returnReason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
-      tr.innerHTML=`<td>${esc(it.desc)}</td><td>${esc(it.sku)}</td><td>${esc(f.buyer||"—")}</td><td>${f.returnedAt?fmtDay(f.returnedAt):""}</td><td>${reasonSel}</td><td class="cc">${envCell(f.buyer)}</td>
-        <td class="cc"><button class="btn sm" data-restock="${esc(it.id)}" title="Item came back — put it back into inventory">Restock</button> <button class="btn sm" data-resolve="${esc(it.id)}" title="Mark this return handled and clear it from the list">Resolve</button></td>`;
-      tr.ondblclick=()=>openItemDetail(it,"edit"); tb.appendChild(tr);
-      tr.querySelector("[data-rreason]").onchange=(e)=>{ f.returnReason=e.target.value; save(); };
-      tr.querySelector("[data-restock]").onclick=()=>{ uiConfirm("Restock \""+esc(it.desc)+"\"? Only once it has physically come back — puts it in a real slot and makes it available again.", ()=>{ f.returnResolved=true; f.returnResolvedAt=new Date().toISOString(); reactivateItem(it, ()=>{}); render(); }); };
-      tr.querySelector("[data-resolve]").onclick=()=>{ f.returnResolved=true; f.returnResolvedAt=new Date().toISOString(); addHistory(it,"Return marked resolved"); save(); render(); };
+    if(!rows.length){ tb.innerHTML=`<tr><td colspan="8" style="color:#888;">No open returns.</td></tr>`; return; }
+    rows.forEach((e,i)=>{ const it=e.it; const tr=document.createElement("tr");
+      const reasonSel=`<select class="cmb sm" data-rreason="${i}" style="width:100%;"><option value="">— pick a reason —</option>${REFUND_REASONS.map(r=>`<option value="${esc(r)}" ${e.note.reason===r?"selected":""}>${esc(r)}</option>`).join("")}</select>`;
+      const restock = (it && e.saleCount<=1) ? `<button class="btn sm" data-restock="${i}" title="Item came back — put it back into inventory">Restock</button> ` : "";
+      const resolve = it ? `<button class="btn sm" data-resolve="${i}" title="${e.saleCount>1?"Quantity on a multi-sale listing is managed in InventoryIQ — this clears the order from this list":"Mark this return handled and clear it from the list"}">Resolve</button>` : `<span class="smallhint">Listing not in WIM</span>`;
+      tr.innerHTML=`<td>${esc(e.title)}</td><td>${esc(e.invoice||"—")}</td><td>${esc(e.sku)}</td><td>${esc(e.buyer||"—")}</td><td>${e.at?fmtDay(e.at):""}</td><td>${reasonSel}</td><td class="cc">${envCell(e.buyer)}</td>
+        <td class="cc">${restock}${resolve}</td>`;
+      if(it) tr.ondblclick=()=>openItemDetail(it,"edit");
+      tb.appendChild(tr);
+      const rs=tr.querySelector("[data-rreason]"); if(rs) rs.onchange=(ev)=>{ setOrderNote(it,e.orderId,{reason:ev.target.value}); };
+      const rb=tr.querySelector("[data-restock]"); if(rb) rb.onclick=()=>{ uiConfirm("Restock \""+esc(e.title)+"\"? Only once it has physically come back — puts it in a real slot and makes it available again.", ()=>{ if(it.fulfillment){ it.fulfillment.returnResolved=true; it.fulfillment.returnResolvedAt=new Date().toISOString(); } setOrderNote(it,e.orderId,{resolved:true,resolvedAt:new Date().toISOString()}); reactivateItem(it, ()=>{}); render(); }); };
+      const rv=tr.querySelector("[data-resolve]"); if(rv) rv.onclick=()=>{ setOrderNote(it,e.orderId,{resolved:true,resolvedAt:new Date().toISOString()}); addHistory(it,"Return "+(e.orderId||"")+" marked resolved"); save(); render(); };
     });
     wireEnvelopes(panel);
   }

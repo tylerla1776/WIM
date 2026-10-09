@@ -2,7 +2,10 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability for WIM windows.",
-  "windows": ["main", "popout-*"],
+  "windows": [
+    "main",
+    "popout-*"
+  ],
   "permissions": [
     "core:default",
     "updater:default",
@@ -23,6 +26,9 @@
     "core:webview:allow-create-webview",
     "core:webview:allow-reparent",
     "core:webview:allow-set-webview-position",
-    "core:webview:allow-set-webview-size"
+    "core:webview:allow-set-webview-size",
+    "dialog:default",
+    "dialog:allow-save",
+    "fs:default"
   ]
 }

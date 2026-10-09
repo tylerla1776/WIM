@@ -871,6 +871,39 @@ fn wim_delete_folder(path: String, must_be_under: String) -> Result<bool, String
 // Writes bytes (base64) to a file — used to save a converted JPEG back into a photo folder.
 // Guarded exactly like wim_delete_folder: the destination must be inside the named base folder,
 // so a bad path can never write outside the WIM photo area.
+// Saves an exported file wherever the user chooses. A browser download is silently ignored by the
+// desktop webview -- the anchor click just blanked the window -- so exports need a real OS save dialog.
+#[tauri::command]
+async fn wim_save_export(app: tauri::AppHandle, filename: String, base64_data: String) -> Result<String, String> {
+    let picked = app.dialog().file().set_file_name(&filename).blocking_save_file();
+    match picked {
+        Some(p) => {
+            let bytes = general_purpose::STANDARD.decode(base64_data.as_bytes()).map_err(|e| e.to_string())?;
+            let pb = p.into_path().map_err(|e| e.to_string())?;
+            std::fs::write(&pb, &bytes).map_err(|e| e.to_string())?;
+            // Hand the saved file straight to whatever the system opens it with, so an export lands
+            // in front of you instead of waiting to be hunted down in a folder.
+            let opened = pb.clone();
+            #[cfg(target_os = "windows")]
+            {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "start", "", &opened.to_string_lossy()])
+                    .spawn();
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = std::process::Command::new("open").arg(&opened).spawn();
+            }
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                let _ = std::process::Command::new("xdg-open").arg(&opened).spawn();
+            }
+            Ok(pb.to_string_lossy().to_string())
+        }
+        None => Ok(String::new()),   // user cancelled
+    }
+}
+
 #[tauri::command]
 fn wim_write_file(path: String, base64_data: String, must_be_under: String) -> Result<bool, String> {
     let target = std::path::PathBuf::from(&path);
@@ -1687,6 +1720,7 @@ fn main() {
             wim_list_folders,
             wim_delete_folder,
             wim_write_file,
+            wim_save_export,
             wim_delete_file,
             open_url,
             supabase_rpc,
