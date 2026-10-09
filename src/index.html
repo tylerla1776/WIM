@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.11", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.13", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.13","WIM ANALYTICS NOW LOOKS AT WHAT WE OWN, NOT ONLY AT WHAT SOLD. Every dashboard answered the sold side, so there was no way to ask what is on the shelf, what it cost, how fast it arrives or what to buy more of. Three new dashboards under Inventory Insights. IN STOCK AND STORAGE: units and dollars on the shelf, week by week back to the start of trading, with value at cost shown against value at asking price; storage flow in against out so a growing or draining shelf is visible; how quickly an item gets from created to slotted; inventory turns and days of inventory on hand; stock that was never listed, aged into bands; and a dead stock list of anything sitting 90 days unlisted. CHARACTERS: how deep you are in each character, what each one actually earns, and shelf life by character measured from the day the listing went live to the day it sold -- plus two tables that put the two together, Deep and Slow for characters bought faster than they sell and Fast and Thin for characters selling faster than they are held. FORMAT AND CATEGORY MIX: revenue by real eBay category, speed and sell-through per category, a month over month comparison, and a share of shelf against share of revenue table whose gap column names the categories taking up room they are not paying for. The Executive Overview now carries units and dollars on the shelf beside net profit, with inventory on the shelf added to the trend index, and Inventory Value and Aging gained value at asking price next to value at cost. Costs are never estimated anywhere in this: an item or sale with no recorded cost counts as zero AND is reported as unrecorded, and every figure resting on cost states how many records were left out for want of one. The storage history is rebuilt from each item own stored and picked dates rather than from a running tally, so it is real back to August rather than starting empty today."],
+  ["3.5.12","DIAGNOSTIC BUILD FOR THE BLANK DESCRIPTIONS. The listing descriptions are present in the shared database -- 1,361 items carry one, SKU W included -- and the statement is reading the right field, so the break is somewhere between the two and guessing at it has cost two versions already. The Sales Ledger page now prints one gold line under its heading saying which field each description actually came from and how many sales could not be matched to an inventory record at all. That line names the cause outright instead of leaving it to be inferred. It is temporary and comes out once the fix lands."],
   ["3.5.11","THE STATEMENT WAS LOOKING FOR LISTING DESCRIPTIONS IN THE WRONG PLACE. Sold items printed with no description underneath, which is what a sale is verified against. The statement read listing.description, a field that only exists on listings pulled in from eBay -- a listing built in WIM keeps its buyer description under listing.descBody, or as a reference to a saved template in Description Manager, and neither was ever read. Every place the description can live is now checked in order, so warehouse-built listings print their description. This was my error, not a data problem: nothing was missing from the record. Photos follow the same fix -- a sale now falls back to the first photo on the item where no featured photo was set, instead of printing an empty box. Descriptions and photos frozen onto the sale itself still take precedence once InventoryIQ deploys those two columns."],
   ["3.5.10","A RETURN ON ONE COPY NO LONGER READS AS A RETURN OF THE WHOLE LISTING, AND EVERY SALE NOW CARRIES ITS OWN PHOTO AND DESCRIPTION. A listing that sold thirteen times and had a single copy come back was showing as a blanket return with no sales against it, because a return was recorded against the listing rather than against the order it belonged to. Cancellations, refunds and returns are now read per order from the shared sales ledger and the per-order flags InventoryIQ writes, so one returned copy is one return, listed with the invoice number of the order it came from, and the other twelve sales stand untouched. Where a listing sold more than once the Restock button is replaced with Resolve, since quantity on a repeat-selling listing is managed in InventoryIQ and putting the whole listing back from one returned copy would be wrong. Reasons picked and returns marked resolved are now kept against the individual order instead of the listing. Separately, the photo and description shown for a sale are now read off the sale itself, frozen as they were when it sold, rather than looked up from the current inventory record -- sales whose listing had since been deleted or never synced were printing with no photo and no description, which are exactly what a sale is verified against. Older sales written before those were recorded still fall back to the inventory record."],
   ["3.5.9","AN EXPORTED SALES LEDGER NOW OPENS ITSELF. After choosing where to save it you had to go and find the file to look at it. It now opens in Excel straight after saving, and the confirmation popup that had to be dismissed first is gone."],
@@ -2902,19 +2904,24 @@ function itemNumberWithCopy(itemNumber, copyIdx){
 // saved template in Description Manager -- listing.description only exists on listings pulled in
 // from eBay. Reading only the latter is why warehouse-built items printed with no description at
 // all on the statement. Every place it can live is checked, nearest first.
-function itemListingDescription(it){
-  if(!it) return "";
+function itemListingDescription(it){ return itemListingDescriptionSrc(it).text; }
+// Same lookup, but says which field answered. The statement prints a one-line tally of these so a
+// missing description can be traced to its cause -- no record, empty field, wrong field -- rather
+// than guessed at.
+function itemListingDescriptionSrc(it){
+  if(!it) return { text:"", src:"no-item" };
   const L=it.listing||{};
-  if(L.description) return String(L.description);
-  if(L.descBody) return String(L.descBody);
+  if(L.description) return { text:String(L.description), src:"listing.description" };
+  if(L.descBody)    return { text:String(L.descBody),    src:"listing.descBody" };
   if(L.descriptionId){
     try{
       const t=(DB.descriptions||[]).find(function(x){ return x.id===L.descriptionId; });
-      if(t&&t.body) return String(t.body);
+      if(t&&t.body) return { text:String(t.body), src:"template" };
     }catch(e){}
   }
-  if(L.desc) return String(L.desc);
-  return "";
+  if(L.desc) return { text:String(L.desc), src:"listing.desc" };
+  if(!L || !Object.keys(L).length) return { text:"", src:"no-listing-object" };
+  return { text:"", src:"listing-has-no-description" };
 }
 // The featured photo, falling back to the first photo on the item -- an item whose featured photo
 // was never set still has its photos, and a statement row with no picture cannot be verified.
@@ -3150,8 +3157,8 @@ function renderProfitLoss(sel){
     // Photo and description are frozen onto the sale row when the sale is written, so a sale whose
     // listing was later deleted or never synced still shows what was sold. The listing is only
     // consulted for older rows written before those columns existed.
-    let desc=String(s.description||"");
-    if(!desc) desc=itemListingDescription(it);
+    let desc=String(s.description||""), descSrc=desc?"sale.description":"";
+    if(!desc){ const _d=itemListingDescriptionSrc(it); desc=_d.text; descSrc=_d.src; }
     desc=String(desc);
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
@@ -3169,6 +3176,7 @@ function renderProfitLoss(sel){
              copyNo:_copyNos[String(s.order_id||"")+"|"+String(s.item_number||"")]||0,
              condition:(it&&it.condition)||"", cat:(it&&it.section)||"Uncategorized", chr:(it&&it.subCategory)||"—",
              image:(s.image_url||itemAnyPhoto(it)), units:units,
+             descSrc:descSrc, joined:!!it,
              sale:sale, unitCost:unitCost, refund:refund,
              ship:hasShip?num(s.ship_cost):null, fees:hasFees?num(s.ebay_fees):null,
              hasShip:hasShip, hasFees:hasFees, settled:settled,
@@ -3262,6 +3270,16 @@ function renderProfitLoss(sel){
     +"<table class=\"t\"><thead><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"chr"))+"</tbody></table>"
     +"</div>";
 
+  // Temporary diagnostic: where the printed descriptions came from, and how many sales could not be
+  // matched to an inventory record at all. Removed once the blank-description cause is pinned down.
+  const descDiag=function(){
+    const tally={}, miss=rows.filter(function(r){ return !r.joined; }).length;
+    rows.forEach(function(r){ const k=r.descSrc||"(none)"; tally[k]=(tally[k]||0)+1; });
+    const parts=Object.keys(tally).sort(function(a,b){ return tally[b]-tally[a]; })
+      .map(function(k){ return k+" "+tally[k]; });
+    return "<div class=\"sub\" style=\"color:#b8860b;\">Description source tally: "+esc(parts.join(" · "))
+      +" · unmatched to inventory: "+miss+" of "+rows.length+"</div>";
+  };
   const ledgerRow=function(r){
     const img=r.image?("<img src=\""+esc(r.image)+"\" />"):"<div class=\"noimg\">—</div>";
     const shipCell = r.hasShip? money(r.ship) : (r.voided? money(0) : est(r.eShip));
@@ -3300,7 +3318,7 @@ function renderProfitLoss(sel){
   const section=function(title,sub,list){ return list.length?("<h2>"+title+" <span class=\"sm\">"+sub+"</span></h2>"+ledgerTable(list)):""; };
   const sheet3=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">"+rows.length+" sales · newest first · <span class=\"estv\">gold*</span> = estimated</div></div>"
+    +"<div class=\"hd\"><h1>Sales Ledger</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">"+rows.length+" sales · newest first · <span class=\"estv\">gold*</span> = estimated</div>"+descDiag()+"</div>"
     +section("Finalized Sales","— all transaction costs finalized",settledRows)
     +section("Sales Pending Final Costs","— shipping and eBay charges not posted yet",pendAll)
     +"</div>";
@@ -18801,6 +18819,12 @@ function anDailySnapshot(){
       date:key, tracked:items.length, activeUnlisted:active.length, listed:listed.length,
       listedValue:Math.round(listed.reduce((s,x)=>s+(parseFloat(x.listing.price)||0),0)*100)/100,
       reviewQueue:review, slotCap, slotOcc,
+      // Stock actually on the shelf. The storage charts reconstruct their history from item
+      // dates rather than relying on these, but recording them gives a second, independent
+      // record to check that reconstruction against.
+      storedUnits:(function(){ try{ return anInStorage(items).length; }catch(e){ return null; } })(),
+      storedCost:(function(){ try{ return Math.round(anInStorage(items).reduce((a,x)=>a+(anCostOf(x)||0),0)*100)/100; }catch(e){ return null; } })(),
+      storedAsk:(function(){ try{ return Math.round(anInStorage(items).reduce((a,x)=>a+(anAskOf(x)||0),0)*100)/100; }catch(e){ return null; } })(),
       soldTotal:soldAll.length, feeCoverage:soldAll.length?Math.round(withFees.length/soldAll.length*100):null,
       costPoolRemaining:Math.round((DB.vendors||[]).reduce((sp,v)=>{ const p=DB.vendorCosting&&DB.vendorCosting[v]; return sp+(p?(parseFloat(p.costRemaining)||0):0); },0)*100)/100,
       importedExcluded:(DB.items||[]).filter(x=>!x.simulated&&x.source==="ebay_import").length
@@ -19046,7 +19070,25 @@ const AN_METRICS={
   weeklytarget:{ label:"Weekly Target", def:"Units per week to hit the goal in the chosen window.", formula:"(Known backlog + assumed pallet units) / weeks to goal.", basis:"Scenario", source:"WIM backlog + your pallet estimate", ready:"Estimated (pallet portion is your assumption)" },
   knownbacklog:{ label:"Known Backlog", def:"Real WIM items cataloged but not yet listed. Never includes unopened pallet contents.", formula:"Count of active tracked items not listed and not in review.", basis:"Current", source:"WIM items", ready:"Available" },
   palletassume:{ label:"Assumed Pallet Units", def:"Units you estimate remain in unopened pallets. A manual input, not something WIM knows.", formula:"Pallets remaining x units per pallet (both entered by you).", basis:"Your assumption", source:"Your input", ready:"Assumption (clearly labeled)" },
-  goalpace:{ label:"Goal Pace", def:"Whether current listing pace hits the goal in the window.", formula:"Compare recent listed-per-week to the needed weekly target.", basis:"Scenario", source:"Throughput + your inputs", ready:"Derived" }
+  goalpace:{ label:"Goal Pace", def:"Whether current listing pace hits the goal in the window.", formula:"Compare recent listed-per-week to the needed weekly target.", basis:"Scenario", source:"Throughput + your inputs", ready:"Derived" },
+  storedunits:{ label:"Units in Storage", def:"Items physically on the shelf right now - cataloged, in a slot, not yet picked.", formula:"Count of tracked items with a slot that have not been picked.", basis:"Current", source:"WIM items", ready:"Available" },
+  storedcost:{ label:"Inventory $ in Storage", def:"What the stock on the shelf cost you, at each item's own recorded unit cost.", formula:"Sum of unit cost across items in storage. Items with no recorded cost count as zero and are reported separately - no cost is ever estimated.", basis:"Current", source:"WIM items", ready:"Available" },
+  storedask:{ label:"Retail Value at Ask", def:"What the stock on the shelf would bring at current asking prices, before any fees or postage.", formula:"Sum of listing price (or retail where unlisted) across items in storage.", basis:"Current", source:"WIM items", ready:"Available (gross, not net)" },
+  storedunlisted:{ label:"Stored, Not Listed", def:"Items sitting in a slot with no live listing - stock that cannot sell.", formula:"Count of items in storage whose listing status is not listed.", basis:"Current", source:"WIM items", ready:"Available" },
+  storeddays:{ label:"Median Days in Storage", def:"How long the typical item currently on the shelf has been there.", formula:"Median of days since stored across items in storage.", basis:"Current", source:"WIM items", ready:"Available" },
+  storespeed:{ label:"Catalog to Shelf", def:"How quickly a new item gets from created to physically slotted.", formula:"Median hours between created and stored, over items stored in the period.", basis:"Event period", source:"WIM items", ready:"Available (items migrated before this was tracked read as same-day)" },
+  invturns:{ label:"Inventory Turns", def:"How many times a year the stock on the shelf turns over, at the current pace.", formula:"Annualized known unit cost of items sold in the period / average inventory cost in storage.", basis:"Event period, annualized", source:"Sales ledger + WIM items", ready:"Derived (sales with no recorded cost are excluded and counted)" },
+  invdoh:{ label:"Days of Inventory", def:"At the current selling pace, how many days it would take to sell what is on the shelf.", formula:"365 / inventory turns.", basis:"Event period", source:"Sales ledger + WIM items", ready:"Derived" },
+  deadstock:{ label:"Dead Stock", def:"Items stored 90 days or more that have never been listed - capital doing nothing.", formula:"Count and cost of items in storage with no listed date and 90+ days since stored.", basis:"Current", source:"WIM items", ready:"Available" },
+  charcount:{ label:"Characters in Stock", def:"How many distinct characters the stock on the shelf covers.", formula:"Count of distinct Character values across items in storage.", basis:"Current", source:"WIM items", ready:"Available" },
+  chartop:{ label:"Deepest Character", def:"The character you hold the most copies of right now.", formula:"Character with the highest unit count in storage.", basis:"Current", source:"WIM items", ready:"Available" },
+  charrev:{ label:"Top Character by Sales", def:"The character that brought in the most revenue in the period.", formula:"Character with the highest summed sale price in the sales ledger.", basis:"Event period", source:"Sales ledger", ready:"Available" },
+  charfast:{ label:"Fastest Character", def:"The character with the shortest typical shelf life - listed to sold.", formula:"Lowest median days from listed to sold, across characters with at least three sales.", basis:"Event period", source:"Sales ledger + listing dates", ready:"Derived (sales with no listed date are excluded)" },
+  charstale:{ label:"Characters With No Sales", def:"Characters you hold stock in that sold nothing at all in the period.", formula:"Characters present in storage with zero sales rows in the period.", basis:"Event period", source:"Sales ledger + WIM items", ready:"Available" },
+  mixshare:{ label:"Largest Category", def:"The eBay category taking the biggest share of revenue in the period.", formula:"Category with the highest summed sale price.", basis:"Event period", source:"Sales ledger", ready:"Available" },
+  mixgap:{ label:"Biggest Listing Gap", def:"The category furthest out of balance between how much of your stock it is and how much of your sales it is.", formula:"Largest absolute difference between share of items in storage and share of period revenue.", basis:"Event period", source:"Sales ledger + WIM items", ready:"Derived" },
+  mixvel:{ label:"Fastest Category", def:"The category with the shortest typical shelf life.", formula:"Lowest median days from listed to sold, across categories with at least three sales.", basis:"Event period", source:"Sales ledger + listing dates", ready:"Derived" },
+  sellthrucat:{ label:"Best Sell-Through", def:"The category selling the highest share of what you hold in it.", formula:"Units sold / (units sold + units in storage), per category.", basis:"Event period", source:"Sales ledger + WIM items", ready:"Derived" }
 };
 
 // ---- Tiny SVG chart engine (axes, ticks, legend, clipping — per the blueprint rules). ------
@@ -19178,6 +19220,8 @@ const AN_NAV=[
   {section:"Financial & Sales", pages:[
     {k:"profit",label:"Profit Overview",on:true},{k:"cash",label:"Cash Flow & Fees",on:true},{k:"invvalue",label:"Inventory Value & Aging",on:true},
     {k:"listperf",label:"Listing Performance",on:true},{k:"pricing",label:"Pricing & Repricing",on:true},{k:"vendorroi",label:"Vendor & Sourcing ROI",on:true}]},
+  {section:"Inventory Insights", pages:[
+    {k:"stock",label:"In Stock & Storage",on:true},{k:"chars",label:"Characters",on:true},{k:"mix",label:"Format & Category Mix",on:true}]},
   {section:"Growth & Customer", pages:[
     {k:"conv",label:"Conversion & Interest",on:true},{k:"offers",label:"Offers & Coupons",on:true},{k:"ads",label:"Advertising",on:true},
     {k:"retention",label:"Customer Retention",on:true},{k:"feedback",label:"Feedback Overview",on:true},{k:"reputation",label:"Reputation & Reviews",on:true},{k:"voice",label:"Customer Voice",on:true}]},
@@ -19273,7 +19317,13 @@ function anRenderExec(el,ctx,R){
   const buckets=anBuckets(R,ctx.grain);
   const perB=buckets.map(b=>({ np:anNetProfit(items,b).net, cat:items.filter(it=>anInR(it.createdAt,b)).length, li:items.filter(it=>it.listing&&anInR(it.listing.listedAt,b)).length }));
   const idx=(vals)=>{ const base=vals.find(v=>v&&v!==0); if(base==null) return vals.map(()=>null); return vals.map(v=>v==null?null:Math.round(v/base*1000)/10); };
-  const trendSeries=[{name:"Net profit",values:idx(perB.map(x=>x.np))},{name:"Units cataloged",values:idx(perB.map(x=>x.cat))},{name:"Listings created",values:idx(perB.map(x=>x.li))}].filter(s=>s.values.some(v=>v!=null));
+  // Stock on the shelf, carried onto the overview so the money and the thing the money is tied up
+  // in are read together rather than on separate pages.
+  const _exStored=anInStorage(items);
+  const _exCost=_exStored.reduce((a,x)=>a+(anCostOf(x)||0),0);
+  const _exNoCost=_exStored.filter(x=>anCostOf(x)==null).length;
+  const _exHist=anStorageHistory(items,buckets);
+  const trendSeries=[{name:"Net profit",values:idx(perB.map(x=>x.np))},{name:"Units cataloged",values:idx(perB.map(x=>x.cat))},{name:"Listings created",values:idx(perB.map(x=>x.li))},{name:"Inventory on the shelf",values:idx(_exHist.map(h=>h.cost))}].filter(s=>s.values.some(v=>v!=null));
 
   const funnel=[
     {label:"Cataloged",n:cataloged},
@@ -19310,6 +19360,8 @@ function anRenderExec(el,ctx,R){
     + kpi("cataloged", String(cataloged), "item records created", perB.map(x=>x.cat))
     + kpi("listings", String(listings), "went live in period", perB.map(x=>x.li))
     + kpi("sellthrough", st.pct==null?"-":st.pct+"%", st.denom?(st.sold+" sold of "+st.denom+" available listed"):"no listed units in period", null)
+    + kpi("storedunits", String(_exStored.length), "on the shelf right now", _exHist.map(h=>h.units))
+    + kpi("storedcost", anFmtVal(_exCost,true), _exNoCost?(_exNoCost+" carry no recorded cost"):"at recorded unit cost", _exHist.map(h=>h.cost))
     + kpi("completed", String(completed), "orders reached Completed", null)
     + kpi("pace", '<span style="font-size:14px;color:#8a5fb8;font-weight:600;">Needs pallet plan</span>', "arrives with Forecasting and Labor", null)
     +'</div>'
@@ -19676,7 +19728,8 @@ function anFeePressure(realRows,mix,unpulled,feesEstMissing,totalSales){
     guard:"Fees are separated from shipping and item cost. A high-dollar fee is not called a problem unless rate or avoidability supports it. Review only." };
 }
 
-const AN_PAGES={exec:anRenderExec,profit:anRenderProfit,cash:anRenderCash,invvalue:anRenderInvValue,listperf:anRenderListPerf,pricing:anRenderPricing,vendorroi:anRenderVendorRoi,capacity:anRenderCapacity,ops:anRenderOps,catflow:anRenderCatFlow,shipful:anRenderShipFul,returns:anRenderReturns,conv:anRenderConversion,offers:anRenderOffers,feedback:anRenderFeedback,reputation:anRenderReputation,voice:anRenderVoice,ads:anRenderAds,retention:anRenderRetention,health:anRenderDataHealth,forecast:anRenderForecast};
+const AN_PAGES={exec:anRenderExec,profit:anRenderProfit,cash:anRenderCash,invvalue:anRenderInvValue,listperf:anRenderListPerf,pricing:anRenderPricing,vendorroi:anRenderVendorRoi,capacity:anRenderCapacity,ops:anRenderOps,catflow:anRenderCatFlow,shipful:anRenderShipFul,returns:anRenderReturns,conv:anRenderConversion,offers:anRenderOffers,feedback:anRenderFeedback,reputation:anRenderReputation,voice:anRenderVoice,ads:anRenderAds,retention:anRenderRetention,health:anRenderDataHealth,forecast:anRenderForecast,
+  stock:anRenderStock,chars:anRenderChars,mix:anRenderMix};
 
 // ============================== v3.4.0: INVENTORY VALUE & AGING + LISTING PERFORMANCE ==============================
 
@@ -19856,6 +19909,7 @@ function anRenderInvValue(el,ctx,R){
     +'<div class="an-kpis">'
     + kpi("onhand", String(units), onHand.length+" item records")
     + kpi("costvalue", anFmtVal(costVal,true), "allocated vendor cost on hand")
+    + kpi("storedask", anFmtVal(onHand.reduce((a,x)=>a+(anAskOf(x)||0),0),true), "gross at current asking prices, before fees or postage")
     + kpi("listedunits", String(listedUnits), listedNow.length+" active listings")
     + kpi("slotted", String(slotted), units?Math.round(slotted/units*100)+"% of on-hand":"")
     + kpi("aged90", aged90pct==null?"-":aged90pct+"%", aged90+" units at 90+ days ("+(ctx.ageBasis==="listed"?"listed":"cataloged")+" basis)")
@@ -20358,6 +20412,430 @@ function anStageAge(it){
   if(!since) return null;
   const d=new Date(since); if(isNaN(d)) return null;
   return Math.max(0,Math.floor((Date.now()-d.getTime())/86400000));
+}
+
+
+/* ===========================================================================================
+ * INVENTORY INSIGHTS -- stock-side analytics (In Stock & Storage, Characters, Category Mix)
+ *
+ * Everything before this point answers "what sold". These three pages answer "what do we own,
+ * how fast is it moving, and what should we buy more of" -- which needs the stock side of the
+ * record, not the sold side.
+ *
+ * Costing rule, applied without exception: a cost is never estimated. Where an item or a sale
+ * carries no recorded cost it is counted as zero AND reported as unknown, so a figure can never
+ * quietly include a guess. Any derived number that depends on cost says how many records were
+ * excluded for want of one.
+ * ========================================================================================= */
+
+// --- stock primitives ---------------------------------------------------------------------
+function anCostOf(it){ const c=parseFloat(it&&it.unitCost); return isNaN(c)?null:c; }
+function anAskOf(it){ const p=parseFloat((it&&it.listing&&it.listing.price)||(it&&it.retail)); return isNaN(p)?null:p; }
+// On the shelf right now: cataloged into a slot and not yet carried off it.
+function anInStorage(items){
+  return items.filter(it=>{
+    if(!it.slot) return false;
+    try{ if(typeof stillInSlot==="function" && !stillInSlot(it)) return false; }catch(e){}
+    const st=itemStatus(it);
+    return st==="active"||st==="listed"||st==="created";
+  });
+}
+function anIsListed(it){ return !!(it.listing && it.listing.status==="listed"); }
+// When an item physically left the shelf. Picking is the real event; a sale that has not been
+// picked yet is still sitting there, which is why pickedAt leads and soldAt only backs it up.
+function anLeftStorageMs(it){
+  const f=it.fulfillment||{};
+  let t=Date.parse(f.pickedAt||""); if(!isNaN(t)) return t;
+  t=Date.parse(it.soldAt||f.soldAt||""); if(!isNaN(t)) return t;
+  return null;
+}
+function anStoredAtMs(it){
+  let t=Date.parse(it.storedAt||""); if(!isNaN(t)) return t;
+  t=Date.parse(it.createdAt||""); return isNaN(t)?null:t;
+}
+function anMedianOf(arr){ const a=arr.filter(v=>v!=null&&!isNaN(v)).sort((x,y)=>x-y); if(!a.length) return null; return a[Math.floor(a.length/2)]; }
+
+// Units and value on the shelf at the END of each bucket, rebuilt from each item's own stored
+// and left dates. Reconstructing it this way means the line is real all the way back to August
+// rather than starting the day a snapshot field was added. Items deleted outright are gone from
+// the record and cannot appear in it -- that is a limit of the data, not a rounding choice.
+function anStorageHistory(items,buckets){
+  const pre=items.map(it=>({ inAt:anStoredAtMs(it), outAt:anLeftStorageMs(it),
+                             cost:anCostOf(it), ask:anAskOf(it) })).filter(x=>x.inAt!=null);
+  return buckets.map(b=>{
+    const t=b.to.getTime(); let u=0,c=0,a=0,noCost=0;
+    pre.forEach(x=>{
+      if(x.inAt>t) return;
+      if(x.outAt!=null && x.outAt<=t) return;
+      u++; if(x.cost==null) noCost++; else c+=x.cost; if(x.ask!=null) a+=x.ask;
+    });
+    return { units:u, cost:Math.round(c*100)/100, ask:Math.round(a*100)/100, noCost:noCost };
+  });
+}
+
+// --- the sales ledger, with category and character resolved from the item -------------------
+// One row per order line. Category and Character live on the item, so the ledger is joined to it;
+// a sale whose item is no longer in WIM keeps its revenue but reports as Unmatched rather than
+// being dropped, because dropping it would understate sales.
+function anLedgerRows(ctx){
+  const byId={}, byNum={};
+  (DB.items||[]).forEach(it=>{ if(it.id) byId[it.id]=it; if(it.upc) byNum[String(it.upc)]=it; });
+  const out=[];
+  (DB.sales||[]).forEach(sl=>{
+    if(sl.deleted_at) return;
+    const it=(sl.item_id&&byId[sl.item_id])||(sl.item_number&&byNum[String(sl.item_number)])||null;
+    const price=parseFloat(sl.sold_price);
+    const soldMs=Date.parse(sl.sold_at||"");
+    const listedAt=(it&&it.listing&&(it.listing.listedAt||it.listing.listed_at))||null;
+    let shelf=null;
+    if(listedAt&&!isNaN(soldMs)){ const l=Date.parse(listedAt); if(!isNaN(l)&&soldMs>=l) shelf=Math.max(0,Math.round((soldMs-l)/86400000)); }
+    const ucRaw=(sl.unit_cost!=null&&sl.unit_cost!=="")?parseFloat(sl.unit_cost):(it?anCostOf(it):null);
+    const r={ sl:sl, it:it, soldMs:isNaN(soldMs)?null:soldMs,
+      price:isNaN(price)?0:price, units:parseInt(sl.units,10)||1,
+      cat:(it&&it.section)||"Unmatched", chr:(it&&it.subCategory)||"Unassigned",
+      cost:(ucRaw==null||isNaN(ucRaw))?null:ucRaw,
+      shelf:shelf, channel:sl.channel||"wim",
+      flagged:!!(sl.returned_at||sl.cancelled_at) };
+    if(ctx.vendor && !(it&&(it.vendor||"")===ctx.vendor)) return;
+    if(ctx.section && r.cat!==ctx.section) return;
+    if(ctx.condition && !(it&&(it.condition||"")===ctx.condition)) return;
+    out.push(r);
+  });
+  return out;
+}
+function anLedgerIn(rows,R){ return rows.filter(r=>r.soldMs!=null&&r.soldMs>=R.from.getTime()&&r.soldMs<=R.to.getTime()); }
+
+// --- presentation helpers -------------------------------------------------------------------
+function anKpiCard(key,val,sub,delta){
+  const m=AN_METRICS[key];
+  let chip="";
+  if(delta&&delta.show){
+    const up=delta.v>0, flat=(delta.v===0);
+    const col=flat?"#6a7480":(delta.good===false?(up?"#c0392b":"#2f9e63"):(up?"#2f9e63":"#c0392b"));
+    const arrow=flat?"=":(up?"▲":"▼");
+    chip=' <span style="font-size:11px;font-weight:700;color:'+col+';white-space:nowrap;" title="'+esc(delta.title||"vs the previous period of the same length")+'">'+arrow+" "+esc(delta.label)+'</span>';
+  }
+  return '<div class="an-card"><div class="an-kt">'+esc(m?m.label:key)
+    +(m?'<span class="an-info" data-aninfo="'+key+'">i</span>':"")+'</div>'
+    +'<div class="an-kv">'+val+chip+'</div>'+(sub?'<div class="an-ks">'+sub+'</div>':"")+'</div>';
+}
+// A change chip against the equivalent previous window, so a figure is read as a direction and
+// not just a level. Returns show:false when there is no prior window to compare against --
+// an invented baseline would be worse than no chip at all.
+function anDelta(now,prev,opts){
+  const o=opts||{};
+  if(prev==null||isNaN(prev)||now==null||isNaN(now)) return {show:false};
+  if(prev===0) return {show:false};
+  const pc=(now-prev)/Math.abs(prev)*100;
+  return { show:true, v:Math.round(pc*10)/10, good:o.good!==false,
+           label:(pc>0?"+":"")+(Math.round(pc*10)/10)+"%",
+           title:"vs the previous "+(o.span||"period")+" ("+(o.money?anFmtVal(prev,true):anFmtVal(prev,false))+")" };
+}
+function anPrevRange(R){
+  const span=R.to.getTime()-R.from.getTime();
+  return { from:new Date(R.from.getTime()-span-1), to:new Date(R.from.getTime()-1), label:"previous period" };
+}
+function anRankTable(cols,rows,emptyMsg){
+  if(!rows.length) return '<div class="an-empty">'+esc(emptyMsg||"Nothing to show in the current filter.")+'</div>';
+  return '<table class="an-risk" style="width:100%;border-collapse:collapse;"><tr>'
+    +cols.map(c=>'<th'+(c.r?' style="text-align:right;"':'')+'>'+esc(c.t)+'</th>').join("")+'</tr>'
+    +rows.map(r=>'<tr>'+r.map((v,i)=>'<td'+(cols[i]&&cols[i].r?' style="text-align:right;"':'')+'>'+v+'</td>').join("")+'</tr>').join("")
+    +'</table>';
+}
+function anNoteBox(txt){ return '<div class="an-card an-panel" style="background:#fffdf3;border-left:4px solid #b8860b;"><div style="font-size:12px;color:#5a4a1f;line-height:1.5;">'+txt+'</div></div>'; }
+
+// =================== IN STOCK & STORAGE ===================
+function anRenderStock(el,ctx,R){
+  const items=anItems(ctx);
+  const stored=anInStorage(items);
+  const P=anPrevRange(R);
+
+  const costs=stored.map(anCostOf);
+  const noCost=costs.filter(c=>c==null).length;
+  const storedCost=costs.reduce((a,c)=>a+(c||0),0);
+  const storedAsk=stored.reduce((a,it)=>a+(anAskOf(it)||0),0);
+  const unlisted=stored.filter(it=>!anIsListed(it));
+  const unlistedCost=unlisted.reduce((a,it)=>a+(anCostOf(it)||0),0);
+  const ages=stored.map(it=>{ const t=anStoredAtMs(it); return t==null?null:Math.max(0,Math.floor((Date.now()-t)/86400000)); });
+  const medAge=anMedianOf(ages);
+
+  // Catalog-to-shelf speed, over items stored inside the period.
+  const speedHrs=[];
+  items.forEach(it=>{
+    const sAt=Date.parse(it.storedAt||""); if(isNaN(sAt)) return;
+    if(sAt<R.from.getTime()||sAt>R.to.getTime()) return;
+    const cAt=Date.parse(it.createdAt||""); if(isNaN(cAt)||sAt<cAt) return;
+    speedHrs.push((sAt-cAt)/3600000);
+  });
+  const medSpeed=anMedianOf(speedHrs);
+
+  // Turnover. Only sales carrying a real recorded cost can contribute, so the excluded count is
+  // printed alongside -- a turns figure built on guessed costs would be worse than none.
+  const led=anLedgerRows(ctx);
+  const inP=anLedgerIn(led,R), inPrev=anLedgerIn(led,P);
+  const cogsKnown=inP.filter(r=>r.cost!=null);
+  const cogs=cogsKnown.reduce((a,r)=>a+r.cost,0);
+  const spanDays=Math.max(1,Math.round((R.to-R.from)/86400000));
+  const annualCogs=cogs*(365/spanDays);
+  const turns=storedCost>0?Math.round(annualCogs/storedCost*100)/100:null;
+  const doh=(turns&&turns>0)?Math.round(365/turns):null;
+
+  if(!ctx.grain) ctx.grain="weekly";
+  const grain=(spanDays<=21?"daily":(spanDays<=200?"weekly":"monthly"));
+  const buckets=anBuckets(R,grain);
+  const hist=anStorageHistory(items,buckets);
+  const labels=buckets.map(b=>b.label);
+
+  // Intake and outflow per bucket: what went onto the shelf, what came off it.
+  const intake=buckets.map(b=>items.filter(it=>{ const t=Date.parse(it.storedAt||""); return !isNaN(t)&&t>=b.from.getTime()&&t<=b.to.getTime(); }).length);
+  const outflow=buckets.map(b=>items.filter(it=>{ const t=anLeftStorageMs(it); return t!=null&&t>=b.from.getTime()&&t<=b.to.getTime(); }).length);
+
+  // Aging of stock that cannot sell, because it was never listed.
+  const bands=[["0-14 days",0,14],["15-30",15,30],["31-60",31,60],["61-90",61,90],["90+ days",91,1e9]];
+  const unlistedBands=bands.map(([lb,lo,hi])=>({ label:lb,
+    v:unlisted.filter(it=>{ const t=anStoredAtMs(it); if(t==null) return false; const d=Math.floor((Date.now()-t)/86400000); return d>=lo&&d<=hi; }).length }));
+
+  const dead=stored.filter(it=>{ if(anIsListed(it)) return false;
+      if(it.listing&&(it.listing.listedAt||it.listing.delistedAt)) return false;
+      const t=anStoredAtMs(it); if(t==null) return false;
+      return Math.floor((Date.now()-t)/86400000)>=90; })
+    .sort((a,b)=>(anStoredAtMs(a)||0)-(anStoredAtMs(b)||0));
+  const deadCost=dead.reduce((a,it)=>a+(anCostOf(it)||0),0);
+
+  const prevStoredUnits=(function(){ const h=anStorageHistory(items,[{from:P.from,to:P.to}]); return h.length?h[0].units:null; })();
+  const prevStoredCost=(function(){ const h=anStorageHistory(items,[{from:P.from,to:P.to}]); return h.length?h[0].cost:null; })();
+
+  el.innerHTML=
+    '<div class="an-title">In Stock &amp; Storage</div>'
+    +'<div class="an-sub">What is physically on the shelf right now, what it cost, how fast it arrives and how long it stays. Costs are read from each item’s own record — never estimated — so anything without a recorded cost is reported rather than filled in.</div>'
+    +'<div class="an-kpis">'
+    + anKpiCard("storedunits", String(stored.length), "in a slot, not yet picked", anDelta(stored.length,prevStoredUnits,{span:"period"}))
+    + anKpiCard("storedcost", anFmtVal(storedCost,true), noCost?(noCost+" of "+stored.length+" carry no recorded cost"):"every item carries a cost", anDelta(storedCost,prevStoredCost,{span:"period",money:true}))
+    + anKpiCard("storedask", anFmtVal(storedAsk,true), "gross at current asking prices")
+    + anKpiCard("storedunlisted", String(unlisted.length), anFmtVal(unlistedCost,true)+" of cost cannot sell")
+    + anKpiCard("storeddays", medAge==null?"-":(medAge+" days"), "typical item on the shelf")
+    + anKpiCard("storespeed", medSpeed==null?"-":(medSpeed<48?(Math.round(medSpeed)+" hrs"):(Math.round(medSpeed/24)+" days")), speedHrs.length+" items stored this period")
+    + anKpiCard("invturns", turns==null?"-":(turns+"x"), cogsKnown.length+" of "+inP.length+" sales had a recorded cost")
+    + anKpiCard("invdoh", doh==null?"-":(doh+" days"), "to clear the shelf at this pace")
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;">'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Units in Storage Over Time</b> <span class="smallhint">- rebuilt from each item’s own dates</span></div>'
+      +anSvgLine({labels:labels,series:[{name:"Units in storage",values:hist.map(h=>h.units)}],yTitle:"Units on the shelf",xTitle:"Week ending"})+'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Inventory Dollars in Storage</b> <span class="smallhint">- cost and asking value</span></div>'
+      +anSvgLine({labels:labels,money:true,series:[{name:"Cost on the shelf",values:hist.map(h=>h.cost)},{name:"Value at ask",values:hist.map(h=>h.ask)}],yTitle:"Dollars",xTitle:"Week ending"})+'</div>'
+    +'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Storage Flow</b> <span class="smallhint">- units onto the shelf vs off it. Lines crossing means the shelf is growing or draining.</span></div>'
+      +anSvgLine({labels:labels,series:[{name:"Stored (in)",values:intake},{name:"Picked or sold (out)",values:outflow}],yTitle:"Units",xTitle:"Week ending"})+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;">'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Stored but Never Listed, by Age</b></div>'
+      +(unlisted.length?anSvgVBars({items:unlistedBands,yTitle:"Units",xTitle:"Days since stored"}):'<div class="an-empty">Everything on the shelf is listed. Nothing idle.</div>')+'</div>'
+    +'<div class="an-card an-panel" style="max-height:360px;overflow:auto;"><div class="an-ph"><b>Dead Stock</b> <span class="smallhint">- 90+ days stored, never listed</span></div>'
+      +anRankTable([{t:"Title"},{t:"Slot"},{t:"Category"},{t:"Days",r:true},{t:"Cost",r:true}],
+        dead.slice(0,40).map(it=>{ const t=anStoredAtMs(it); const d=t==null?"-":Math.floor((Date.now()-t)/86400000);
+          return [esc((it.desc||"").slice(0,46)),esc(it.sku||it.slot||""),esc(it.section||"-"),String(d),
+                  anCostOf(it)==null?'<span style="color:#b8860b;">no cost</span>':anFmtVal(anCostOf(it),true)]; }),
+        "No item has sat unlisted for 90 days. Nothing is stranded.")
+      +(dead.length?'<div style="font-size:11.5px;color:#6a7480;margin-top:8px;">'+dead.length+' items, '+anFmtVal(deadCost,true)+' of recorded cost. Showing the 40 oldest.</div>':"")+'</div>'
+    +'</div>'
+    +anNoteBox("<b>How to read the storage lines.</b> They are reconstructed from each item’s stored date and the date it was picked or sold, not from a running tally, so they go back as far as your records do. Two honest limits: an item deleted outright is no longer in the record and cannot appear, and items that predate storage-date tracking were stamped with their creation date, so very early weeks show arrival and storage on the same day."
+      +(noCost?(" Separately, "+noCost+" of the "+stored.length+" items on the shelf carry no recorded unit cost. They count as zero in the dollar figures rather than being filled with an estimate, so treat the cost line as a floor."):""))
+    ;
+  el.querySelectorAll("[data-aninfo]").forEach(x=>x.onclick=(ev)=>{ ev.stopPropagation(); anShowInfo(x.getAttribute("data-aninfo"),x); });
+}
+
+// =================== CHARACTERS ===================
+function anRenderChars(el,ctx,R){
+  const items=anItems(ctx);
+  const stored=anInStorage(items);
+  const P=anPrevRange(R);
+  const led=anLedgerRows(ctx);
+  const inP=anLedgerIn(led,R), inPrev=anLedgerIn(led,P);
+
+  // Stock by character, sales by character, then the two put side by side -- which is where the
+  // buying signal actually lives. Neither number means much on its own.
+  const stock={}, sales={};
+  stored.forEach(it=>{ const k=it.subCategory||"Unassigned";
+    if(!stock[k]) stock[k]={units:0,cost:0,ask:0};
+    stock[k].units++; stock[k].cost+=(anCostOf(it)||0); stock[k].ask+=(anAskOf(it)||0); });
+  inP.forEach(r=>{ const k=r.chr||"Unassigned";
+    if(!sales[k]) sales[k]={units:0,rev:0,shelf:[],cost:0,costKnown:0};
+    sales[k].units+=1; sales[k].rev+=r.price;
+    if(r.cost!=null){ sales[k].cost+=r.cost; sales[k].costKnown++; }
+    if(r.shelf!=null) sales[k].shelf.push(r.shelf); });
+
+  const allChars=Object.keys(stock).concat(Object.keys(sales).filter(k=>!stock[k]));
+  const byUnits=Object.keys(stock).sort((a,b)=>stock[b].units-stock[a].units);
+  const byRev=Object.keys(sales).sort((a,b)=>sales[b].rev-sales[a].rev);
+  const withShelf=Object.keys(sales).filter(k=>sales[k].shelf.length>=3)
+    .map(k=>({k:k,med:anMedianOf(sales[k].shelf),n:sales[k].shelf.length}))
+    .sort((a,b)=>a.med-b.med);
+  const noSales=byUnits.filter(k=>!sales[k]);
+
+  const prevRev=inPrev.reduce((a,r)=>a+r.price,0), nowRev=inP.reduce((a,r)=>a+r.price,0);
+  const prevUnits=inPrev.length;
+
+  const topUnitBars=byUnits.slice(0,12).map(k=>({label:k,v:stock[k].units}));
+  const topRevBars=byRev.slice(0,12).map(k=>({label:k,v:Math.round(sales[k].rev)}));
+  const shelfBars=withShelf.slice(0,14).map(x=>({label:x.k,v:x.med}));
+
+  // Week by week for the characters actually driving the period, so a rising or fading name shows.
+  const spanDays=Math.max(1,Math.round((R.to-R.from)/86400000));
+  const grain=(spanDays<=21?"daily":(spanDays<=200?"weekly":"monthly"));
+  const buckets=anBuckets(R,grain);
+  const trendChars=byRev.slice(0,6);
+  const trendSeries=trendChars.map(k=>({ name:k,
+    values:buckets.map(b=>inP.filter(r=>r.chr===k&&r.soldMs>=b.from.getTime()&&r.soldMs<=b.to.getTime()).length) }));
+
+  // The mismatch table: depth held against what actually sold, with sell-through and shelf life.
+  const mismatch=allChars.map(k=>{
+    const st=stock[k]||{units:0,cost:0}, sa=sales[k]||{units:0,rev:0,shelf:[]};
+    const denom=st.units+sa.units;
+    return { k:k, held:st.units, cost:st.cost, sold:sa.units, rev:sa.rev,
+             thru:denom?Math.round(sa.units/denom*1000)/10:null,
+             med:sa.shelf.length?anMedianOf(sa.shelf):null };
+  }).sort((a,b)=>b.held-a.held||b.sold-a.sold);
+
+  const slowDeep=mismatch.filter(m=>m.held>=5&&(m.thru==null||m.thru<15)).slice(0,10);
+  const fastThin=mismatch.filter(m=>m.sold>=2&&m.held<=2).sort((a,b)=>b.sold-a.sold).slice(0,10);
+
+  el.innerHTML=
+    '<div class="an-title">Characters</div>'
+    +'<div class="an-sub">What you hold by character, what each one actually sells, and how long it takes. Shelf life is measured from the date a listing went live to the date it sold — sales with no listed date on record are left out of that figure rather than given a guessed one.</div>'
+    +'<div class="an-kpis">'
+    + anKpiCard("charcount", String(Object.keys(stock).length), "distinct characters on the shelf")
+    + anKpiCard("chartop", byUnits.length?('<span style="font-size:17px;">'+esc(byUnits[0])+'</span>'):"-", byUnits.length?(stock[byUnits[0]].units+" copies, "+anFmtVal(stock[byUnits[0]].cost,true)+" of cost"):"")
+    + anKpiCard("charrev", byRev.length?('<span style="font-size:17px;">'+esc(byRev[0])+'</span>'):"-", byRev.length?(anFmtVal(sales[byRev[0]].rev,true)+" from "+sales[byRev[0]].units+" sales"):"", anDelta(nowRev,prevRev,{span:"period",money:true}))
+    + anKpiCard("charfast", withShelf.length?('<span style="font-size:17px;">'+esc(withShelf[0].k)+'</span>'):"-", withShelf.length?(withShelf[0].med+" day median, "+withShelf[0].n+" sales"):"needs 3+ sales with a listed date")
+    + anKpiCard("charstale", String(noSales.length), noSales.length?("holding "+noSales.reduce((a,k)=>a+stock[k].units,0)+" units that sold nothing"):"every character sold something")
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;">'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Deepest Characters in Storage</b> <span class="smallhint">- copies on the shelf</span></div>'
+      +(topUnitBars.length?anSvgVBars({items:topUnitBars,yTitle:"Copies in storage",xTitle:"Character"}):'<div class="an-empty">No characters recorded on items in storage yet.</div>')+'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Top Characters by Revenue</b> <span class="smallhint">- this period</span></div>'
+      +(topRevBars.length?anSvgVBars({items:topRevBars,money:true,yTitle:"Revenue",xTitle:"Character"}):'<div class="an-empty">No sales in this period yet.</div>')+'</div>'
+    +'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Shelf Life by Character</b> <span class="smallhint">- median days from listed to sold, fastest first. Characters with at least three sales.</span></div>'
+      +(shelfBars.length?anSvgVBars({items:shelfBars,yTitle:"Days on the shelf",xTitle:"Character"}):'<div class="an-empty">Not enough sales carrying a listed date to measure shelf life yet. Three sales per character is the floor — below that a median is noise.</div>')+'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Character Trend</b> <span class="smallhint">- units sold per period, top 6 by revenue</span></div>'
+      +(trendSeries.length?anSvgLine({labels:buckets.map(b=>b.label),series:trendSeries,yTitle:"Units sold",xTitle:"Week ending"}):'<div class="an-empty">No sales in this period yet.</div>')+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;">'
+    +'<div class="an-card an-panel" style="max-height:340px;overflow:auto;"><div class="an-ph"><b>Deep and Slow</b> <span class="smallhint">- 5+ held, under 15% sell-through. Stop buying these.</span></div>'
+      +anRankTable([{t:"Character"},{t:"Held",r:true},{t:"Sold",r:true},{t:"Sell-through",r:true},{t:"Cost held",r:true}],
+        slowDeep.map(m=>[esc(m.k),String(m.held),String(m.sold),m.thru==null?"-":(m.thru+"%"),anFmtVal(m.cost,true)]),
+        "Nothing is both deeply held and slow moving. Buying is in line with selling.")+'</div>'
+    +'<div class="an-card an-panel" style="max-height:340px;overflow:auto;"><div class="an-ph"><b>Fast and Thin</b> <span class="smallhint">- selling with 2 or fewer left. Buy more of these.</span></div>'
+      +anRankTable([{t:"Character"},{t:"Sold",r:true},{t:"Revenue",r:true},{t:"Left",r:true},{t:"Median days",r:true}],
+        fastThin.map(m=>[esc(m.k),String(m.sold),anFmtVal(m.rev,true),String(m.held),m.med==null?"-":String(m.med)]),
+        "No character is selling faster than you can hold it.")+'</div>'
+    +'</div>'
+    +'<div class="an-card an-panel" style="max-height:420px;overflow:auto;"><div class="an-ph"><b>Every Character — Stock Against Sales</b></div>'
+      +anRankTable([{t:"Character"},{t:"Held",r:true},{t:"Cost held",r:true},{t:"Sold",r:true},{t:"Revenue",r:true},{t:"Sell-through",r:true},{t:"Median days",r:true}],
+        mismatch.slice(0,120).map(m=>[esc(m.k),String(m.held),anFmtVal(m.cost,true),String(m.sold),anFmtVal(m.rev,true),
+          m.thru==null?"-":(m.thru+"%"),m.med==null?"-":String(m.med)]),
+        "No characters recorded yet. Character is the Character field on the item — fill it in and this page fills with it.")+'</div>'
+    ;
+  el.querySelectorAll("[data-aninfo]").forEach(x=>x.onclick=(ev)=>{ ev.stopPropagation(); anShowInfo(x.getAttribute("data-aninfo"),x); });
+}
+
+// =================== FORMAT & CATEGORY MIX ===================
+function anRenderMix(el,ctx,R){
+  const items=anItems(ctx);
+  const stored=anInStorage(items);
+  const P=anPrevRange(R);
+  const led=anLedgerRows(ctx);
+  const inP=anLedgerIn(led,R), inPrev=anLedgerIn(led,P);
+
+  const stock={}, sales={};
+  stored.forEach(it=>{ const k=it.section||"Uncategorized";
+    if(!stock[k]) stock[k]={units:0,cost:0};
+    stock[k].units++; stock[k].cost+=(anCostOf(it)||0); });
+  inP.forEach(r=>{ const k=r.cat||"Uncategorized";
+    if(!sales[k]) sales[k]={units:0,rev:0,shelf:[]};
+    sales[k].units++; sales[k].rev+=r.price; if(r.shelf!=null) sales[k].shelf.push(r.shelf); });
+
+  const cats=Object.keys(stock).concat(Object.keys(sales).filter(k=>!stock[k]));
+  const totalStock=stored.length, totalRev=inP.reduce((a,r)=>a+r.price,0);
+
+  // The efficiency question: what share of the shelf a category is, against what share of the
+  // money it brings. A category taking more shelf than sales is the one to list less of.
+  const gapRows=cats.map(k=>{
+    const st=stock[k]||{units:0,cost:0}, sa=sales[k]||{units:0,rev:0,shelf:[]};
+    const shareStock=totalStock?st.units/totalStock*100:0;
+    const shareRev=totalRev?sa.rev/totalRev*100:0;
+    const denom=st.units+sa.units;
+    return { k:k, held:st.units, cost:st.cost, sold:sa.units, rev:sa.rev,
+      shareStock:Math.round(shareStock*10)/10, shareRev:Math.round(shareRev*10)/10,
+      gap:Math.round((shareRev-shareStock)*10)/10,
+      thru:denom?Math.round(sa.units/denom*1000)/10:null,
+      med:sa.shelf.length>=3?anMedianOf(sa.shelf):null };
+  }).sort((a,b)=>b.rev-a.rev||b.held-a.held);
+
+  const biggestGap=gapRows.slice().sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap))[0]||null;
+  const fastest=gapRows.filter(r=>r.med!=null).sort((a,b)=>a.med-b.med)[0]||null;
+  const bestThru=gapRows.filter(r=>r.thru!=null&&(r.held+r.sold)>=5).sort((a,b)=>b.thru-a.thru)[0]||null;
+  const topRev=gapRows[0]||null;
+  const prevRev=inPrev.reduce((a,r)=>a+r.price,0);
+
+  const spanDays=Math.max(1,Math.round((R.to-R.from)/86400000));
+  const grain=(spanDays<=21?"daily":(spanDays<=200?"weekly":"monthly"));
+  const buckets=anBuckets(R,grain);
+  const trendCats=gapRows.slice(0,5).map(r=>r.k);
+  const trendSeries=trendCats.map(k=>({ name:k,
+    values:buckets.map(b=>Math.round(inP.filter(r=>r.cat===k&&r.soldMs>=b.from.getTime()&&r.soldMs<=b.to.getTime()).reduce((a,r)=>a+r.price,0))) }));
+
+  // Month over month, which is the comparison worth having with two months of trading on record.
+  const months={};
+  led.forEach(r=>{ if(r.soldMs==null) return; const d=new Date(r.soldMs);
+    const k=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    if(!months[k]) months[k]={};
+    const c=r.cat||"Uncategorized";
+    if(!months[k][c]) months[k][c]={units:0,rev:0};
+    months[k][c].units++; months[k][c].rev+=r.price; });
+  const mKeys=Object.keys(months).sort();
+  const lastTwo=mKeys.slice(-2);
+  const momCats=cats.slice().sort((a,b)=>{
+    const g=(m,c)=>((months[m]&&months[m][c])?months[m][c].rev:0);
+    return (g(lastTwo[1],b)+g(lastTwo[0],b))-(g(lastTwo[1],a)+g(lastTwo[0],a)); });
+  const monLabel=m=>{ if(!m) return "-"; const p=m.split("-"); return new Date(+p[0],+p[1]-1,1).toLocaleString(undefined,{month:"short",year:"2-digit"}); };
+  const momRows=(lastTwo.length===2?momCats:[]).map(c=>{
+    const a=(months[lastTwo[0]]&&months[lastTwo[0]][c])||{units:0,rev:0};
+    const b=(months[lastTwo[1]]&&months[lastTwo[1]][c])||{units:0,rev:0};
+    const d=a.rev?Math.round((b.rev-a.rev)/a.rev*1000)/10:null;
+    return [esc(c),String(a.units),anFmtVal(a.rev,true),String(b.units),anFmtVal(b.rev,true),
+      d==null?'<span style="color:#6a7480;">new</span>':('<span style="color:'+(d>=0?"#2f9e63":"#c0392b")+';font-weight:600;">'+(d>0?"+":"")+d+'%</span>')];
+  });
+
+  el.innerHTML=
+    '<div class="an-title">Format &amp; Category Mix</div>'
+    +'<div class="an-sub">Where the money comes from by real eBay category, and whether the shelf matches it. Categories are read from the listing — nothing is bucketed or renamed, so an item with no category reads as Uncategorized rather than being sorted into a guess.</div>'
+    +'<div class="an-kpis">'
+    + anKpiCard("mixshare", topRev?('<span style="font-size:17px;">'+esc(topRev.k)+'</span>'):"-", topRev?(anFmtVal(topRev.rev,true)+" · "+topRev.shareRev+"% of revenue"):"", anDelta(totalRev,prevRev,{span:"period",money:true}))
+    + anKpiCard("mixgap", biggestGap?('<span style="font-size:17px;">'+esc(biggestGap.k)+'</span>'):"-", biggestGap?((biggestGap.gap>0?"+":"")+biggestGap.gap+" pts "+(biggestGap.gap>0?"more sales than shelf":"more shelf than sales")):"")
+    + anKpiCard("mixvel", fastest?('<span style="font-size:17px;">'+esc(fastest.k)+'</span>'):"-", fastest?(fastest.med+" day median to sell"):"needs 3+ sales with a listed date")
+    + anKpiCard("sellthrucat", bestThru?('<span style="font-size:17px;">'+esc(bestThru.k)+'</span>'):"-", bestThru?(bestThru.thru+"% of what you hold in it"):"")
+    +'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Revenue by Category</b></div>'
+      +anSvgDonut({segs:gapRows.filter(r=>r.rev>0).map(r=>({label:r.k,v:Math.round(r.rev*100)/100,n:r.sold})),money:true,centerLabel:"Period revenue"})+'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Share of Shelf vs Share of Sales</b> <span class="smallhint">- a negative gap means the category takes more shelf than it earns</span></div>'
+      +anRankTable([{t:"Category"},{t:"Held",r:true},{t:"% of shelf",r:true},{t:"Sold",r:true},{t:"% of revenue",r:true},{t:"Gap",r:true},{t:"Sell-through",r:true},{t:"Median days",r:true}],
+        gapRows.map(r=>[esc(r.k),String(r.held),r.shareStock+"%",String(r.sold),r.shareRev+"%",
+          '<span style="color:'+(r.gap>=0?"#2f9e63":"#c0392b")+';font-weight:600;">'+(r.gap>0?"+":"")+r.gap+'</span>',
+          r.thru==null?"-":(r.thru+"%"), r.med==null?"-":String(r.med)]),
+        "No categories on record yet.")+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;">'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Speed by Category</b> <span class="smallhint">- median days listed to sold</span></div>'
+      +(gapRows.filter(r=>r.med!=null).length?anSvgVBars({items:gapRows.filter(r=>r.med!=null).sort((a,b)=>a.med-b.med).map(r=>({label:r.k,v:r.med})),yTitle:"Days to sell",xTitle:"Category"}):'<div class="an-empty">Not enough sales carrying a listed date to measure speed yet.</div>')+'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Sell-Through by Category</b> <span class="smallhint">- share of holdings that sold</span></div>'
+      +(gapRows.filter(r=>r.thru!=null).length?anSvgVBars({items:gapRows.filter(r=>r.thru!=null).sort((a,b)=>b.thru-a.thru).map(r=>({label:r.k,v:r.thru})),pct:true,yTitle:"% sold",xTitle:"Category"}):'<div class="an-empty">No sales in this period yet.</div>')+'</div>'
+    +'</div>'
+    +'<div class="an-card an-panel"><div class="an-ph"><b>Category Trend</b> <span class="smallhint">- revenue per period, top 5 categories</span></div>'
+      +(trendSeries.length?anSvgLine({labels:buckets.map(b=>b.label),money:true,series:trendSeries,yTitle:"Revenue",xTitle:"Week ending"}):'<div class="an-empty">No sales in this period yet.</div>')+'</div>'
+    +'<div class="an-card an-panel" style="max-height:380px;overflow:auto;"><div class="an-ph"><b>Month Over Month</b> <span class="smallhint">- '+esc(monLabel(lastTwo[0]))+' against '+esc(monLabel(lastTwo[1]))+', all channels in the current filter</span></div>'
+      +(momRows.length?anRankTable([{t:"Category"},{t:monLabel(lastTwo[0])+" units",r:true},{t:monLabel(lastTwo[0])+" revenue",r:true},{t:monLabel(lastTwo[1])+" units",r:true},{t:monLabel(lastTwo[1])+" revenue",r:true},{t:"Change",r:true}],momRows)
+        :'<div class="an-empty">Two full months of sales are needed for this comparison. There is '+mKeys.length+' month on record so far.</div>')+'</div>'
+    +anNoteBox("<b>On the gap column.</b> It is the share of revenue a category earns minus the share of shelf it occupies, in percentage points. Positive means the category earns more than its footprint and deserves more of it; negative means it is taking up room it is not paying for. It says nothing about margin — a category can earn its share of revenue and still be the worse one to hold once fees and postage are counted, which is what the Profit Overview is for.")
+    ;
+  el.querySelectorAll("[data-aninfo]").forEach(x=>x.onclick=(ev)=>{ ev.stopPropagation(); anShowInfo(x.getAttribute("data-aninfo"),x); });
 }
 
 // =================== CAPACITY & SLOTS ===================
