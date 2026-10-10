@@ -904,8 +904,131 @@ async fn wim_save_export(app: tauri::AppHandle, filename: String, base64_data: S
     }
 }
 
+
+// Hands a file to whatever the system opens it with, so a saved export lands in front of you
+// instead of waiting to be hunted down in a folder.
+fn wim_open_with_system(path: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path.to_string_lossy()])
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(path).spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+    }
+}
+
+// Finds a Chromium-family browser that can print a local HTML file to PDF. On Windows that is
+// Edge, which ships with the OS and is the very engine WIM itself runs on, so nothing has to be
+// installed for this to work. Chrome is accepted too where it is present.
+fn wim_find_print_browser() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cands: Vec<std::path::PathBuf> = Vec::new();
+        for key in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
+            if let Ok(dir) = std::env::var(key) {
+                let d = std::path::PathBuf::from(&dir);
+                cands.push(d.join("Microsoft").join("Edge").join("Application").join("msedge.exe"));
+                cands.push(d.join("Google").join("Chrome").join("Application").join("chrome.exe"));
+            }
+        }
+        return cands.into_iter().find(|c| c.is_file());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let cands = [
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ];
+        return cands.iter().map(std::path::PathBuf::from).find(|c| c.is_file());
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let cands = [
+            "/usr/bin/microsoft-edge", "/usr/bin/google-chrome",
+            "/usr/bin/chromium", "/usr/bin/chromium-browser",
+        ];
+        return cands.iter().map(std::path::PathBuf::from).find(|c| c.is_file());
+    }
+}
+
+// Turns a statement's own HTML into a real PDF where the user chooses, then opens it.
+//
+// Why not the print dialog: its Save as PDF writes a file WIM is never told the path of, so there
+// is nothing to open afterwards -- which is exactly why a saved statement had to be hunted down in
+// a folder. Printing it here means WIM picks the path, so it can hand the finished file straight to
+// the system PDF reader.
+//
+// Why a browser engine rather than a PDF library: the statement is already laid out in HTML and
+// CSS, page rules and all, and WIM runs on that same engine. Asking the engine to print it means
+// the PDF matches what the statement looks like on screen, with no second layout to keep in step.
+// @page, print-color-adjust and page-break rules are all honored, which the statement relies on.
+//
+// A separate user-data directory is deliberate: without it, launching the browser while the user
+// already has it open hands the request to the running copy, which exits immediately and prints
+// nothing at all.
 #[tauri::command]
-fn wim_write_file(path: String, base64_data: String, must_be_under: String) -> Result<bool, String> {
+async fn wim_html_to_pdf(app: tauri::AppHandle, filename: String, html: String) -> Result<String, String> {
+    let picked = app.dialog().file().set_file_name(&filename).blocking_save_file();
+    let out = match picked {
+        Some(p) => p.into_path().map_err(|e| e.to_string())?,
+        None => return Ok(String::new()), // cancelled on purpose -- not an error
+    };
+
+    let browser = wim_find_print_browser()
+        .ok_or_else(|| "NO_BROWSER: no Edge, Chrome or Chromium found to render the PDF.".to_string())?;
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut src = std::env::temp_dir();
+    src.push(format!("wim-statement-{}-{}.html", std::process::id(), stamp));
+    std::fs::write(&src, html.as_bytes()).map_err(|e| e.to_string())?;
+
+    let mut profile = std::env::temp_dir();
+    profile.push(format!("wim-pdf-profile-{}", std::process::id()));
+
+    let url = format!("file:///{}", src.to_string_lossy().replace('\\', "/"));
+    let status = std::process::Command::new(&browser)
+        .arg("--headless")
+        .arg("--disable-gpu")
+        .arg("--disable-extensions")
+        .arg("--run-all-compositor-stages-before-draw")
+        .arg("--no-first-run")
+        .arg(format!("--user-data-dir={}", profile.to_string_lossy()))
+        // Both spellings: Chromium ignores a switch it does not recognize, and which of these two
+        // suppresses the date-and-URL header depends on the build in front of us.
+        .arg("--no-pdf-header-footer")
+        .arg("--print-to-pdf-no-header")
+        .arg(format!("--print-to-pdf={}", out.to_string_lossy()))
+        .arg(&url)
+        .status();
+
+    let _ = std::fs::remove_file(&src);
+    let _ = std::fs::remove_dir_all(&profile);
+
+    let wrote = std::fs::metadata(&out).map(|m| m.len() > 0).unwrap_or(false);
+    match status {
+        Ok(_) if wrote => {
+            wim_open_with_system(&out);
+            Ok(out.to_string_lossy().to_string())
+        }
+        Ok(st) => Err(format!("The PDF renderer exited with {} and wrote nothing.", st)),
+        Err(e) => Err(format!("Could not start the PDF renderer: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn wim_write_file(
+path: String, base64_data: String, must_be_under: String) -> Result<bool, String> {
     let target = std::path::PathBuf::from(&path);
     let base = std::path::PathBuf::from(&must_be_under);
     let base_abs = base.canonicalize().map_err(|e| e.to_string())?;
@@ -1721,6 +1844,7 @@ fn main() {
             wim_delete_folder,
             wim_write_file,
             wim_save_export,
+            wim_html_to_pdf,
             wim_delete_file,
             open_url,
             supabase_rpc,

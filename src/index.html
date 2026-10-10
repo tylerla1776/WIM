@@ -517,7 +517,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.13", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.15", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +623,8 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.15","THE P&L NOW SAVES AS A PDF AND OPENS ITSELF. The statement went through the print dialog, and that dialog Save as PDF writes the file without ever telling WIM where it went -- so there was nothing for WIM to open, the window went blank, and the statement had to be found in a folder by hand. WIM now renders the PDF itself: it asks where to save, writes a real PDF there, and hands it straight to whatever opens PDFs on this computer. Same statement, same layout, same page breaks and colors, because it is printed by the same engine WIM already runs on rather than redrawn by something else. If no renderer can be found the old print dialog still appears, with a line saying why, so nothing is ever a dead end. This is a recompile."],
+  ["3.5.14","SIGNING INTO WIM IS NOW THE ONLY SIGN-IN, AND THERE IS A SYNC BUTTON ON THE TITLE BAR. The cloud session only ever lived in memory, so closing WIM threw it away and the next launch meant opening Cloud Sync and typing the team code, name and PIN again -- a second login on a device that had already been connected once, by someone who had already signed in. The session lasts thirty days and renews itself every two minutes while WIM is open, so there was never a reason to ask twice. It is now kept with the rest of this device cloud settings and picked straight back up on launch, which also means the first sync starts on its own instead of waiting for someone to go and trigger it. A white Sync button now sits next to the cloud icon on the title bar: one click reconnects if it needs to, pulls items, sales, slots, categories and tombstones, pushes anything waiting, and reports what came down -- the same thing the Cloud Sync screen did, without the login. If the saved session has genuinely expired because WIM sat unopened for a month, it signs back in by itself using the sign-in kept from when the device was connected, which does mean that team name and PIN are held in this device local store. An administrator Force Log Out clears both, so a remote logout still works exactly as before."],
   ["3.5.13","WIM ANALYTICS NOW LOOKS AT WHAT WE OWN, NOT ONLY AT WHAT SOLD. Every dashboard answered the sold side, so there was no way to ask what is on the shelf, what it cost, how fast it arrives or what to buy more of. Three new dashboards under Inventory Insights. IN STOCK AND STORAGE: units and dollars on the shelf, week by week back to the start of trading, with value at cost shown against value at asking price; storage flow in against out so a growing or draining shelf is visible; how quickly an item gets from created to slotted; inventory turns and days of inventory on hand; stock that was never listed, aged into bands; and a dead stock list of anything sitting 90 days unlisted. CHARACTERS: how deep you are in each character, what each one actually earns, and shelf life by character measured from the day the listing went live to the day it sold -- plus two tables that put the two together, Deep and Slow for characters bought faster than they sell and Fast and Thin for characters selling faster than they are held. FORMAT AND CATEGORY MIX: revenue by real eBay category, speed and sell-through per category, a month over month comparison, and a share of shelf against share of revenue table whose gap column names the categories taking up room they are not paying for. The Executive Overview now carries units and dollars on the shelf beside net profit, with inventory on the shelf added to the trend index, and Inventory Value and Aging gained value at asking price next to value at cost. Costs are never estimated anywhere in this: an item or sale with no recorded cost counts as zero AND is reported as unrecorded, and every figure resting on cost states how many records were left out for want of one. The storage history is rebuilt from each item own stored and picked dates rather than from a running tally, so it is real back to August rather than starting empty today."],
   ["3.5.12","DIAGNOSTIC BUILD FOR THE BLANK DESCRIPTIONS. The listing descriptions are present in the shared database -- 1,361 items carry one, SKU W included -- and the statement is reading the right field, so the break is somewhere between the two and guessing at it has cost two versions already. The Sales Ledger page now prints one gold line under its heading saying which field each description actually came from and how many sales could not be matched to an inventory record at all. That line names the cause outright instead of leaving it to be inferred. It is temporary and comes out once the fix lands."],
   ["3.5.11","THE STATEMENT WAS LOOKING FOR LISTING DESCRIPTIONS IN THE WRONG PLACE. Sold items printed with no description underneath, which is what a sale is verified against. The statement read listing.description, a field that only exists on listings pulled in from eBay -- a listing built in WIM keeps its buyer description under listing.descBody, or as a reference to a saved template in Description Manager, and neither was ever read. Every place the description can live is now checked in order, so warehouse-built listings print their description. This was my error, not a data problem: nothing was missing from the record. Photos follow the same fix -- a sale now falls back to the first photo on the item where no featured photo was set, instead of printing an empty box. Descriptions and photos frozen onto the sale itself still take precedence once InventoryIQ deploys those two columns."],
@@ -2302,10 +2304,112 @@ async function attemptDeviceCloudLogin(user){
     if(!r.ok) return;
     let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
     const row=rows&&rows[0]; if(!row) return;
-    cloudSession=row; save();
+    cloudSession=row; persistCloudSession();
     try{ paintCloudBadge(); }catch(e){}
     try{ pullEbayCredsFromCloudIfNeeded().then(ok=>{ if(ok) connectEbay(true); }); }catch(e){}
   }catch(e){ /* silent — local login already succeeded regardless */ }
+}
+/* ---- Keeping the cloud session, so signing into WIM is the only sign-in -------------------
+ * The cloud session only ever lived in a variable, so closing WIM threw it away and the next
+ * launch meant typing the team code, name and PIN into Cloud Sync again -- a second login, on a
+ * device that had already been connected once and by someone who had already signed into WIM.
+ * The session is good for thirty days and renews itself on every watcher tick, so there was never
+ * a reason to ask again. It is now kept alongside the rest of this device's cloud settings and
+ * picked straight back up on launch.
+ *
+ * The sign-in used to connect this device is kept too, as a fallback for the case where the saved
+ * session has genuinely expired (WIM unopened for a month). That means the team name and PIN sit
+ * in this device's local store, in the same place as everything else WIM keeps -- a deliberate
+ * trade for not typing them daily, and worth knowing about.
+ * ---------------------------------------------------------------------------------------- */
+function persistCloudSession(){
+  try{
+    if(!DB.cloud) DB.cloud={};
+    DB.cloud.session = cloudSession ? {
+      session_token:cloudSession.session_token, staff_id:cloudSession.staff_id,
+      staff_name:cloudSession.staff_name, role:cloudSession.role,
+      team_id:cloudSession.team_id, team_name:cloudSession.team_name,
+      savedAt:new Date().toISOString() } : null;
+    save();
+  }catch(e){}
+}
+function rememberCloudAuth(name,pin){
+  try{ if(!DB.cloud) DB.cloud={}; if(name&&pin){ DB.cloud.auth={name:name,pin:pin}; save(); } }catch(e){}
+}
+function restoreCloudSession(){
+  try{
+    if(cloudSession) return true;
+    const sv=DB.cloud&&DB.cloud.session;
+    if(!sv||!sv.session_token) return false;
+    cloudSession=sv;
+    return true;
+  }catch(e){ return false; }
+}
+// Get a working session without asking for anything: what is already in memory, then the saved
+// session, then the saved sign-in. Says how it got one, so the Sync button can report something
+// true rather than a blanket "done".
+async function ensureCloudSession(){
+  if(!(DB.cloud&&DB.cloud.teamCode)) return { ok:false, reason:"This device isn't connected to a team yet \u2014 Cloud Sync Setup does that once." };
+  restoreCloudSession();
+  if(cloudSession){
+    try{
+      const r=await Cloud.getItems(cloudSession.session_token);
+      if(r&&r.ok){ CLOUD_ONLINE=true; try{ await Cloud.touchSession(cloudSession.session_token); }catch(e){} return { ok:true, how:"session" }; }
+      // Reachable but refused: the session is dead rather than the network being down.
+    }catch(e){ CLOUD_ONLINE=false; paintCloudBadge(); return { ok:false, reason:"Can't reach the cloud right now \u2014 working from this device's copy." }; }
+  }
+  const a=DB.cloud&&DB.cloud.auth;
+  if(a&&a.name&&a.pin){
+    try{
+      const r=await Cloud.login(DB.cloud.teamCode,a.name,a.pin);
+      if(r&&r.ok){
+        let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
+        const row=rows&&rows[0];
+        if(row){
+          cloudSession=row; persistCloudSession(); CLOUD_ONLINE=true;
+          try{ await Cloud.registerDevice(cloudSession.session_token, thisDeviceKey(), (DB.cloud&&DB.cloud.deviceName)||"Unnamed device"); }catch(e){}
+          return { ok:true, how:"relogin" };
+        }
+      }
+    }catch(e){}
+  }
+  cloudSession=null;
+  return { ok:false, reason:"The saved cloud sign-in was refused \u2014 open Cloud Sync Setup and sign in once more." };
+}
+// The Sync button on the title bar: reconnect if needed, pull everything, push anything waiting.
+// Exactly what the Cloud Sync screen's login-then-sync did, minus the login.
+let _syncNowBusy=false;
+async function cloudSyncNow(){
+  const btn=document.getElementById("cloud-sync-now"); if(!btn) return;
+  if(_syncNowBusy) return; _syncNowBusy=true;
+  const label=btn.textContent;
+  const done=(txt,good)=>{
+    _syncNowBusy=false; btn.disabled=false; btn.textContent=label;
+    btn.title=txt;
+    try{ paintCloudBadge(); }catch(e){}
+    try{ wimToast(txt, good?"success":""); }catch(e){}
+    if(!good){ try{ uiAlert(txt); }catch(e){} }
+  };
+  btn.disabled=true; btn.textContent="Syncing\u2026"; btn.title="Syncing with the cloud\u2026";
+  try{
+    const ses=await ensureCloudSession();
+    if(!ses.ok){ done(ses.reason,false); return; }
+    if(cloudSyncPaused()){ done("Cloud sync is paused \u2014 resume it in Cloud Sync Setup.",false); return; }
+    const before=(DB.items||[]).length, beforeSales=(DB.sales||[]).length;
+    await syncPullAndApply();
+    try{ await pushChangedItems(); }catch(e){}
+    try{ await flushCloudQueue(); }catch(e){}
+    try{ refreshSyncPausedState(); }catch(e){}
+    try{ wimRefreshAll(); }catch(e){}
+    const dItems=(DB.items||[]).length-before, dSales=(DB.sales||[]).length-beforeSales;
+    const bits=[];
+    if(dItems) bits.push((dItems>0?"+":"")+dItems+" item"+(Math.abs(dItems)===1?"":"s"));
+    if(dSales) bits.push((dSales>0?"+":"")+dSales+" sale"+(Math.abs(dSales)===1?"":"s"));
+    done("Synced"+(bits.length?" \u2014 "+bits.join(", "):" \u2014 already up to date")
+      +(ses.how==="relogin"?" (signed back in automatically)":""), true);
+  }catch(e){
+    done("Sync failed: "+((e&&e.message)?e.message:String(e)),false);
+  }
 }
 async function refreshSyncPausedState(){
   if(!cloudSession) return;
@@ -2328,7 +2432,11 @@ async function refreshSyncPausedState(){
 // Logs this device out in response to an admin Force Log Out. Clears the local session and
 // returns to the login screen with a clear explanation.
 function forceLogoutThisDevice(){
-  try{ cloudSession=null; SESSION.user=null; save(); }catch(e){}
+  try{ cloudSession=null; SESSION.user=null;
+    // Clear what was saved as well -- otherwise the next launch would quietly sign back in and
+    // an administrator's Force Log Out would mean nothing.
+    if(DB.cloud){ DB.cloud.session=null; DB.cloud.auth=null; }
+    save(); }catch(e){}
   try{ uiAlert("You've been logged out by an administrator."); }catch(e){}
   try{ location.hash=""; location.reload(); }catch(e){ try{ showLogin&&showLogin(); }catch(_){} }
 }
@@ -2362,6 +2470,8 @@ function renderSyncPausedBanner(){
 }
 function paintCloudBadge(){
   const el=document.getElementById("cloud-badge"); if(!el) return;
+  const sb=document.getElementById("cloud-sync-now");
+  if(sb) sb.style.display=(DB.cloud&&DB.cloud.teamCode)?"inline-flex":"none";
   if(!(DB.cloud&&DB.cloud.teamCode)){ el.style.display="none"; return; }
   el.style.display="inline-flex";
   if(cloudSyncPaused()){ el.innerHTML=ICON_CLOUD_OFF; el.title="Cloud sync is paused — resume it in Cloud Sync Setup"; return; }
@@ -3344,12 +3454,38 @@ function renderProfitLoss(sel){
     +".noimg{width:26px;height:26px;background:#eef;border-radius:3px;text-align:center;line-height:26px;color:#aab;}"
     +".ttl{font-weight:600;} .dsc{font-size:8px;color:#667;margin-top:1px;} .meta{font-size:8px;color:#889;margin-top:1px;}"
     +"</style>";
-  let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
-  ifr=document.createElement("iframe"); ifr.id="wim-print-frame"; ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
-  document.body.appendChild(ifr);
-  const doc=ifr.contentWindow.document; doc.open();
-  doc.write("<html><head><title>WIM — Profit and Loss</title>"+css+"</head><body>"+sheet1+sheet2+sheet3+"</body></html>"); doc.close();
-  setTimeout(function(){ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },400);
+  const statementHtml="<html><head><meta charset=\"utf-8\"><title>WIM — Profit and Loss</title>"+css+"</head><body>"+sheet1+sheet2+sheet3+"</body></html>";
+  // Save the statement as a real PDF and open it, rather than going through the print dialog.
+  // The dialog's own Save as PDF writes a file WIM is never told the path of, so there was nothing
+  // to open afterwards and the statement had to be found in a folder by hand. Printing it through
+  // the same engine WIM runs on means WIM chooses the path, and can hand the finished file to the
+  // system PDF reader. If that engine cannot be found the print dialog still works as a fallback.
+  const pdfName="WIM P&L "+String((sel&&sel.label)||"All time").replace(/[\\/:*?"<>|]/g,"-")+".pdf";
+  const printFallback=function(note){
+    if(note){ try{ wimToast(note); }catch(e){} }
+    let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
+    ifr=document.createElement("iframe"); ifr.id="wim-print-frame"; ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+    document.body.appendChild(ifr);
+    const doc=ifr.contentWindow.document; doc.open();
+    doc.write(statementHtml); doc.close();
+    setTimeout(function(){ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },400);
+  };
+  if(WIM_IS_DESKTOP){
+    try{ wimToast("Building the statement\u2026"); }catch(e){}
+    wimDesktop.invoke("wim_html_to_pdf",{ filename:pdfName, html:statementHtml })
+      .then(function(path){
+        if(path){ try{ wimToast("Statement saved and opened.","success"); }catch(e){} }
+        // An empty path means the save dialog was cancelled, which is not a failure.
+      })
+      .catch(function(e){
+        const m=(e&&e.message)?e.message:String(e);
+        printFallback(/NO_BROWSER/.test(m)
+          ? "No PDF renderer found on this machine \u2014 opening the print dialog instead."
+          : "Couldn't write the PDF directly \u2014 opening the print dialog instead.");
+      });
+    return;
+  }
+  printFallback();
 }
 
 
@@ -4266,7 +4402,7 @@ function showLogin(msg){
         let rows=[]; if(r.ok){ try{ rows=JSON.parse(r.body); }catch(e){} }
         const row=rows&&rows[0];
         if(!r.ok || !row){ err.style.color="#c0392b"; err.textContent="Invalid user name or password."; p.value="";p.focus(); return; }
-        cloudSession=row;
+        cloudSession=row; rememberCloudAuth(uid,pw); persistCloudSession();
         // Cloud staff still have their own separate "role" field (admin/leadership/etc.)
         // from the cloud schema — mapped here to an equivalent supervisory level so cloud
         // logins aren't treated as Basic by the new permission system. Properly unifying
@@ -4435,7 +4571,7 @@ function showLauncher(){
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
   win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
   const modeBadge = `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;cursor:pointer;" title="Click to connect/disconnect from eBay"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">${isLive()?"Live Mode — Offline":"Warehouse Mode — eBay Offline"}</span></span>`;
-  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span><span id="cloud-badge" style="display:none;margin-left:8px;align-items:center;"></span>${modeBadge}
+  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span><span id="cloud-badge" style="display:none;margin-left:8px;align-items:center;"></span><button id="cloud-sync-now" title="Sync with the cloud now" style="display:none;align-items:center;margin-left:7px;background:#ffffff;color:#1d2733;border:1px solid #c9d3de;border-radius:5px;font:600 11.5px inherit;padding:2px 10px;cursor:pointer;line-height:1.5;">Sync</button>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;align-items:center;"><span id="lc-float" title="${(DB.meta&&DB.meta.floatWindows===false)?'Apps open docked in this window — click to make them float in their own windows':'Apps open in their own movable windows — click to dock them in one window'}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;font-size:16px;margin-right:2px;line-height:1;${(DB.meta&&DB.meta.floatWindows===false)?'color:rgba(255,255,255,.55);':'color:#ffffff;'}">&#10696;</span><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
     <div class="body"><div id="sync-paused-banner"></div><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
       <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
@@ -4448,7 +4584,20 @@ function showLauncher(){
   win.querySelector("#foot-about").onclick=openAbout;
   const mbadge=win.querySelector("#mode-badge"); if(mbadge) mbadge.onclick=()=>{ if(EBAY_ONLINE) disconnectEbay(); else connectEbay(); };
   paintLiveBadge();
+  try{ restoreCloudSession(); }catch(e){}
   paintCloudBadge(); startCloudWatcher();
+  // Pick the saved cloud session straight back up, and quietly re-sign-in if it has expired, so
+  // signing into WIM is the only sign-in anyone does.
+  const _syncBtn=win.querySelector("#cloud-sync-now");
+  if(_syncBtn) _syncBtn.onclick=()=>cloudSyncNow();
+  (async function(){
+    try{
+      if(!(DB.cloud&&DB.cloud.teamCode)) return;
+      const r=await ensureCloudSession();
+      paintCloudBadge();
+      if(r.ok && !cloudSyncPaused()){ try{ syncPullAndApply(); }catch(e){} }
+    }catch(e){}
+  })();
   // Default behavior: if this device already has working Production keys, try connecting
   // automatically the moment Live mode is shown, instead of making someone click first.
   // This deliberately does NOT show green until the real connection is verified — it just
@@ -12260,7 +12409,7 @@ function openCloudSyncSetup(){
         const row=rows&&rows[0];
         if(!row){ msg.style.color="#c0392b"; msg.textContent="Team code, name, or PIN not recognized."; return; }
         DB.cloud={ teamCode:team, teamId:row.team_id, teamName:row.team_name, deviceName:devName, connectedAt:new Date().toISOString() };
-        cloudSession=row; save();
+        cloudSession=row; rememberCloudAuth(name,pin); persistCloudSession();
         await Cloud.registerDevice(cloudSession.session_token, thisDeviceKey(), devName);
         try{ pullEbayCredsFromCloudIfNeeded().then(ok=>{ if(ok) connectEbay(true); }); }catch(e){}
         msg.style.color="#1f7244"; msg.textContent="Connected!";
@@ -14953,8 +15102,9 @@ function openCloudSyncTest(){
       let rows=[]; try{ rows=JSON.parse(r.body); }catch(e){}
       const row=rows&&rows[0];
       if(!row){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Login returned no data: "+(r.body||"").slice(0,300); return; }
-      cloudSession=row; paintSession();
-      loginMsg.style.color="#1f7244"; loginMsg.textContent="Logged in.";
+      cloudSession=row; rememberCloudAuth(name,pin); persistCloudSession(); paintSession();
+      try{ paintCloudBadge(); }catch(e){}
+      loginMsg.style.color="#1f7244"; loginMsg.textContent="Logged in. Kept for next time \u2014 the Sync button on the title bar does this from now on.";
     }catch(e){ loginMsg.style.color="#c0392b"; loginMsg.textContent="Could not reach Supabase: "+(e&&e.message?e.message:e); }
   };
   fetchBtn.onclick=async ()=>{
