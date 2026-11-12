@@ -525,7 +525,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.19", BUILD_DATE="2026-10-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.22", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -631,6 +631,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.22","QUARTERS NOW FOLLOW THE BUSINESS YEAR, MAY TO APRIL. The P&L picker used calendar quarters (January to March as Q1). The fiscal year now runs May 1 to April 30: Q1 is May-July, Q2 August-October, Q3 November-January and Q4 February-April. The Year choice on the P&L is now a fiscal year (for example May 2026 - Apr 2027), Full year covers those twelve months, the month list runs May to April with the calendar year beside each month, and Q3 correctly reaches across New Year into January. Statement titles name the months covered, such as Q3 (Nov 2026-Jan 2027). WIM Analytics uses the same calendar for Year to date and its quarter choices, replacing the August start it used before."],
+  ["3.5.21","A PARTIAL REFUND NO LONGER WIPES OUT THE BOOK'S COST. WIM decided a sale was cancelled or returned from its cancel and return dates, but a sale can carry a return date and still end in a partial refund where the buyer kept the book. Those sales were treated as if the book had come back: the unit cost was dropped and the profit came out too high. WIM now reads the refund type InventoryIQ records on each sale -- cancelled, returned, or partial -- and only a cancelled or returned sale drops the unit cost. A partial refund keeps the cost and subtracts the refund. The same refund type now decides which list a sale appears on under Cancellations and Returns, and the label in the Sales Ledger export. The dates are still used for older sales and for a cancellation or return still waiting on its refund."],
+  ["3.5.20","P&L NO LONGER CHARGES POSTAGE TO A SALE THAT TRAVELLED IN ANOTHER ORDER'S BOX. A sale marked as shipped in another order's box (or collected in person) is a true zero for shipping, and the Sales Ledger export already treated it that way -- but the P&L statement still charged it the label figure sitting on the row, so the same box was paid for twice. It now counts zero on those lines, matching the export and the note printed beside them. Separately, many combined orders still carry the full label on every book; that data is being corrected at the source by InventoryIQ, and the P&L will follow automatically."],
   ["3.5.19","ONE SHELF SPOT PER BOOK, NOT PER LISTING. Two copies of the same book can now live in two different places -- C.5.08 and D.8.23 -- and WIM knows about both. Until now the shelf was read off the listing record, which can only ever describe one place, so the second copy was invisible: its spot read as empty and the auto-slotter would hand it to another book, and selling that copy slid up the wrong slot and sent the picker to the wrong shelf. Shelf occupancy, free positions, auto-slotting, the slot screens and the storage figures now all count physical books from the shared per-copy records. Placing, moving, unslotting and picking go through the server, which locks the slot and does the slide-up, so two people working the same slot from the two apps cannot scramble it; a slot that filled up between WIM reading it and writing is refused by the server and WIM quietly tries the next slot with room instead of showing an error. The listing record still carries the first copy spot, which is what labels and the ledger read. Picking now pulls the specific book rather than the listing. Separately, a listing that sold several times only ever carried its FIRST shipment at listing level, so later orders sat in Ready to Ship forever; each order shipped date and delivery estimate is now read from that order own record. This switches itself on the first time the shared copy records actually contain something, and an empty table means not switched -- so it stays on the old behaviour until the changeover, and reverts by itself if the changeover is rolled back, with nothing to coordinate. Tested across twenty-seven cases covering occupancy, paging, the periodic full re-read, picking, capacity refusals and regrouping."],
   ["3.5.18","POSTAGE WAS BEING COUNTED AS INCOME AND THEN NOT COUNTED AS A COST. The field fulfillment.shipCostPaid does not mean what its name says. InventoryIQ fills it from eBay SHIPPING_LABEL charges -- it is the label WE bought, the same figure as the sales ledger ship cost -- but WIM read it as money the buyer had paid us and added it to revenue. At the same time the cost side only ever looked at shipLabelCost, which InventoryIQ does not write, so those same sales had no postage deducted at all. Both errors ran the same way, so a sale whose label InventoryIQ recorded was overstated by roughly twice the postage: once added as income it never was, once never subtracted as the cost it is. On a 55 dollar sale with a 4.25 label, profit read 45.96 when the truth is 37.46. Every listing is free shipping, so buyer-paid postage is now simply zero and lives in one function, and the real label charge is read from whichever of the three places actually recorded it. WIM has also stopped writing shipCostPaid at all -- InventoryIQ owns that field, and WIM was overwriting a real charge with nothing, having been reading the wrong part of eBay order data for it in the first place. This corrects the Profit Overview, Executive Overview, Vendor ROI, Cash Flow, True Net Profit and Shipping dashboards. The printed P&L and the sales ledger were never affected: they read the sales table, which was always right."],
   ["3.5.17","A REAL SYNC ICON THAT SPINS, AND WIM ANALYTICS EXPORTS TO PDF. The sync control on the title bar was a button with the word Sync on it; it is now the two-arrow refresh mark, and while a sync is running the arrows turn through a half circle, hold for a beat, then turn through another -- two deliberate passes rather than one continuous whirl, because a sync is two things: fetch, then send. WIM Analytics gained an Export button beside the filters that puts every dashboard into a single PDF, one to a page with its own header, using whatever filters and period are set at that moment, and opens it when it is done. A cover page records the period, the filters and the time it was taken. It is not a screenshot: each dashboard is rendered again and its charts carried through as vector, so the figures and labels stay sharp and selectable at any zoom and print properly, which a capture of a scrolling window never does. Cards are kept from splitting across a page break, and the info buttons are dropped since nothing can be clicked on paper. Any dashboard that fails to render says so on its own page instead of being quietly left out."],
@@ -2980,32 +2983,58 @@ function pendingStorageBadgeHtml(id){
 // Create click) — used by Missing Item to show where else to check for a possible swap.
 function batchMates(it){ if(!it.storageBatchId) return []; return activeItems().filter(i=>i.storageBatchId===it.storageBatchId && i.id!==it.id); }
 const PL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
-function plPeriodLabel(year,months){
-  if(!months||!months.length) return "Full Year "+year;
-  const ms=months.slice().sort(function(a,b){return a-b;});
-  const q=[[0,1,2],[3,4,5],[6,7,8],[9,10,11]];
-  const qsel=[]; for(var i=0;i<4;i++){ if(q[i].every(function(m){return ms.indexOf(m)>=0;})) qsel.push(i); }
-  if(qsel.length && qsel.reduce(function(a,i){return a+3;},0)===ms.length){
-    return qsel.map(function(i){return "Q"+(i+1);}).join(", ")+" "+year;
+// Fiscal calendar: the year runs May 1 to April 30.
+//   Q1 May-Jul · Q2 Aug-Oct · Q3 Nov-Jan · Q4 Feb-Apr
+// A fiscal year is named by the calendar year it starts in, and Q3 crosses New Year, so every
+// selected month is held with its own calendar year rather than assuming one year for the lot.
+const FY_START_MONTH=4;   // May (0-based)
+const PL_FY_MONTHS=[4,5,6,7,8,9,10,11,0,1,2,3];
+const PL_QUARTERS=[[4,5,6],[7,8,9],[10,11,0],[1,2,3]];
+function fyStartYearOf(d){ return d.getMonth()>=FY_START_MONTH ? d.getFullYear() : d.getFullYear()-1; }
+function fyCalYear(fy,m){ return m>=FY_START_MONTH ? fy : fy+1; }
+function fyRangeLabel(fy){ return "May "+fy+" – Apr "+(fy+1); }
+function plPeriodLabel(fy,months){
+  if(!months||!months.length||months.length===12) return "Fiscal Year "+fyRangeLabel(fy);
+  const ms=PL_FY_MONTHS.filter(function(m){ return months.indexOf(m)>=0; });   // fiscal order
+  const qsel=[]; PL_QUARTERS.forEach(function(q,i){ if(q.every(function(m){return ms.indexOf(m)>=0;})) qsel.push(i); });
+  const span=function(list){
+    const a=list[0], b=list[list.length-1], ya=fyCalYear(fy,a), yb=fyCalYear(fy,b);
+    return ya===yb ? PL_MONTHS[a].slice(0,3)+"–"+PL_MONTHS[b].slice(0,3)+" "+ya
+                   : PL_MONTHS[a].slice(0,3)+" "+ya+"–"+PL_MONTHS[b].slice(0,3)+" "+yb;
+  };
+  if(qsel.length && qsel.length*3===ms.length){
+    return qsel.map(function(i){ return "Q"+(i+1)+" ("+span(PL_QUARTERS[i])+")"; }).join(", ");
   }
-  if(ms.length===1) return PL_MONTHS[ms[0]]+" "+year;
-  return ms.map(function(m){return PL_MONTHS[m].slice(0,3);}).join(", ")+" "+year;
+  if(ms.length===1) return PL_MONTHS[ms[0]]+" "+fyCalYear(fy,ms[0]);
+  const years=ms.map(function(m){ return fyCalYear(fy,m); });
+  if(years.every(function(y){ return y===years[0]; }))
+    return ms.map(function(m){return PL_MONTHS[m].slice(0,3);}).join(", ")+" "+years[0];
+  return ms.map(function(m){ return PL_MONTHS[m].slice(0,3)+" "+fyCalYear(fy,m); }).join(", ");
+}
+// True when a sale date falls in the chosen period. sel.ym holds "year-month" keys.
+function plInPeriod(sel,v){
+  if(!sel||!sel.ym) return true;
+  const t=Date.parse(v||""); if(isNaN(t)) return false;
+  const d=new Date(t);
+  return sel.ym.indexOf(d.getFullYear()+"-"+d.getMonth())>=0;
 }
 function plSelectedFromUI(box){
-  const year=parseInt(box.querySelector("#pl-year").value,10);
+  const fy=parseInt(box.querySelector("#pl-year").value,10);
   const mode=box.querySelector("#pl-mode").value;
   let months=[];
   if(mode==="months"){
     Array.prototype.forEach.call(box.querySelectorAll(".pl-m:checked"),function(c){ months.push(parseInt(c.value,10)); });
   } else if(mode==="quarters"){
     Array.prototype.forEach.call(box.querySelectorAll(".pl-q:checked"),function(c){
-      const q=parseInt(c.value,10); months=months.concat([q*3,q*3+1,q*3+2]);
+      months=months.concat(PL_QUARTERS[parseInt(c.value,10)]);
     });
   }
+  const use=months.length?months:PL_FY_MONTHS;
+  const ym=use.map(function(m){ return fyCalYear(fy,m)+"-"+m; });
   const chEl=box.querySelector("#pl-channel");
   const channel=chEl?chEl.value:"wim";
   const chLabel=(channel==="legacy")?"Legacy":((channel==="combined")?"Combined":"Warehouse");
-  return { year:year, months:months, channel:channel, chLabel:chLabel, label:plPeriodLabel(year,months)+" · "+chLabel };
+  return { fy:fy, months:months, ym:ym, channel:channel, chLabel:chLabel, label:plPeriodLabel(fy,months)+" · "+chLabel };
 }
 // Copy numbering for multi-quantity listings. A listing put up with 8 copies has 8 physical
 // books that share one eBay item number, so each copy carries a suffix -- 307111885277-1,
@@ -3071,17 +3100,25 @@ function itemAnyPhoto(it){
   try{ const L=it.listing||{}; if(Array.isArray(L.images)&&L.images.length) return String(L.images[0]||""); }catch(e){}
   return "";
 }
+// What kind of refund a sale had. InventoryIQ's refund_kind is the authority when it is set:
+//   cancelled -- refunded before it shipped (the book never left)
+//   returned  -- refunded in full after it shipped (the book comes back)
+//   partial   -- refunded less than the price and the buyer KEPT the book
+// A partial refund can still carry a returned_at date (a return was opened, then settled with a
+// partial refund), so the dates alone cannot tell a kept book from a returned one. They are only
+// used for older rows, or for a cancel/return still in progress before any refund is recorded.
+function saleRefundKind(s){
+  if(!s) return null;
+  const k=String(s.refund_kind||"").toLowerCase();
+  if(k==="cancelled"||k==="returned"||k==="partial") return k;
+  if(s.cancelled_at) return "cancelled";
+  if(s.returned_at) return "returned";
+  return null;
+}
 function exportSalesLedgerCsv(sel){
   // Writes a real Excel workbook (SpreadsheetML), not a bare CSV, so column widths, number formats,
   // header styling and live formulas all survive. Layout matches the existing Quarter Ledger exactly.
-  const inPeriod=function(v){
-    if(!sel) return true;
-    const t=Date.parse(v||""); if(isNaN(t)) return false;
-    const d=new Date(t);
-    if(d.getFullYear()!==sel.year) return false;
-    if(sel.months&&sel.months.length) return sel.months.indexOf(d.getMonth())>=0;
-    return true;
-  };
+  const inPeriod=function(v){ return plInPeriod(sel,v); };
   const chWant=(sel&&sel.channel)||"wim";
   const inChannel=function(s){ if(chWant==="combined") return true; return ((s.channel||"wim")===chWant); };
   const rows=(DB.sales||[]).filter(function(s){ return !s.deleted_at && inChannel(s) && inPeriod(s.sold_at); })
@@ -3125,8 +3162,10 @@ function exportSalesLedgerCsv(sel){
     const ship=(s.ship_status==="covered"||s.ship_status==="pickup")?0:((n(s.ship_cost)!=null)?n(s.ship_cost):null);
     const refund=Math.abs(n(s.refund_amount)||0);
     let loc="";
-    if(s.cancelled_at) loc="Cancelled";
-    else if(s.returned_at) loc="Returned";
+    const _rk=saleRefundKind(s);
+    if(_rk==="cancelled") loc="Cancelled";
+    else if(_rk==="returned") loc="Returned";
+    else if(_rk==="partial") loc="Partial Refund";
     else if(refund) loc=(sale!=null&&refund<sale)?"Partial Refund":"Refund";
     const dstr=(function(v){ const t=Date.parse(v||""); if(isNaN(t)) return ""; const d=new Date(t);
       return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"T00:00:00.000"; })(s.sold_at);
@@ -3200,9 +3239,9 @@ function exportSalesLedgerCsv(sel){
 
 function openProfitLossStatement(){
   if(!(DB.sales||[]).length){ uiAlert("No sales in the ledger yet. Sync with the cloud first — the P&L reads the shared sales ledger."); return; }
-  const years={}; (DB.sales||[]).forEach(function(s){ const t=Date.parse(s.sold_at||""); if(!isNaN(t)) years[new Date(t).getFullYear()]=1; });
+  const years={}; (DB.sales||[]).forEach(function(s){ const t=Date.parse(s.sold_at||""); if(!isNaN(t)) years[fyStartYearOf(new Date(t))]=1; });
   const yl=Object.keys(years).map(Number).sort(function(a,b){return b-a;});
-  if(!yl.length) yl.push(new Date().getFullYear());
+  if(!yl.length) yl.push(fyStartYearOf(new Date()));
   const old=document.getElementById("pl-picker"); if(old) old.remove();
   const wrap=document.createElement("div"); wrap.id="pl-picker";
   wrap.style.cssText="position:fixed;inset:0;background:rgba(15,20,35,.55);z-index:99999;display:flex;align-items:center;justify-content:center;";
@@ -3212,7 +3251,7 @@ function openProfitLossStatement(){
     +'<div style="padding:14px 16px;font-size:13px;color:#1a1a2e;">'
     +'<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">'
     +'<label style="width:52px;color:#556;">Year</label>'
-    +'<select id="pl-year" style="flex:1;padding:6px;border:1px solid #ccd;border-radius:6px;">'+yl.map(function(y){return '<option value="'+y+'">'+y+'</option>';}).join("")+'</select>'
+    +'<select id="pl-year" style="flex:1;padding:6px;border:1px solid #ccd;border-radius:6px;">'+yl.map(function(y){return '<option value="'+y+'">Fiscal year '+fyRangeLabel(y)+'</option>';}).join("")+'</select>'
     +'</div>'
     +'<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;">'
     +'<label style="width:52px;color:#556;">Books</label>'
@@ -3225,10 +3264,10 @@ function openProfitLossStatement(){
     +'<option value="year">Full year</option><option value="months">Specific month(s)</option><option value="quarters">Quarter(s)</option></select>'
     +'</div>'
     +'<div id="pl-months" style="display:none;flex-wrap:wrap;gap:4px 10px;margin:6px 0 10px;">'
-    +PL_MONTHS.map(function(m,i){return '<label style="width:30%;font-size:12px;"><input type="checkbox" class="pl-m" value="'+i+'"> '+m.slice(0,3)+'</label>';}).join("")
+    +PL_FY_MONTHS.map(function(i){return '<label style="width:30%;font-size:12px;"><input type="checkbox" class="pl-m" value="'+i+'"> <span class="pl-mlab" data-m="'+i+'">'+PL_MONTHS[i].slice(0,3)+'</span></label>';}).join("")
     +'</div>'
     +'<div id="pl-quarters" style="display:none;flex-wrap:wrap;gap:4px 14px;margin:6px 0 10px;">'
-    +[0,1,2,3].map(function(q){return '<label style="font-size:12px;"><input type="checkbox" class="pl-q" value="'+q+'"> Q'+(q+1)+' <span style="color:#889;">('+PL_MONTHS[q*3].slice(0,3)+'–'+PL_MONTHS[q*3+2].slice(0,3)+')</span></label>';}).join("")
+    +[0,1,2,3].map(function(q){ const Q=PL_QUARTERS[q]; return '<label style="font-size:12px;"><input type="checkbox" class="pl-q" value="'+q+'"> Q'+(q+1)+' <span style="color:#889;">('+PL_MONTHS[Q[0]].slice(0,3)+'–'+PL_MONTHS[Q[2]].slice(0,3)+')</span></label>';}).join("")
     +'</div>'
     +'<div style="font-size:11px;color:#667;background:#f7f8fc;border-left:3px solid #1a2b4a;padding:6px 9px;">A sale belongs to the month it sold in. Costs that settle later keep flowing into that month, moving sales from pending to finalized over time.</div>'
     +'</div>'
@@ -3244,6 +3283,11 @@ function openProfitLossStatement(){
     wrap.querySelector("#pl-quarters").style.display=(mode.value==="quarters")?"flex":"none";
   };
   mode.onchange=sync; sync();
+  const yearSel=wrap.querySelector("#pl-year");
+  const relabel=function(){ const fy=parseInt(yearSel.value,10);
+    Array.prototype.forEach.call(wrap.querySelectorAll(".pl-mlab"),function(el){ const m=parseInt(el.getAttribute("data-m"),10);
+      el.textContent=PL_MONTHS[m].slice(0,3)+" "+String(fyCalYear(fy,m)).slice(2); }); };
+  yearSel.onchange=relabel; relabel();
   const close=function(){ wrap.remove(); };
   wrap.querySelector("#pl-cancel").onclick=close;
   wrap.onclick=function(e){ if(e.target===wrap) close(); };
@@ -3261,14 +3305,7 @@ function renderProfitLoss(sel){
   const dt=function(ms){ if(!ms) return "—"; const d=new Date(ms); return isNaN(d.getTime())?"—":d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
   const ms=function(v){ const t=Date.parse(v||""); return isNaN(t)?0:t; };
 
-  const inPeriod=function(v){
-    if(!sel) return true;
-    const t=Date.parse(v||""); if(isNaN(t)) return false;
-    const d=new Date(t);
-    if(d.getFullYear()!==sel.year) return false;
-    if(sel.months && sel.months.length) return sel.months.indexOf(d.getMonth())>=0;
-    return true;
-  };
+  const inPeriod=function(v){ return plInPeriod(sel,v); };
   const chWant=(sel&&sel.channel)||"wim";
   const inChannel=function(s){ if(chWant==="combined") return true; return ((s.channel||"wim")===chWant); };
   const ledger=(DB.sales||[]).filter(function(s){ return !s.deleted_at && inChannel(s) && inPeriod(s.sold_at); });
@@ -3302,7 +3339,10 @@ function renderProfitLoss(sel){
     for(var _i=0;_i<3;_i++){ desc=desc.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); }
     desc=desc.replace(/<[^>]*>/g," ").replace(/\s+/g," ").trim();
     if(desc.length>90) desc=desc.slice(0,90)+"…";
-    const flagged=!!(s.cancelled_at||s.returned_at);
+    // Only a cancelled or returned sale gets the book back. A partial refund is a real sale whose
+    // buyer kept the book, so its unit cost stays in and the refund is simply subtracted.
+    const refundKind=saleRefundKind(s);
+    const flagged=(refundKind==="cancelled"||refundKind==="returned");
     const refundSettled=(s.refund_amount!=null&&s.refund_amount!=="");
     // A cancelled or returned sale is only finished once the refund has actually settled. Until the
     // money moves it stays pending and marked refund in process -- writing it down to zero early would
@@ -3317,11 +3357,13 @@ function renderProfitLoss(sel){
              image:(s.image_url||itemAnyPhoto(it)), units:units,
              descSrc:descSrc, joined:!!it,
              sale:sale, unitCost:unitCost, refund:refund,
-             ship:hasShip?num(s.ship_cost):null, fees:hasFees?num(s.ebay_fees):null,
+             // covered and pickup are true zeros even when a label figure is sitting on the row -- that
+             // label belongs to the sale that paid it, and counting it here charged one box twice.
+             ship:hasShip?((covered||pickup)?0:num(s.ship_cost)):null, fees:hasFees?num(s.ebay_fees):null,
              hasShip:hasShip, hasFees:hasFees, settled:settled,
              covered:covered, pickup:pickup, reassigned:reassigned, shipStatus:shipStatus,
              channel:(s.channel||"wim"), refundPending:refundPending,
-             cancelled:!!s.cancelled_at, returned:!!s.returned_at,
+             cancelled:(refundKind==="cancelled"), returned:(refundKind==="returned"), partial:(refundKind==="partial"),
              soldMs:ms(s.sold_at), shippedMs:ms(s.shipped_at) };
   });
 
@@ -3425,7 +3467,7 @@ function renderProfitLoss(sel){
     const feeCell  = r.hasFees? money(r.fees) : (r.voided? money(0) : est(r.eFees));
     const cogsCell = (r.settled||r.voided)? money(r.cogs) : est(r.eCogs);
     const profCell = (r.settled||r.voided)? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
-    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":"");
+    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":(r.partial?" · <span class=\"neg\">partial refund "+money(r.refund)+"</span>":""));
     const chTag = (chWant==="combined")?(" · "+(r.channel==="legacy"?"Legacy":"Warehouse")):"";
     const covTag = r.covered?" · shipped in another order's box":(r.pickup?" · collected in person":(r.reassigned?" · carries the label for a combined shipment":""));
     const refTag = r.refundPending?" · <span class=\"estv\">refund in process</span>":"";
@@ -16816,11 +16858,13 @@ function orderExceptionEntries(kind){
   (DB.sales||[]).forEach(function(s){
     if(s.deleted_at) return;
     const refunded=(s.refund_amount!=null&&s.refund_amount!=="");
-    if(kind==="cancelled" && !s.cancelled_at) return;
-    if(kind==="returned"  && !s.returned_at)  return;
+    const rk=saleRefundKind(s);
+    if(kind==="cancelled" && rk!=="cancelled") return;
+    if(kind==="returned"  && rk!=="returned")  return;
     if(kind==="refunded"  && !refunded)       return;
     const it=(s.item_id&&byId[s.item_id])||(s.item_number&&byNum[String(s.item_number)])||null;
-    const at=(kind==="cancelled")?s.cancelled_at:((kind==="returned")?s.returned_at:(s.refunded_at||s.updated_at));
+    const at=(kind==="cancelled")?(s.cancelled_at||s.refunded_at||s.returned_at)
+            :((kind==="returned")?(s.returned_at||s.refunded_at):(s.refunded_at||s.updated_at));
     push(it,s.order_id,s.item_number,at,refunded?Math.abs(parseFloat(s.refund_amount)||0):null,
          { title:s.title||"" });
     if(it) fromLedger[it.id]=1;
@@ -19250,7 +19294,7 @@ setInterval(tick,1000); tick();
 /* ============================================================================================
    WIM ANALYTICS (v3.3.98) — executive dashboards. Admin only.
    Everything analytics lives between these fences. Built from the WIM Analytics blueprint:
-   review-only, WIM-tracked items only (partner back-catalogue excluded), fiscal year Aug 1.
+   review-only, WIM-tracked items only (partner back-catalogue excluded), fiscal year May 1.
    ============================================================================================ */
 
 // ---- Tracking rule: ONE predicate, used by every metric. -----------------------------------
@@ -19333,8 +19377,8 @@ function anBoot(){
   }catch(e){ console.warn("WIM Analytics boot step:",e); }
 }
 
-// ---- Fiscal calendar: FY starts August 1. --------------------------------------------------
-function anFyStartYear(d){ return d.getMonth()>=7 ? d.getFullYear() : d.getFullYear()-1; }
+// ---- Fiscal calendar: FY starts May 1 (Q1 May-Jul, Q2 Aug-Oct, Q3 Nov-Jan, Q4 Feb-Apr). -------
+function anFyStartYear(d){ return fyStartYearOf(d); }
 function anRange(ctx){
   const now=new Date(); const end=new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59,999);
   const fy=anFyStartYear(now);
@@ -19343,11 +19387,11 @@ function anRange(ctx){
   if(p==="7d"){ const f=new Date(end); f.setDate(f.getDate()-6); f.setHours(0,0,0,0); return {from:f,to:end,label:"Last 7 days"}; }
   if(p==="lastmonth"){ const f=D(now.getFullYear(),now.getMonth()-1,1); const t=D(now.getFullYear(),now.getMonth(),0); t.setHours(23,59,59,999); return {from:f,to:t,label:"Last month"}; }
   if(p==="last3m"){ const f=D(now.getFullYear(),now.getMonth()-3,1); const t=D(now.getFullYear(),now.getMonth(),0); t.setHours(23,59,59,999); return {from:f,to:t,label:"Last 3 months"}; }
-  if(p==="ytd"){ return {from:D(fy,7,1),to:end,label:"Year to date (FY from Aug 1, "+fy+")"}; }
-  if(p==="q1"){ const t=D(fy,9,31);t.setHours(23,59,59,999); return {from:D(fy,7,1),to:t,label:"Q1 (Aug 1 to Oct 31)"}; }
-  if(p==="q2"){ const t=D(fy+1,0,31);t.setHours(23,59,59,999); return {from:D(fy,10,1),to:t,label:"Q2 (Nov 1 to Jan 31)"}; }
-  if(p==="q3"){ const t=D(fy+1,3,30);t.setHours(23,59,59,999); return {from:D(fy+1,1,1),to:t,label:"Q3 (Feb 1 to Apr 30)"}; }
-  if(p==="q4"){ const t=D(fy+1,6,31);t.setHours(23,59,59,999); return {from:D(fy+1,4,1),to:t,label:"Q4 (May 1 to Jul 31)"}; }
+  if(p==="ytd"){ return {from:D(fy,4,1),to:end,label:"Year to date (FY from May 1, "+fy+")"}; }
+  if(p==="q1"){ const t=D(fy,6,31);t.setHours(23,59,59,999); return {from:D(fy,4,1),to:t,label:"Q1 (May 1 to Jul 31, "+fy+")"}; }
+  if(p==="q2"){ const t=D(fy,9,31);t.setHours(23,59,59,999); return {from:D(fy,7,1),to:t,label:"Q2 (Aug 1 to Oct 31, "+fy+")"}; }
+  if(p==="q3"){ const t=D(fy+1,0,31);t.setHours(23,59,59,999); return {from:D(fy,10,1),to:t,label:"Q3 (Nov 1, "+fy+" to Jan 31, "+(fy+1)+")"}; }
+  if(p==="q4"){ const t=D(fy+1,3,30);t.setHours(23,59,59,999); return {from:D(fy+1,1,1),to:t,label:"Q4 (Feb 1 to Apr 30, "+(fy+1)+")"}; }
   if(p==="custom"&&ctx.from&&ctx.to){ const f=new Date(ctx.from+"T00:00:00"); const t=new Date(ctx.to+"T23:59:59"); if(!isNaN(f)&&!isNaN(t)&&f<=t) return {from:f,to:t,label:ctx.from+" to "+ctx.to}; }
   const f=new Date(end); f.setDate(f.getDate()-6); f.setHours(0,0,0,0); return {from:f,to:end,label:"Last 7 days"};
 }
@@ -19894,7 +19938,7 @@ function openWimAnalytics(){
     const vendorOpts=['<option value="">All vendors</option>'].concat((DB.vendors||[]).map(v=>'<option '+(ctx.vendor===v?"selected":"")+' value="'+esc(v)+'">'+esc(v)+'</option>')).join("");
     const catOpts=['<option value="">All categories</option>'].concat((DB.sections||[]).map(v=>'<option '+(ctx.section===v?"selected":"")+' value="'+esc(v)+'">'+esc(v)+'</option>')).join("");
     const condOpts=['<option value="">All conditions</option>'].concat((DB.conditions||[]).map(v=>'<option '+(ctx.condition===v?"selected":"")+' value="'+esc(v)+'">'+esc(v)+'</option>')).join("");
-    const presets=[["7d","Last 7 days"],["lastmonth","Last month"],["last3m","Last 3 months"],["ytd","Year to date"],["q1","Q1 (Aug-Oct)"],["q2","Q2 (Nov-Jan)"],["q3","Q3 (Feb-Apr)"],["q4","Q4 (May-Jul)"],["custom","Custom range"]];
+    const presets=[["7d","Last 7 days"],["lastmonth","Last month"],["last3m","Last 3 months"],["ytd","Year to date"],["q1","Q1 (May-Jul)"],["q2","Q2 (Aug-Oct)"],["q3","Q3 (Nov-Jan)"],["q4","Q4 (Feb-Apr)"],["custom","Custom range"]];
     const presetOpts=presets.map(p=>'<option '+(ctx.preset===p[0]?"selected":"")+' value="'+p[0]+'">'+p[1]+'</option>').join("");
     wrap.innerHTML=side
       +'<div class="an-main"><div class="an-topbar">'
@@ -21130,7 +21174,7 @@ function anLedgerRows(ctx){
       cat:(it&&it.section)||"Unmatched", chr:(it&&it.subCategory)||"Unassigned",
       cost:(ucRaw==null||isNaN(ucRaw))?null:ucRaw,
       shelf:shelf, channel:sl.channel||"wim",
-      flagged:!!(sl.returned_at||sl.cancelled_at) };
+      flagged:(function(k){ return k==="cancelled"||k==="returned"; })(saleRefundKind(sl)) };
     if(ctx.vendor && !(it&&(it.vendor||"")===ctx.vendor)) return;
     if(ctx.section && r.cat!==ctx.section) return;
     if(ctx.condition && !(it&&(it.condition||"")===ctx.condition)) return;
