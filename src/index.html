@@ -525,7 +525,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.23", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.24", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -631,6 +631,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.24","SALES LEDGER EXPORT: CANCELLED ORDERS NO LONGER SHOW PENDING, AND REFUNDS ARE NAMED PROPERLY. A cancelled order never shipped, so once its refund has gone out its shipping and eBay fee are a real zero; the export was printing Pending in those cells as if a charge were still on its way. The Location column now reads Cancelled (refunded before it shipped), Refunded (the full price refunded after it shipped) or Partial Refund (part of the price refunded, buyer kept it), and the P&L ledger uses the same words. The repeat-buyer analytics screen no longer uses a listing's asking price for a sale with no recorded price; those sales are left out. Note: a few cancelled orders carry a NEGATIVE eBay fee in the shared ledger, which makes them show a small profit; that is a data error at the source and is being corrected by InventoryIQ."],
   ["3.5.23","P&L NOW REPORTS NET SALES, AND EXPORT SALES LEDGER WORKS AGAIN. Refunds were listed inside Cost of Goods Sold, but they were never part of the Total COGS figure, so the lines in that table did not add up to its total, and every percentage was measured against sales that still included money handed back. The summary now opens with Total Sales, less Refunds, equals Net Sales; Cost of Goods Sold holds only item cost, shipping and eBay fees, and adds up to its total; margin and every percentage are measured against net sales. Net profit is unchanged. The Excel ledger now also drops the unit cost on a cancelled or returned sale once its refund has gone out, the same as the P&L, so the two agree. The headline card shows Net Sales, Units Sold no longer counts cancelled or returned orders, the category and character tables report net sales, and the Sales Ledger has a Refund column so each line reads Price less Refund less COGS equals Profit. Export Sales Ledger had stopped producing a file: it checked for the desktop app in a way that never succeeded, so it tried a browser download the app ignores. It now opens the save dialog and the workbook. If the P&L ever falls back to the print dialog, the message now says why, and the PDF file name is kept to plain characters."],
   ["3.5.22","QUARTERS NOW FOLLOW THE BUSINESS YEAR, MAY TO APRIL. The P&L picker used calendar quarters (January to March as Q1). The fiscal year now runs May 1 to April 30: Q1 is May-July, Q2 August-October, Q3 November-January and Q4 February-April. The Year choice on the P&L is now a fiscal year (for example May 2026 - Apr 2027), Full year covers those twelve months, the month list runs May to April with the calendar year beside each month, and Q3 correctly reaches across New Year into January. Statement titles name the months covered, such as Q3 (Nov 2026-Jan 2027). WIM Analytics uses the same calendar for Year to date and its quarter choices, replacing the August start it used before."],
   ["3.5.21","A PARTIAL REFUND NO LONGER WIPES OUT THE BOOK'S COST. WIM decided a sale was cancelled or returned from its cancel and return dates, but a sale can carry a return date and still end in a partial refund where the buyer kept the book. Those sales were treated as if the book had come back: the unit cost was dropped and the profit came out too high. WIM now reads the refund type InventoryIQ records on each sale -- cancelled, returned, or partial -- and only a cancelled or returned sale drops the unit cost. A partial refund keeps the cost and subtracts the refund. The same refund type now decides which list a sale appears on under Cancellations and Returns, and the label in the Sales Ledger export. The dates are still used for older sales and for a cancellation or return still waiting on its refund."],
@@ -3159,18 +3160,21 @@ function exportSalesLedgerCsv(sel){
     let uc=n(s.unit_cost);
     if(uc==null && sale!=null && typeof warehouseCostForPrice==="function"){ try{ uc=n(warehouseCostForPrice(sale)); }catch(e){} }
     if(uc==null && it){ uc=n(it.unitCost!=null?it.unitCost:it.cost); }
-    const fees=(s.fees_posted_at&&n(s.ebay_fees)!=null)?n(s.ebay_fees):null;
-    const ship=(s.ship_status==="covered"||s.ship_status==="pickup")?0:((n(s.ship_cost)!=null)?n(s.ship_cost):null);
+    let fees=(s.fees_posted_at&&n(s.ebay_fees)!=null)?n(s.ebay_fees):null;
+    let ship=(s.ship_status==="covered"||s.ship_status==="pickup")?0:((n(s.ship_cost)!=null)?n(s.ship_cost):null);
     const refund=Math.abs(n(s.refund_amount)||0);
     let loc="";
     const _rk=saleRefundKind(s);
+    // A cancelled order never shipped, so once its refund has gone out there is nothing left to post:
+    // no label exists, and no fee is coming. A blank there is a real zero, not a pending charge.
+    if(_rk==="cancelled" && s.refund_amount!=null && s.refund_amount!==""){ if(ship==null) ship=0; if(fees==null) fees=0; }
     // Same rule as the P&L: once a cancelled or returned sale's refund has gone out, the book is back
     // on our side, so its unit cost is not a cost of this sale.
     if((_rk==="cancelled"||_rk==="returned") && s.refund_amount!=null && s.refund_amount!=="") uc=0;
     if(_rk==="cancelled") loc="Cancelled";
-    else if(_rk==="returned") loc="Returned";
+    else if(_rk==="returned") loc="Refunded";
     else if(_rk==="partial") loc="Partial Refund";
-    else if(refund) loc=(sale!=null&&refund<sale)?"Partial Refund":"Refund";
+    else if(refund) loc=(sale!=null&&refund<sale)?"Partial Refund":"Refunded";
     const dstr=(function(v){ const t=Date.parse(v||""); if(isNaN(t)) return ""; const d=new Date(t);
       return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+"T00:00:00.000"; })(s.sold_at);
     // In a combined ledger the warehouse rows are picked out in amber, as in the existing book.
@@ -3476,7 +3480,7 @@ function renderProfitLoss(sel){
     const feeCell  = r.hasFees? money(r.fees) : (r.voided? money(0) : est(r.eFees));
     const cogsCell = (r.settled||r.voided)? money(r.cogs) : est(r.eCogs);
     const profCell = (r.settled||r.voided)? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
-    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":(r.partial?" · <span class=\"neg\">partial refund</span>":""));
+    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">refunded</span>":(r.partial?" · <span class=\"neg\">partial refund</span>":""));
     const chTag = (chWant==="combined")?(" · "+(r.channel==="legacy"?"Legacy":"Warehouse")):"";
     const covTag = r.covered?" · shipped in another order's box":(r.pickup?" · collected in person":(r.reassigned?" · carries the label for a combined shipment":""));
     const refTag = r.refundPending?" · <span class=\"estv\">refund in process</span>":"";
@@ -22424,7 +22428,8 @@ function anRenderRetention(el,ctx,R){
   // All sold items with a usable, non-purged buyer key.
   const sales=items.filter(it=>{ const f=it.fulfillment; return f && f.buyer && !f.buyerDataPurged && (f.soldAt||it.soldAt); })
     .map(it=>({ buyer:String(it.fulfillment.buyer).toLowerCase(), it, when:it.fulfillment.soldAt||it.soldAt,
-      price:parseFloat(it.fulfillment.soldPrice)||parseFloat((it.listing&&it.listing.price))||0 }));
+      price:parseFloat(it.fulfillment.soldPrice) }))
+    .filter(x=>!isNaN(x.price));   // a sale with no recorded price is left out, never given its asking price
   // Build buyer histories across ALL time (repeat status is inherently cross-period).
   const hist={};
   sales.forEach(s=>{ (hist[s.buyer]=hist[s.buyer]||[]).push(s); });
