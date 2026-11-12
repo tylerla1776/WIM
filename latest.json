@@ -1,15 +1,15 @@
 {
-  "version": "3.5.24",
+  "version": "3.5.25",
   "notes": "Download the installer below. Existing installs will auto-update.",
-  "pub_date": "2026-11-12T20:08:33.992Z",
+  "pub_date": "2026-11-12T20:56:20.843Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVmhyM3p6NWJYK0dJWU1HNkl2YlRSRkpRUS80cE5oaVpjRDVmVXNUNUxwajdFQzc2YllOTXYxa3dJa2U5VndLMWhxQWVlaW43NU5PZ2NtMkdVeFM1RWJjb3QxRzFEbkFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE0MTA5CWZpbGU6V0lNXzMuNS4yNF94NjQtc2V0dXAuZXhlClBrOTZObW9jUlBvenFvQlk0UmZ2ZWtvc2NZNDVxSmRxRERiMzlVY0ROTXp1aVpUaDQrdnQzQlpQcHdkallOK0VVUnNONjl4eEd5ejhpR2h0c2xSVER3PT0K",
-      "url": "https://github.com/tylerla1776/WIM/releases/download/v3.5.24/WIM_3.5.24_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVmhyM3p6NWJYK0NOSkRrMFdSQTNhMDdrdmNUWGZpc1JHb2EvQlJaZUkySURmVm10YzcwaG1LTUw0U2YyYUtDdHR2c2gzTmZNQ3g3Nlh3NUtjT0xZbS9rWjlCSEt6YndNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE2OTc3CWZpbGU6V0lNXzMuNS4yNV94NjQtc2V0dXAuZXhlCnY0OGVWcmljdFJTaVZ0WWZwNDArQTh6c29IV3U1MDRUQ3lhR0NvK0VKOHN1MWJTVFlWOWxuWmd4TXlTQmhsakhpUk8yeSsxVTJnUjlqcW5od1hFa0JRPT0K",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v3.5.25/WIM_3.5.25_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVmhyM3p6NWJYK0dJWU1HNkl2YlRSRkpRUS80cE5oaVpjRDVmVXNUNUxwajdFQzc2YllOTXYxa3dJa2U5VndLMWhxQWVlaW43NU5PZ2NtMkdVeFM1RWJjb3QxRzFEbkFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE0MTA5CWZpbGU6V0lNXzMuNS4yNF94NjQtc2V0dXAuZXhlClBrOTZObW9jUlBvenFvQlk0UmZ2ZWtvc2NZNDVxSmRxRERiMzlVY0ROTXp1aVpUaDQrdnQzQlpQcHdkallOK0VVUnNONjl4eEd5ejhpR2h0c2xSVER3PT0K",
-      "url": "https://github.com/tylerla1776/WIM/releases/download/v3.5.24/WIM_3.5.24_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUVmhyM3p6NWJYK0NOSkRrMFdSQTNhMDdrdmNUWGZpc1JHb2EvQlJaZUkySURmVm10YzcwaG1LTUw0U2YyYUtDdHR2c2gzTmZNQ3g3Nlh3NUtjT0xZbS9rWjlCSEt6YndNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NTE2OTc3CWZpbGU6V0lNXzMuNS4yNV94NjQtc2V0dXAuZXhlCnY0OGVWcmljdFJTaVZ0WWZwNDArQTh6c29IV3U1MDRUQ3lhR0NvK0VKOHN1MWJTVFlWOWxuWmd4TXlTQmhsakhpUk8yeSsxVTJnUjlqcW5od1hFa0JRPT0K",
+      "url": "https://github.com/tylerla1776/WIM/releases/download/v3.5.25/WIM_3.5.25_x64-setup.exe"
     }
   }
 }
