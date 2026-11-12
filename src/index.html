@@ -525,7 +525,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.24", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.25", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -631,6 +631,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.25","THE P&L SALES TABLE NOW BREAKS REFUNDS INTO THEIR THREE KINDS. The top of the statement reads Gross Sales, less Cancelled (refunded before it shipped), less Partial Refunds (part of the price refunded, buyer kept the book), less Complete Refunds (the full price refunded after it shipped), equals Net Sales. Each line shows how many orders it covers beside its dollar amount and its share of gross sales. The three refund lines always add up to the total refunded, and Net Sales is unchanged."],
   ["3.5.24","SALES LEDGER EXPORT: CANCELLED ORDERS NO LONGER SHOW PENDING, AND REFUNDS ARE NAMED PROPERLY. A cancelled order never shipped, so once its refund has gone out its shipping and eBay fee are a real zero; the export was printing Pending in those cells as if a charge were still on its way. The Location column now reads Cancelled (refunded before it shipped), Refunded (the full price refunded after it shipped) or Partial Refund (part of the price refunded, buyer kept it), and the P&L ledger uses the same words. The repeat-buyer analytics screen no longer uses a listing's asking price for a sale with no recorded price; those sales are left out. Note: a few cancelled orders carry a NEGATIVE eBay fee in the shared ledger, which makes them show a small profit; that is a data error at the source and is being corrected by InventoryIQ."],
   ["3.5.23","P&L NOW REPORTS NET SALES, AND EXPORT SALES LEDGER WORKS AGAIN. Refunds were listed inside Cost of Goods Sold, but they were never part of the Total COGS figure, so the lines in that table did not add up to its total, and every percentage was measured against sales that still included money handed back. The summary now opens with Total Sales, less Refunds, equals Net Sales; Cost of Goods Sold holds only item cost, shipping and eBay fees, and adds up to its total; margin and every percentage are measured against net sales. Net profit is unchanged. The Excel ledger now also drops the unit cost on a cancelled or returned sale once its refund has gone out, the same as the P&L, so the two agree. The headline card shows Net Sales, Units Sold no longer counts cancelled or returned orders, the category and character tables report net sales, and the Sales Ledger has a Refund column so each line reads Price less Refund less COGS equals Profit. Export Sales Ledger had stopped producing a file: it checked for the desktop app in a way that never succeeded, so it tried a browser download the app ignores. It now opens the save dialog and the workbook. If the P&L ever falls back to the print dialog, the message now says why, and the PDF file name is kept to plain characters."],
   ["3.5.22","QUARTERS NOW FOLLOW THE BUSINESS YEAR, MAY TO APRIL. The P&L picker used calendar quarters (January to March as Q1). The fiscal year now runs May 1 to April 30: Q1 is May-July, Q2 August-October, Q3 November-January and Q4 February-April. The Year choice on the P&L is now a fiscal year (for example May 2026 - Apr 2027), Full year covers those twelve months, the month list runs May to April with the calendar year beside each month, and Q3 correctly reaches across New Year into January. Statement titles name the months covered, such as Q3 (Nov 2026-Jan 2027). WIM Analytics uses the same calendar for Year to date and its quarter choices, replacing the August start it used before."],
@@ -3371,7 +3372,7 @@ function renderProfitLoss(sel){
              hasShip:hasShip, hasFees:hasFees, settled:settled,
              covered:covered, pickup:pickup, reassigned:reassigned, shipStatus:shipStatus,
              channel:(s.channel||"wim"), refundPending:refundPending,
-             cancelled:(refundKind==="cancelled"), returned:(refundKind==="returned"), partial:(refundKind==="partial"),
+             cancelled:(refundKind==="cancelled"), returned:(refundKind==="returned"), partial:(refundKind==="partial"), rk:refundKind,
              soldMs:ms(s.sold_at), shippedMs:ms(s.shipped_at) };
   });
 
@@ -3405,10 +3406,24 @@ function renderProfitLoss(sel){
     r.profit = r.settled ? (r.sale-r.cogs-r.refund) : null;
   });
   const agg=function(list,useEst){ const T={units:list.filter(function(r){return !r.voided;}).length,lines:list.length,sales:0,unitCost:0,ship:0,fees:0,refund:0,cogs:0,profit:0};
+    T.cancelN=0; T.cancelAmt=0; T.partN=0; T.partAmt=0; T.fullN=0; T.fullAmt=0;
     list.forEach(function(r){ T.sales+=r.sale; T.unitCost+=r.unitCost; T.refund+=r.refund;
+      if(r.refund){
+        // Cancelled = refunded before it shipped; Complete = the whole price refunded after it shipped;
+        // Partial = part of the price refunded, buyer kept the book. Older rows with no refund type
+        // are sorted by amount: the full price back is a complete refund, less is partial.
+        const k = r.rk==="cancelled" ? "cancel"
+                : r.rk==="returned"  ? "full"
+                : r.rk==="partial"   ? "part"
+                : (r.refund >= r.sale-0.005 ? "full" : "part");
+        T[k+"N"]++; T[k+"Amt"]+=r.refund;
+      }
       T.ship+=useEst?r.eShip:(r.ship||0); T.fees+=useEst?r.eFees:(r.fees||0);
       T.cogs+=useEst?r.eCogs:(r.cogs||0); T.profit+=useEst?r.eProfit:(r.profit||0); });
     T.net=T.sales-T.refund;   // net sales: what was taken in after refunds
+    // Units sold: orders where the buyer kept the book -- gross orders less cancellations and complete
+    // refunds. A partial refund is still a sale. Kept equal to the Net Sales order count on the statement.
+    T.units=T.lines-T.cancelN-T.fullN;
     return T; };
   const S=agg(settledRows,false), PEND=agg(pendAll,true), PROJ=agg(rows,true);
 
@@ -3430,10 +3445,12 @@ function renderProfitLoss(sel){
     +"<div class=\"k\"><div class=\"kl\">Net Profit</div><div class=\"kv "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</div></div>"
     +"<div class=\"k\"><div class=\"kl\">Net Margin</div><div class=\"kv\">"+pct(S.profit,S.net)+"</div></div>"
     +"</div>"
-    +"<table class=\"t\"><thead><tr><th>Sales</th><th class=\"r\">Amount</th><th class=\"r\">% of Total Sales</th></tr></thead><tbody>"
-    +"<tr><td>Total Sales <span class=\"sm\">("+S.lines+" order line"+(S.lines===1?"":"s")+")</span></td><td class=\"r\">"+money(S.sales)+"</td><td class=\"r\">100.0%</td></tr>"
-    +"<tr><td>Refunds <span class=\"sm\">(cancellations, returns and partial refunds)</span></td><td class=\"r neg\">−"+money(S.refund)+"</td><td class=\"r\">"+pct(S.refund,S.sales)+"</td></tr>"
-    +"<tr class=\"tot\"><td>Net Sales</td><td class=\"r\">"+money(S.net)+"</td><td class=\"r\">"+pct(S.net,S.sales)+"</td></tr>"
+    +"<table class=\"t\"><thead><tr><th>Sales</th><th class=\"r\">Orders</th><th class=\"r\">Amount</th><th class=\"r\">% of Gross Sales</th></tr></thead><tbody>"
+    +"<tr><td>Gross Sales</td><td class=\"r\">"+S.lines+"</td><td class=\"r\">"+money(S.sales)+"</td><td class=\"r\">100.0%</td></tr>"
+    +"<tr><td>Cancelled <span class=\"sm\">(refunded before it shipped)</span></td><td class=\"r\">"+S.cancelN+"</td><td class=\"r neg\">"+(S.cancelAmt?"−"+money(S.cancelAmt):money(0))+"</td><td class=\"r\">"+pct(S.cancelAmt,S.sales)+"</td></tr>"
+    +"<tr><td>Partial Refunds <span class=\"sm\">(part of the price refunded, buyer kept the book)</span></td><td class=\"r\">"+S.partN+"</td><td class=\"r neg\">"+(S.partAmt?"−"+money(S.partAmt):money(0))+"</td><td class=\"r\">"+pct(S.partAmt,S.sales)+"</td></tr>"
+    +"<tr><td>Complete Refunds <span class=\"sm\">(full price refunded after it shipped)</span></td><td class=\"r\">"+S.fullN+"</td><td class=\"r neg\">"+(S.fullAmt?"−"+money(S.fullAmt):money(0))+"</td><td class=\"r\">"+pct(S.fullAmt,S.sales)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Net Sales</td><td class=\"r\">"+S.units+"</td><td class=\"r\">"+money(S.net)+"</td><td class=\"r\">"+pct(S.net,S.sales)+"</td></tr>"
     +"</tbody></table>"
     +"<table class=\"t\"><thead><tr><th>Cost of Goods Sold</th><th class=\"r\">Amount</th><th class=\"r\">% of Net Sales</th></tr></thead><tbody>"
     +"<tr><td>Item Unit Cost</td><td class=\"r\">"+money(S.unitCost)+"</td><td class=\"r\">"+pct(S.unitCost,S.net)+"</td></tr>"
