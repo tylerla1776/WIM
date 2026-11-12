@@ -525,7 +525,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.22", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.23", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -631,6 +631,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.23","P&L NOW REPORTS NET SALES, AND EXPORT SALES LEDGER WORKS AGAIN. Refunds were listed inside Cost of Goods Sold, but they were never part of the Total COGS figure, so the lines in that table did not add up to its total, and every percentage was measured against sales that still included money handed back. The summary now opens with Total Sales, less Refunds, equals Net Sales; Cost of Goods Sold holds only item cost, shipping and eBay fees, and adds up to its total; margin and every percentage are measured against net sales. Net profit is unchanged. The Excel ledger now also drops the unit cost on a cancelled or returned sale once its refund has gone out, the same as the P&L, so the two agree. The headline card shows Net Sales, Units Sold no longer counts cancelled or returned orders, the category and character tables report net sales, and the Sales Ledger has a Refund column so each line reads Price less Refund less COGS equals Profit. Export Sales Ledger had stopped producing a file: it checked for the desktop app in a way that never succeeded, so it tried a browser download the app ignores. It now opens the save dialog and the workbook. If the P&L ever falls back to the print dialog, the message now says why, and the PDF file name is kept to plain characters."],
   ["3.5.22","QUARTERS NOW FOLLOW THE BUSINESS YEAR, MAY TO APRIL. The P&L picker used calendar quarters (January to March as Q1). The fiscal year now runs May 1 to April 30: Q1 is May-July, Q2 August-October, Q3 November-January and Q4 February-April. The Year choice on the P&L is now a fiscal year (for example May 2026 - Apr 2027), Full year covers those twelve months, the month list runs May to April with the calendar year beside each month, and Q3 correctly reaches across New Year into January. Statement titles name the months covered, such as Q3 (Nov 2026-Jan 2027). WIM Analytics uses the same calendar for Year to date and its quarter choices, replacing the August start it used before."],
   ["3.5.21","A PARTIAL REFUND NO LONGER WIPES OUT THE BOOK'S COST. WIM decided a sale was cancelled or returned from its cancel and return dates, but a sale can carry a return date and still end in a partial refund where the buyer kept the book. Those sales were treated as if the book had come back: the unit cost was dropped and the profit came out too high. WIM now reads the refund type InventoryIQ records on each sale -- cancelled, returned, or partial -- and only a cancelled or returned sale drops the unit cost. A partial refund keeps the cost and subtracts the refund. The same refund type now decides which list a sale appears on under Cancellations and Returns, and the label in the Sales Ledger export. The dates are still used for older sales and for a cancellation or return still waiting on its refund."],
   ["3.5.20","P&L NO LONGER CHARGES POSTAGE TO A SALE THAT TRAVELLED IN ANOTHER ORDER'S BOX. A sale marked as shipped in another order's box (or collected in person) is a true zero for shipping, and the Sales Ledger export already treated it that way -- but the P&L statement still charged it the label figure sitting on the row, so the same box was paid for twice. It now counts zero on those lines, matching the export and the note printed beside them. Separately, many combined orders still carry the full label on every book; that data is being corrected at the source by InventoryIQ, and the P&L will follow automatically."],
@@ -3163,6 +3164,9 @@ function exportSalesLedgerCsv(sel){
     const refund=Math.abs(n(s.refund_amount)||0);
     let loc="";
     const _rk=saleRefundKind(s);
+    // Same rule as the P&L: once a cancelled or returned sale's refund has gone out, the book is back
+    // on our side, so its unit cost is not a cost of this sale.
+    if((_rk==="cancelled"||_rk==="returned") && s.refund_amount!=null && s.refund_amount!=="") uc=0;
     if(_rk==="cancelled") loc="Cancelled";
     else if(_rk==="returned") loc="Returned";
     else if(_rk==="partial") loc="Partial Refund";
@@ -3224,7 +3228,7 @@ function exportSalesLedgerCsv(sel){
   (async function(){
     try{
       const b64=btoa(unescape(encodeURIComponent(xml)));
-      if(window.wimDesktop&&wimDesktop.invoke){
+      if(WIM_IS_DESKTOP){
         const saved=await wimDesktop.invoke("wim_save_export",{ filename:name, base64Data:b64 });
         // it opens on its own now, so no popup to dismiss first
         return;
@@ -3396,10 +3400,11 @@ function renderProfitLoss(sel){
     r.cogs = r.settled ? (r.unitCost+r.ship+r.fees) : null;
     r.profit = r.settled ? (r.sale-r.cogs-r.refund) : null;
   });
-  const agg=function(list,useEst){ const T={units:list.length,sales:0,unitCost:0,ship:0,fees:0,refund:0,cogs:0,profit:0};
+  const agg=function(list,useEst){ const T={units:list.filter(function(r){return !r.voided;}).length,lines:list.length,sales:0,unitCost:0,ship:0,fees:0,refund:0,cogs:0,profit:0};
     list.forEach(function(r){ T.sales+=r.sale; T.unitCost+=r.unitCost; T.refund+=r.refund;
       T.ship+=useEst?r.eShip:(r.ship||0); T.fees+=useEst?r.eFees:(r.fees||0);
       T.cogs+=useEst?r.eCogs:(r.cogs||0); T.profit+=useEst?r.eProfit:(r.profit||0); });
+    T.net=T.sales-T.refund;   // net sales: what was taken in after refunds
     return T; };
   const S=agg(settledRows,false), PEND=agg(pendAll,true), PROJ=agg(rows,true);
 
@@ -3412,43 +3417,47 @@ function renderProfitLoss(sel){
 
   const sheet1=""
     +"<div class=\"sheet\">"
-    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">Generated "+esc(today)+" · "+esc(span)+" · "+rows.length+" sales · "+S.units+" finalized, "+PEND.units+" pending final costs</div></div>"
+    +"<div class=\"hd\"><h1>Profit &amp; Loss Summary</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">Generated "+esc(today)+" · "+esc(span)+" · "+rows.length+" sales · "+S.lines+" finalized, "+PEND.lines+" pending final costs</div></div>"
     +"<h2>Finalized Sales <span class=\"sm\">— all transaction costs finalized</span></h2>"
     +"<div class=\"kpis\">"
-    +"<div class=\"k\"><div class=\"kl\">Sales</div><div class=\"kv\">"+money(S.sales)+"</div></div>"
-    +"<div class=\"k\"><div class=\"kl\">Units</div><div class=\"kv\">"+S.units+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Net Sales</div><div class=\"kv\">"+money(S.net)+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Units Sold</div><div class=\"kv\">"+S.units+"</div></div>"
     +"<div class=\"k\"><div class=\"kl\">Total COGS</div><div class=\"kv\">"+money(S.cogs)+"</div></div>"
     +"<div class=\"k\"><div class=\"kl\">Net Profit</div><div class=\"kv "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</div></div>"
-    +"<div class=\"k\"><div class=\"kl\">Net Margin</div><div class=\"kv\">"+pct(S.profit,S.sales)+"</div></div>"
+    +"<div class=\"k\"><div class=\"kl\">Net Margin</div><div class=\"kv\">"+pct(S.profit,S.net)+"</div></div>"
     +"</div>"
-    +"<table class=\"t\"><thead><tr><th>Cost of Goods Sold</th><th class=\"r\">Amount</th><th class=\"r\">% of Sales</th></tr></thead><tbody>"
-    +"<tr><td>Item Unit Cost</td><td class=\"r\">"+money(S.unitCost)+"</td><td class=\"r\">"+pct(S.unitCost,S.sales)+"</td></tr>"
-    +"<tr><td>Shipping &amp; Fulfillment</td><td class=\"r\">"+money(S.ship)+"</td><td class=\"r\">"+pct(S.ship,S.sales)+"</td></tr>"
-    +"<tr><td>eBay Selling Fees</td><td class=\"r\">"+money(S.fees)+"</td><td class=\"r\">"+pct(S.fees,S.sales)+"</td></tr>"
-    +"<tr><td>Refunds</td><td class=\"r\">"+money(S.refund)+"</td><td class=\"r\">"+pct(S.refund,S.sales)+"</td></tr>"
-    +"<tr class=\"tot\"><td>Total COGS</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r\">"+pct(S.cogs,S.sales)+"</td></tr>"
-    +"<tr class=\"tot\"><td>Net Profit</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.sales)+"</td></tr>"
+    +"<table class=\"t\"><thead><tr><th>Sales</th><th class=\"r\">Amount</th><th class=\"r\">% of Total Sales</th></tr></thead><tbody>"
+    +"<tr><td>Total Sales <span class=\"sm\">("+S.lines+" order line"+(S.lines===1?"":"s")+")</span></td><td class=\"r\">"+money(S.sales)+"</td><td class=\"r\">100.0%</td></tr>"
+    +"<tr><td>Refunds <span class=\"sm\">(cancellations, returns and partial refunds)</span></td><td class=\"r neg\">−"+money(S.refund)+"</td><td class=\"r\">"+pct(S.refund,S.sales)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Net Sales</td><td class=\"r\">"+money(S.net)+"</td><td class=\"r\">"+pct(S.net,S.sales)+"</td></tr>"
+    +"</tbody></table>"
+    +"<table class=\"t\"><thead><tr><th>Cost of Goods Sold</th><th class=\"r\">Amount</th><th class=\"r\">% of Net Sales</th></tr></thead><tbody>"
+    +"<tr><td>Item Unit Cost</td><td class=\"r\">"+money(S.unitCost)+"</td><td class=\"r\">"+pct(S.unitCost,S.net)+"</td></tr>"
+    +"<tr><td>Shipping &amp; Fulfillment</td><td class=\"r\">"+money(S.ship)+"</td><td class=\"r\">"+pct(S.ship,S.net)+"</td></tr>"
+    +"<tr><td>eBay Selling Fees <span class=\"sm\">(net of fees credited back on refunds)</span></td><td class=\"r\">"+money(S.fees)+"</td><td class=\"r\">"+pct(S.fees,S.net)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Total COGS</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r\">"+pct(S.cogs,S.net)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Net Profit</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.net)+"</td></tr>"
     +"</tbody></table>"
     +"<h2>Totals Including Estimates <span class=\"sm\">— finalized sales plus estimates for sales still awaiting final costs</span></h2>"
     +"<div class=\"note\">Figures marked <span class=\"estv\">gold with an asterisk*</span> are estimates, not posted charges. Shipping is estimated at the average finalized label cost ("+money(avgShip)+"); eBay fees at the average finalized rate ("+(feeRate*100).toFixed(1)+"% of sale price). Each estimate is replaced by the real charge automatically as it posts.</div>"
-    +"<table class=\"t\"><thead><tr><th>Group</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"
-    +"<tr><td>Finalized Sales</td><td class=\"r\">"+S.units+"</td><td class=\"r\">"+money(S.sales)+"</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.sales)+"</td></tr>"
-    +"<tr><td>Sales Pending Final Costs <span class=\"sm\">(shipping and fee charges not posted yet)</span></td><td class=\"r\">"+PEND.units+"</td><td class=\"r\">"+money(PEND.sales)+"</td><td class=\"r\">"+est(PEND.cogs)+"</td><td class=\"r\">"+est(PEND.profit)+"</td><td class=\"r\">"+pct(PEND.profit,PEND.sales)+"</td></tr>"
-    +"<tr class=\"tot\"><td>Total</td><td class=\"r\">"+PROJ.units+"</td><td class=\"r\">"+money(PROJ.sales)+"</td><td class=\"r\">"+est(PROJ.cogs)+"</td><td class=\"r\">"+est(PROJ.profit)+"</td><td class=\"r\">"+pct(PROJ.profit,PROJ.sales)+"</td></tr>"
+    +"<table class=\"t\"><thead><tr><th>Group</th><th class=\"r\">Units</th><th class=\"r\">Net Sales</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"
+    +"<tr><td>Finalized Sales</td><td class=\"r\">"+S.units+"</td><td class=\"r\">"+money(S.net)+"</td><td class=\"r\">"+money(S.cogs)+"</td><td class=\"r "+(S.profit<0?"neg":"pos")+"\">"+money(S.profit)+"</td><td class=\"r\">"+pct(S.profit,S.net)+"</td></tr>"
+    +"<tr><td>Sales Pending Final Costs <span class=\"sm\">(shipping and fee charges not posted yet)</span></td><td class=\"r\">"+PEND.units+"</td><td class=\"r\">"+money(PEND.net)+"</td><td class=\"r\">"+(PEND.lines?est(PEND.cogs):money(0))+"</td><td class=\"r\">"+(PEND.lines?est(PEND.profit):money(0))+"</td><td class=\"r\">"+pct(PEND.profit,PEND.net)+"</td></tr>"
+    +"<tr class=\"tot\"><td>Total</td><td class=\"r\">"+PROJ.units+"</td><td class=\"r\">"+money(PROJ.net)+"</td><td class=\"r\">"+(PEND.lines?est(PROJ.cogs):money(PROJ.cogs))+"</td><td class=\"r\">"+(PEND.lines?est(PROJ.profit):money(PROJ.profit))+"</td><td class=\"r\">"+pct(PROJ.profit,PROJ.net)+"</td></tr>"
     +"</tbody></table>"
     +"</div>";
 
   const groupBy=function(list,key){ const g={}; list.forEach(function(r){ const kk=r[key]||"—"; if(!g[kk]) g[kk]={units:0,sales:0,cost:0,profit:0};
-      g[kk].units++; g[kk].sales+=r.sale; g[kk].cost+=r.eCogs+r.refund; g[kk].profit+=r.eProfit; });
+      if(!r.voided) g[kk].units++; g[kk].sales+=r.sale-r.refund; g[kk].cost+=r.eCogs; g[kk].profit+=r.eProfit; });
     return Object.keys(g).map(function(k){ return Object.assign({name:k},g[k]); }).sort(function(a,b){return b.sales-a.sales;}); };
   const distRows=function(list){ return list.map(function(g){ return "<tr><td>"+esc(g.name)+"</td><td class=\"r\">"+g.units+"</td><td class=\"r\">"+money(g.sales)+"</td><td class=\"r\">"+money(g.cost)+"</td><td class=\"r "+(g.profit<0?"neg":"pos")+"\">"+money(g.profit)+"</td><td class=\"r\">"+pct(g.profit,g.sales)+"</td></tr>"; }).join(""); };
   const sheet2=""
     +"<div class=\"sheet pagebreak\">"
-    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">All "+rows.length+" sales · estimates included where charges have not posted</div></div>"
+    +"<div class=\"hd\"><h1>Sales Overview</h1><div class=\"per\">"+esc((sel&&sel.label)||"All time")+"</div><div class=\"sub\">All "+rows.length+" sales · net sales are after refunds · estimates included where charges have not posted</div></div>"
     +"<h2>Sales by eBay Category</h2>"
-    +"<table class=\"t\"><thead><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"cat"))+"</tbody></table>"
+    +"<table class=\"t\"><thead><tr><th>Category</th><th class=\"r\">Units</th><th class=\"r\">Net Sales</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"cat"))+"</tbody></table>"
     +"<h2>Sales by Character</h2>"
-    +"<table class=\"t\"><thead><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Sales</th><th class=\"r\">Costs</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"chr"))+"</tbody></table>"
+    +"<table class=\"t\"><thead><tr><th>Character</th><th class=\"r\">Units</th><th class=\"r\">Net Sales</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th><th class=\"r\">Margin</th></tr></thead><tbody>"+distRows(groupBy(rows,"chr"))+"</tbody></table>"
     +"</div>";
 
   // Temporary diagnostic: where the printed descriptions came from, and how many sales could not be
@@ -3467,7 +3476,7 @@ function renderProfitLoss(sel){
     const feeCell  = r.hasFees? money(r.fees) : (r.voided? money(0) : est(r.eFees));
     const cogsCell = (r.settled||r.voided)? money(r.cogs) : est(r.eCogs);
     const profCell = (r.settled||r.voided)? ("<span class=\""+(r.profit<0?"neg":"pos")+"\">"+money(r.profit)+"</span>") : est(r.eProfit);
-    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":(r.partial?" · <span class=\"neg\">partial refund "+money(r.refund)+"</span>":""));
+    const flag = r.cancelled?" · <span class=\"neg\">cancelled</span>":(r.returned?" · <span class=\"neg\">returned</span>":(r.partial?" · <span class=\"neg\">partial refund</span>":""));
     const chTag = (chWant==="combined")?(" · "+(r.channel==="legacy"?"Legacy":"Warehouse")):"";
     const covTag = r.covered?" · shipped in another order's box":(r.pickup?" · collected in person":(r.reassigned?" · carries the label for a combined shipment":""));
     const refTag = r.refundPending?" · <span class=\"estv\">refund in process</span>":"";
@@ -3477,7 +3486,8 @@ function renderProfitLoss(sel){
       +"<div class=\"meta\">"+esc([r.sku,r.itemNumber?("eBay "+itemNumberWithCopy(r.itemNumber,r.copyNo)):"",r.orderId?("order "+r.orderId):""].filter(Boolean).join(" · "))+chTag+covTag+refTag+flag+"</div></td>"
       +"<td>"+esc(dt(r.soldMs))+"</td><td>"+esc(dt(r.shippedMs))+"</td>"
       +"<td>"+esc(r.condition)+"</td>"
-      +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+(r.voided?"—":money(r.unitCost))+"</td>"
+      +"<td class=\"r\">"+money(r.sale)+"</td><td class=\"r\">"+(r.refund?("<span class=\"neg\">−"+money(r.refund)+"</span>"):(r.refundPending?"<span class=\"estv\">pending</span>":"—"))+"</td>"
+      +"<td class=\"r\">"+(r.voided?"—":money(r.unitCost))+"</td>"
       +"<td class=\"r\">"+shipCell+"</td><td class=\"r\">"+feeCell+"</td>"
       +"<td class=\"r\">"+cogsCell+"</td><td class=\"r\">"+profCell+"</td></tr>";
   };
@@ -3485,12 +3495,12 @@ function renderProfitLoss(sel){
   const ledgerTable=function(list){
     const T=agg(list,true), anyEst=list.some(function(r){return !r.settled;});
     return "<table class=\"t items\"><colgroup><col class=\"c1\"><col class=\"c2\"><col class=\"c3\"><col class=\"c3\"><col class=\"c4\">"
-      +"<col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"></colgroup>"
+      +"<col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"><col class=\"c5\"></colgroup>"
       +"<thead><tr><th>Photo</th><th>Title / Description</th><th>Sold</th><th>Shipped</th><th>Cond.</th>"
-      +"<th class=\"r\">Price</th><th class=\"r\">Unit Cost</th><th class=\"r\">Ship</th><th class=\"r\">eBay Fees</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th></tr></thead>"
+      +"<th class=\"r\">Price</th><th class=\"r\">Refund</th><th class=\"r\">Unit Cost</th><th class=\"r\">Ship</th><th class=\"r\">eBay Fees</th><th class=\"r\">COGS</th><th class=\"r\">Profit</th></tr></thead>"
       +"<tbody>"+list.slice().sort(byDate).map(ledgerRow).join("")+"</tbody>"
       +"<tfoot><tr class=\"tot\"><td></td><td>Total — "+list.length+" sale"+(list.length===1?"":"s")+"</td><td></td><td></td><td></td>"
-      +"<td class=\"r\">"+money(T.sales)+"</td><td class=\"r\">"+money(T.unitCost)+"</td>"
+      +"<td class=\"r\">"+money(T.sales)+"</td><td class=\"r\">"+(T.refund?("<span class=\"neg\">−"+money(T.refund)+"</span>"):"—")+"</td><td class=\"r\">"+money(T.unitCost)+"</td>"
       +"<td class=\"r\">"+(anyEst?est(T.ship):money(T.ship))+"</td><td class=\"r\">"+(anyEst?est(T.fees):money(T.fees))+"</td>"
       +"<td class=\"r\">"+(anyEst?est(T.cogs):money(T.cogs))+"</td>"
       +"<td class=\"r\">"+(anyEst?est(T.profit):("<span class=\""+(T.profit<0?"neg":"pos")+"\">"+money(T.profit)+"</span>"))+"</td></tr></tfoot>"
@@ -3519,8 +3529,9 @@ function renderProfitLoss(sel){
     +"thead{display:table-header-group;} tr{page-break-inside:avoid;}"
     +".tot td{font-weight:800;border-top:2px solid #1a2b4a;background:#f0f2f8;}"
     +".pos{color:#1F7244;} .neg{color:#c0392b;} .estv{color:#b8860b;}"
+    +".t td .sm{font-size:9px;color:#889;font-weight:400;}"
     +"table.items{table-layout:fixed;font-size:9px;} .items th,.items td{padding:3px 3px;}"
-    +".items col.c1{width:30px;} .items col.c2{width:auto;} .items col.c3{width:46px;} .items col.c4{width:46px;} .items col.c5{width:42px;}"
+    +".items col.c1{width:30px;} .items col.c2{width:auto;} .items col.c3{width:46px;} .items col.c4{width:46px;} .items col.c5{width:40px;} .items td.r{white-space:nowrap;}"
     +".items img{width:26px;height:26px;object-fit:cover;border-radius:3px;} .imgc{width:30px;}"
     +".noimg{width:26px;height:26px;background:#eef;border-radius:3px;text-align:center;line-height:26px;color:#aab;}"
     +".ttl{font-weight:600;} .dsc{font-size:8px;color:#667;margin-top:1px;} .meta{font-size:8px;color:#889;margin-top:1px;}"
@@ -3531,7 +3542,8 @@ function renderProfitLoss(sel){
   // to open afterwards and the statement had to be found in a folder by hand. Printing it through
   // the same engine WIM runs on means WIM chooses the path, and can hand the finished file to the
   // system PDF reader. If that engine cannot be found the print dialog still works as a fallback.
-  const pdfName="WIM P&L "+String((sel&&sel.label)||"All time").replace(/[\\/:*?"<>|]/g,"-")+".pdf";
+  const pdfName=("WIM P&L "+String((sel&&sel.label)||"All time")).replace(/[\u2013\u2014]/g,"-").replace(/\u00b7/g,"-")
+    .replace(/[^A-Za-z0-9 &(),.\-]/g,"").replace(/\s+/g," ").trim()+".pdf";
   const printFallback=function(note){
     if(note){ try{ wimToast(note); }catch(e){} }
     let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
@@ -3552,7 +3564,7 @@ function renderProfitLoss(sel){
         const m=(e&&e.message)?e.message:String(e);
         printFallback(/NO_BROWSER/.test(m)
           ? "No PDF renderer found on this machine \u2014 opening the print dialog instead."
-          : "Couldn't write the PDF directly \u2014 opening the print dialog instead.");
+          : "Couldn't write the PDF directly ("+m.slice(0,160)+") \u2014 opening the print dialog instead.");
       });
     return;
   }
