@@ -460,6 +460,14 @@ const Cloud={
   getTombstones(since){ return Cloud.rpc("get_tombstones",{p_since:since||null}); },
   getSales(since){ return Cloud.rpc("get_sales",{p_since:since||null}); },
   getItemsSince(token,since){ return Cloud.rpc("get_items_since",{p_session_token:token,p_since:since}); },
+  // ---- Per-copy shelf records. These six take NO session token: they are as open as the
+  // store_item call InventoryIQ already uses. Locking them to a signed-in session is a separate
+  // job across every function, not something WIM can do unilaterally.
+  getCopies(since,afterId,limit){ return Cloud.rpc("get_copies",{p_since:since||null,p_after_id:afterId||null,p_limit:limit||1000}); },
+  copyPickSlot(copyId,orderId,who){ return Cloud.rpc("copy_pick_slot",{p_copy_id:copyId,p_order:orderId||null,p_who:who||null}); },
+  copyPlaceRow(rowId,slot,placement,who){ return Cloud.rpc("copy_place_row",{p_row_id:rowId,p_slot:slot,p_placement:placement,p_who:who||null}); },
+  copyUnslotRow(rowId,who){ return Cloud.rpc("copy_unslot_row",{p_row_id:rowId,p_who:who||null}); },
+  copiesRelink(listingId,siblingIds){ return Cloud.rpc("copies_relink",{p_listing_id:listingId,p_sibling_ids:siblingIds||[]}); },
   upsertItem(token,itemId,expectedUpdatedAt,data){ return Cloud.rpc("upsert_item",{p_session_token:token,p_item_id:itemId,p_expected_updated_at:expectedUpdatedAt,p_data:data}); },
   addItemHistory(token,itemId,note){ return Cloud.rpc("add_item_history",{p_session_token:token,p_item_id:itemId,p_note:note}); },
   claimItem(token,itemId){ return Cloud.rpc("claim_item",{p_session_token:token,p_item_id:itemId}); },
@@ -517,7 +525,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.16", BUILD_DATE="2026-10-09", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.19", BUILD_DATE="2026-10-12", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -623,6 +631,9 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.19","ONE SHELF SPOT PER BOOK, NOT PER LISTING. Two copies of the same book can now live in two different places -- C.5.08 and D.8.23 -- and WIM knows about both. Until now the shelf was read off the listing record, which can only ever describe one place, so the second copy was invisible: its spot read as empty and the auto-slotter would hand it to another book, and selling that copy slid up the wrong slot and sent the picker to the wrong shelf. Shelf occupancy, free positions, auto-slotting, the slot screens and the storage figures now all count physical books from the shared per-copy records. Placing, moving, unslotting and picking go through the server, which locks the slot and does the slide-up, so two people working the same slot from the two apps cannot scramble it; a slot that filled up between WIM reading it and writing is refused by the server and WIM quietly tries the next slot with room instead of showing an error. The listing record still carries the first copy spot, which is what labels and the ledger read. Picking now pulls the specific book rather than the listing. Separately, a listing that sold several times only ever carried its FIRST shipment at listing level, so later orders sat in Ready to Ship forever; each order shipped date and delivery estimate is now read from that order own record. This switches itself on the first time the shared copy records actually contain something, and an empty table means not switched -- so it stays on the old behaviour until the changeover, and reverts by itself if the changeover is rolled back, with nothing to coordinate. Tested across twenty-seven cases covering occupancy, paging, the periodic full re-read, picking, capacity refusals and regrouping."],
+  ["3.5.18","POSTAGE WAS BEING COUNTED AS INCOME AND THEN NOT COUNTED AS A COST. The field fulfillment.shipCostPaid does not mean what its name says. InventoryIQ fills it from eBay SHIPPING_LABEL charges -- it is the label WE bought, the same figure as the sales ledger ship cost -- but WIM read it as money the buyer had paid us and added it to revenue. At the same time the cost side only ever looked at shipLabelCost, which InventoryIQ does not write, so those same sales had no postage deducted at all. Both errors ran the same way, so a sale whose label InventoryIQ recorded was overstated by roughly twice the postage: once added as income it never was, once never subtracted as the cost it is. On a 55 dollar sale with a 4.25 label, profit read 45.96 when the truth is 37.46. Every listing is free shipping, so buyer-paid postage is now simply zero and lives in one function, and the real label charge is read from whichever of the three places actually recorded it. WIM has also stopped writing shipCostPaid at all -- InventoryIQ owns that field, and WIM was overwriting a real charge with nothing, having been reading the wrong part of eBay order data for it in the first place. This corrects the Profit Overview, Executive Overview, Vendor ROI, Cash Flow, True Net Profit and Shipping dashboards. The printed P&L and the sales ledger were never affected: they read the sales table, which was always right."],
+  ["3.5.17","A REAL SYNC ICON THAT SPINS, AND WIM ANALYTICS EXPORTS TO PDF. The sync control on the title bar was a button with the word Sync on it; it is now the two-arrow refresh mark, and while a sync is running the arrows turn through a half circle, hold for a beat, then turn through another -- two deliberate passes rather than one continuous whirl, because a sync is two things: fetch, then send. WIM Analytics gained an Export button beside the filters that puts every dashboard into a single PDF, one to a page with its own header, using whatever filters and period are set at that moment, and opens it when it is done. A cover page records the period, the filters and the time it was taken. It is not a screenshot: each dashboard is rendered again and its charts carried through as vector, so the figures and labels stay sharp and selectable at any zoom and print properly, which a capture of a scrolling window never does. Cards are kept from splitting across a page break, and the info buttons are dropped since nothing can be clicked on paper. Any dashboard that fails to render says so on its own page instead of being quietly left out."],
   ["3.5.16","Same contents as 3.5.15, released under a new version number: the 3.5.15 tag went up pointing at older code, so this replaces it cleanly rather than leaving two releases claiming to be the same thing. Carries everything from 3.5.14 and 3.5.15 -- the kept cloud session and the Sync button on the title bar, and the P&L saving itself as a PDF and opening in your PDF reader."],
   ["3.5.15","THE P&L NOW SAVES AS A PDF AND OPENS ITSELF. The statement went through the print dialog, and that dialog Save as PDF writes the file without ever telling WIM where it went -- so there was nothing for WIM to open, the window went blank, and the statement had to be found in a folder by hand. WIM now renders the PDF itself: it asks where to save, writes a real PDF there, and hands it straight to whatever opens PDFs on this computer. Same statement, same layout, same page breaks and colors, because it is printed by the same engine WIM already runs on rather than redrawn by something else. If no renderer can be found the old print dialog still appears, with a line saying why, so nothing is ever a dead end. This is a recompile."],
   ["3.5.14","SIGNING INTO WIM IS NOW THE ONLY SIGN-IN, AND THERE IS A SYNC BUTTON ON THE TITLE BAR. The cloud session only ever lived in memory, so closing WIM threw it away and the next launch meant opening Cloud Sync and typing the team code, name and PIN again -- a second login on a device that had already been connected once, by someone who had already signed in. The session lasts thirty days and renews itself every two minutes while WIM is open, so there was never a reason to ask twice. It is now kept with the rest of this device cloud settings and picked straight back up on launch, which also means the first sync starts on its own instead of waiting for someone to go and trigger it. A white Sync button now sits next to the cloud icon on the title bar: one click reconnects if it needs to, pulls items, sales, slots, categories and tombstones, pushes anything waiting, and reports what came down -- the same thing the Cloud Sync screen did, without the login. If the saved session has genuinely expired because WIM sat unopened for a month, it signs back in by itself using the sign-in kept from when the device was connected, which does mean that team name and PIN are held in this device local store. An administrator Force Log Out clears both, so a remote logout still works exactly as before."],
@@ -1292,7 +1303,7 @@ async function syncSlotsPull(){
 async function syncPullAndApply(){
   if(cloudSyncPaused()||!cloudSession) return { ok:false, skipped:true };
   const r=await syncDelta();
-  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ await pullTombstones(); }catch(e){} try{ await pullSales(); }catch(e){} try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
+  if(r.ok){ applyCloudRows(r.rows); _firstPullDone=true; try{ await pullTombstones(); }catch(e){} try{ await pullSales(); }catch(e){} try{ await pullCopies(); }catch(e){} try{ ensureShippingStages(); }catch(e){} try{ autoAdvanceFulfillment(); }catch(e){} try{ checkAutoComplete(); }catch(e){} }
   await syncSlotsPull();
   await pullCategories();
   return r;
@@ -2383,15 +2394,15 @@ let _syncNowBusy=false;
 async function cloudSyncNow(){
   const btn=document.getElementById("cloud-sync-now"); if(!btn) return;
   if(_syncNowBusy) return; _syncNowBusy=true;
-  const label=btn.textContent;
+  anEnsureSyncSpinStyle();
   const done=(txt,good)=>{
-    _syncNowBusy=false; btn.disabled=false; btn.textContent=label;
+    _syncNowBusy=false; btn.disabled=false; btn.classList.remove("spinning");
     btn.title=txt;
     try{ paintCloudBadge(); }catch(e){}
     try{ wimToast(txt, good?"success":""); }catch(e){}
     if(!good){ try{ uiAlert(txt); }catch(e){} }
   };
-  btn.disabled=true; btn.textContent="Syncing\u2026"; btn.title="Syncing with the cloud\u2026";
+  btn.disabled=true; btn.classList.add("spinning"); btn.title="Syncing with the cloud\u2026";
   try{
     const ses=await ensureCloudSession();
     if(!ses.ok){ done(ses.reason,false); return; }
@@ -2469,10 +2480,27 @@ function renderSyncPausedBanner(){
     host.appendChild(bar);
   }
 }
+// Two half turns with a beat between them, rather than one continuous spin -- it reads as two
+// distinct passes, which is what a sync actually is: fetch, then send.
+function anEnsureSyncSpinStyle(){
+  if(document.getElementById("wim-sync-spin-style")) return;
+  const st=document.createElement("style"); st.id="wim-sync-spin-style";
+  st.textContent="@keyframes wimSyncSpin{"
+    +"0%{transform:rotate(0deg);}"
+    +"40%{transform:rotate(180deg);}"
+    +"50%{transform:rotate(180deg);}"
+    +"90%{transform:rotate(360deg);}"
+    +"100%{transform:rotate(360deg);}}"
+    +"#cloud-sync-now svg{display:block;transition:transform .2s;}"
+    +"#cloud-sync-now.spinning svg{animation:wimSyncSpin 1.5s cubic-bezier(.45,.05,.3,1) infinite;}"
+    +"#cloud-sync-now:hover{background:#eef3f8;}"
+    +"#cloud-sync-now:disabled{cursor:default;opacity:.85;}";
+  document.head.appendChild(st);
+}
 function paintCloudBadge(){
   const el=document.getElementById("cloud-badge"); if(!el) return;
   const sb=document.getElementById("cloud-sync-now");
-  if(sb) sb.style.display=(DB.cloud&&DB.cloud.teamCode)?"inline-flex":"none";
+  if(sb){ anEnsureSyncSpinStyle(); sb.style.display=(DB.cloud&&DB.cloud.teamCode)?"inline-flex":"none"; }
   if(!(DB.cloud&&DB.cloud.teamCode)){ el.style.display="none"; return; }
   el.style.display="inline-flex";
   if(cloudSyncPaused()){ el.innerHTML=ICON_CLOUD_OFF; el.title="Cloud sync is paused — resume it in Cloud Sync Setup"; return; }
@@ -3575,13 +3603,31 @@ function autoAdvanceFulfillment(){
     if(!f.pickedAt) return;   // the PICK is the gate: nothing advances past Ready to Ship until it has been pulled
     // eBay exposes no true delivery date. InventoryIQ writes estimatedDeliveryAt (a window), so treat
     // that as delivered once it is actually in the past; the 7-day-after-shipped sweep still backstops it.
-    var _est=f.estimatedDeliveryAt && Date.parse(f.estimatedDeliveryAt)<=Date.now() ? f.estimatedDeliveryAt : null;
-    var _del=f.deliveredAt || _est;
+    // A listing that sold several times only ever carried the FIRST shipment at item level, so
+    // later orders looked unshipped forever. InventoryIQ now writes each order's own shipped date
+    // and delivery estimate under orderFlags, so the newest order's flags are read first and the
+    // item-level fields are the fallback for single-sale listings.
+    var _of=null;
+    try{
+      const fl=f.orderFlags||{};
+      const keys=Object.keys(fl);
+      if(keys.length){
+        keys.sort(function(a,b){
+          const ta=Date.parse((fl[a]||{}).shippedAt||(fl[a]||{}).soldAt||"")||0;
+          const tb=Date.parse((fl[b]||{}).shippedAt||(fl[b]||{}).soldAt||"")||0;
+          return tb-ta;
+        });
+        _of=fl[keys[0]]||null;
+      }
+    }catch(e){}
+    var _estRaw=(_of&&_of.estimatedDeliveryAt)||f.estimatedDeliveryAt;
+    var _est=_estRaw && Date.parse(_estRaw)<=Date.now() ? _estRaw : null;
+    var _del=(_of&&_of.deliveredAt) || f.deliveredAt || _est;
     if(_del && f.stage!=="completed"){
       f.stage="completed"; if(!f.completedAt) f.completedAt=_del; if(!f.sentToCatalogAt) f.sentToCatalogAt=new Date().toISOString();
       addHistory(it,"Auto-advanced to Completed \u2014 eBay reported delivered"); moved++;
-    } else if(f.shippedAt && f.stage==="readyToShip"){
-      f.stage="shipped"; if(!f.movedToShippingAt) f.movedToShippingAt=f.shippedAt;
+    } else if(((_of&&_of.shippedAt)||f.shippedAt) && f.stage==="readyToShip"){
+      f.stage="shipped"; if(!f.movedToShippingAt) f.movedToShippingAt=((_of&&_of.shippedAt)||f.shippedAt);
       addHistory(it,"Auto-advanced to Shipping \u2014 eBay label/tracking landed"); moved++;
     }
   });
@@ -3695,6 +3741,194 @@ function delistedCount(){ return delistedItems().length; }
 // is still physically sitting in its slot, so it needs to keep blocking that placement
 // number until the actual departure is confirmed — otherwise a brand new item could be
 // assigned the exact same physical spot a not-yet-shipped item is still occupying.
+
+/* ============================================================================================
+ * PER-COPY SHELF RECORDS
+ *
+ * A listing can have several physical copies sitting in different slots -- two of the same book
+ * at C.5.08 and D.8.23. The shared `copies` table holds one row per physical book; WIM used to
+ * infer the shelf from the item row, which could only ever describe one place.
+ *
+ * WIM already thinks one-row-per-copy natively (Bulk Add three and you get three item records),
+ * so this mostly means reading occupancy from the copies table instead of from item rows, and
+ * routing shelf writes through the server functions that do the locking and the slide-up.
+ *
+ * SWITCHING ON: not when the functions exist -- they exist the moment the SQL is installed, while
+ * the table is still empty, and WIM would read every shelf as bare. It switches on the first time
+ * get_copies actually returns a row, and an empty table means not switched. That is also exactly
+ * what a rollback looks like, so no coordination is needed to go back.
+ * ========================================================================================== */
+let _copyCycles=0;
+function copiesMode(){
+  try{ return !!(DB.cloud&&DB.cloud.copiesMode) && Array.isArray(DB.copies) && DB.copies.length>0; }
+  catch(e){ return false; }
+}
+function copiesOnShelf(){
+  if(!Array.isArray(DB.copies)) return [];
+  return DB.copies.filter(function(c){ return c && !c.deleted_at && (c.status||"on_shelf")==="on_shelf"; });
+}
+// A copy, dressed up enough to stand in for an item row wherever WIM used to count item rows for
+// shelf purposes. The shelf facts come from the copy; everything else from the listing it belongs
+// to, so cost, price, category and title all still work.
+function copyAsUnit(c){
+  const it=(DB.items||[]).find(function(x){ return x.id===c.item_id || x.id===c.row_id; })||null;
+  const p=parseInt(c.placement,10);
+  return {
+    id:c.id, _copy:c, _item:it, itemId:(it?it.id:(c.item_id||c.row_id||null)),
+    slot:c.slot||"", placement:isNaN(p)?null:p, sku:c.sku||"",
+    storedAt:c.stored_at||null,
+    desc:(it&&it.desc)||c.title||"", upc:(it&&it.upc)||c.item_number||"",
+    section:(it&&it.section)||"", subCategory:(it&&it.subCategory)||"",
+    condition:(it&&it.condition)||"", vendor:(it&&it.vendor)||"",
+    unitCost:(it?it.unitCost:""), retail:(it?it.retail:""),
+    listing:(it&&it.listing)||{}, fulfillment:(it&&it.fulfillment)||{},
+    sold:!!(it&&it.sold), onHand:"1", createdAt:(it&&it.createdAt)||c.created_at||null
+  };
+}
+function copiesForItem(itemId){
+  return copiesOnShelf().filter(function(c){ return c.item_id===itemId || c.row_id===itemId; })
+    .sort(function(a,b){ return (parseInt(a.placement,10)||0)-(parseInt(b.placement,10)||0); });
+}
+
+// Pull changed copies. Keyset paging on (updated_at, id) because a plain timestamp cursor loses
+// rows that share a timestamp across a page boundary. The window is re-read two minutes deep on
+// every sync: a slow transaction can commit with a stamp slightly in the past, and without the
+// overlap that row is never seen again. Every fifth cycle re-reads everything, because a delta
+// sync trusts every writer to bump updated_at and a single missed bump strands a row forever --
+// that exact failure has cost this project twice already.
+async function pullCopies(){
+  try{
+    if(!cloudSession) return 0;
+    if(!DB.cloud) DB.cloud={};
+    if(!Array.isArray(DB.copies)) DB.copies=[];
+    _copyCycles++;
+    const forceFull=(_copyCycles%5===1);
+    let since=null;
+    if(!forceFull && DB.cloud.lastCopySyncAt){
+      const t=Date.parse(DB.cloud.lastCopySyncAt);
+      if(!isNaN(t)) since=new Date(t-120000).toISOString();   // two-minute overlap
+    }
+    const seen=[]; let afterId=null, guard=0, newest=DB.cloud.lastCopySyncAt||null;
+    while(guard++<50){
+      const r=await Cloud.getCopies(since,afterId,1000);
+      if(!r||!r.ok) return 0;
+      let page=[]; try{ page=JSON.parse(r.body||"[]"); }catch(e){ return 0; }
+      if(!Array.isArray(page)||!page.length) break;
+      page.forEach(function(row){
+        seen.push(row);
+        const u=row.updated_at||row.created_at;
+        if(u&&(!newest||Date.parse(u)>Date.parse(newest))) newest=u;
+      });
+      if(page.length<1000) break;
+      const last=page[page.length-1];
+      since=last.updated_at||since; afterId=last.id;
+    }
+    if(!seen.length){
+      // An empty table is the un-switched state, not an empty warehouse.
+      if(forceFull && (!DB.copies.length)) { DB.cloud.copiesMode=false; }
+      return 0;
+    }
+    const byId={}; DB.copies.forEach(function(c,i){ byId[c.id]=i; });
+    let changed=0;
+    seen.forEach(function(row){
+      if(byId[row.id]!=null){ DB.copies[byId[row.id]]=row; }
+      else { byId[row.id]=DB.copies.length; DB.copies.push(row); }
+      changed++;
+    });
+    if(forceFull){
+      // Full read: the server's list is the whole truth, so anything held here that it no longer
+      // returns has gone at the source.
+      const live={}; seen.forEach(function(c){ live[c.id]=1; });
+      const before=DB.copies.length;
+      DB.copies=DB.copies.filter(function(c){ return live[c.id]; });
+      changed+=(before-DB.copies.length);
+    }
+    DB.cloud.lastCopySyncAt=newest;
+    if(!DB.cloud.copiesMode){
+      DB.cloud.copiesMode=true;
+      try{ addHistoryless_copiesOn(); }catch(e){}
+    }
+    if(changed){ save(); try{ wimRefreshAll(); }catch(e){} }
+    return changed;
+  }catch(e){ console.warn("WIM copies pull failed",e); return 0; }
+}
+function addHistoryless_copiesOn(){
+  try{ wimToast("Per-copy shelf records are now live.","success"); }catch(e){}
+  try{ console.log("WIM: copies mode ON -- shelf occupancy now reads the copies table."); }catch(e){}
+}
+
+// A server refusal, in words. IQCAP is the capacity refusal and carries the slot and the counts;
+// everything else arrives as P0001 with a sentence already written for a person to read.
+function copyErrText(r){
+  let body=""; try{ body=(r&&r.body)||""; }catch(e){}
+  let j=null; try{ j=JSON.parse(body); }catch(e){}
+  const msg=(j&&(j.message||j.hint))||body||"the server refused the change";
+  return String(msg).replace(/^SLOT_FULL:\s*/,"");
+}
+function copyErrIsCapacity(r){
+  let body=""; try{ body=(r&&r.body)||""; }catch(e){}
+  return /IQCAP|SLOT_FULL/.test(body);
+}
+
+// Put an item's book on a shelf, server-side. Place-at: the book already at that position and
+// everything behind it moves back one. A position past the end appends, so WIM passes the first
+// free position it can see, which after a pick-shift is always the end.
+// Returns {ok, row, capacity, error}. The row that comes back is authoritative -- WIM proposed a
+// spot from its own synced copy of the data, the server applied locking and capacity to it.
+async function cloudPlaceCopy(it,slot,placement){
+  if(!copiesMode()||!cloudSession) return { ok:false, skipped:true };
+  try{
+    const who=(SESSION&&SESSION.user)?String(SESSION.user.id):null;
+    const r=await Cloud.copyPlaceRow(it.id,slot,placement,who);
+    if(r&&r.ok){
+      let row=null; try{ const j=JSON.parse(r.body||"null"); row=Array.isArray(j)?j[0]:j; }catch(e){}
+      if(row){ mergeCopyRow(row); applyCopyToItem(it,row); save(); }
+      return { ok:true, row:row };
+    }
+    return { ok:false, capacity:copyErrIsCapacity(r), error:copyErrText(r) };
+  }catch(e){ return { ok:false, error:(e&&e.message)?e.message:String(e) }; }
+}
+async function cloudUnslotCopy(it){
+  if(!copiesMode()||!cloudSession) return { ok:false, skipped:true };
+  try{
+    const who=(SESSION&&SESSION.user)?String(SESSION.user.id):null;
+    const r=await Cloud.copyUnslotRow(it.id,who);
+    if(r&&r.ok){
+      let row=null; try{ const j=JSON.parse(r.body||"null"); row=Array.isArray(j)?j[0]:j; }catch(e){}
+      if(row) mergeCopyRow(row);
+      return { ok:true, row:row };
+    }
+    return { ok:false, error:copyErrText(r) };
+  }catch(e){ return { ok:false, error:(e&&e.message)?e.message:String(e) }; }
+}
+function mergeCopyRow(row){
+  if(!row||!row.id) return;
+  if(!Array.isArray(DB.copies)) DB.copies=[];
+  const i=DB.copies.findIndex(function(c){ return c.id===row.id; });
+  if(i>=0) DB.copies[i]=row; else DB.copies.push(row);
+}
+// The item row keeps showing the first copy's spot, which is what the ledger, labels and older
+// WIM builds read. It is a display convenience, never the thing occupancy is counted from.
+function applyCopyToItem(it,row){
+  if(!it||!row) return;
+  const first=copiesForItem(it.id)[0]||row;
+  it.slot=first.slot||"";
+  const p=parseInt(first.placement,10);
+  it.placement=isNaN(p)?null:p;
+  it.sku=first.sku||"";
+}
+// Tell the server which item rows are copies of one listing. WIM's grouping rule (title, category,
+// Character, condition) lives only here, so the server cannot work it out on its own.
+async function cloudRelinkCopies(it){
+  if(!copiesMode()||!cloudSession||!it||!it.id) return;
+  try{
+    let sibs=[];
+    try{ sibs=(typeof unitsOf==="function"?unitsOf(it):[it]).map(function(x){ return x.id; }); }catch(e){ sibs=[it.id]; }
+    if(sibs.indexOf(it.id)<0) sibs.push(it.id);
+    await Cloud.copiesRelink(it.id,sibs);
+  }catch(e){ /* best effort: a failed relink leaves the copies under their own rows, recoverable */ }
+}
+
 function stillInSlot(it){
   if(itemStatus(it)==="inactive") return false;
   if(!it.sold) return true;
@@ -3703,7 +3937,24 @@ function stillInSlot(it){
   // days. A sold item that hasn't been picked yet is still sitting right where it was.
   return !(it.fulfillment && it.fulfillment.pickedAt);
 }
-function activeInSlot(slotId,ex){ return DB.items.filter(i=>i.slot===slotId&&i.id!==ex&&stillInSlot(i)); }
+// What is physically in a slot. Once per-copy records are live this counts BOOKS -- a listing
+// with two copies in one slot occupies two positions, which counting item rows could never show.
+// Before then it falls back to item rows, which is how WIM has always worked.
+function activeInSlot(slotId,ex){
+  if(copiesMode()){
+    return copiesOnShelf()
+      .filter(function(c){
+        if(c.slot!==slotId) return false;
+        // Only exclude when an id was actually given. Comparing against an absent `ex` matched
+        // every row whose own id field was absent too, which emptied the slot entirely.
+        if(ex && (c.item_id===ex || c.row_id===ex || c.id===ex)) return false;
+        return true;
+      })
+      .map(copyAsUnit)
+      .sort(function(a,b){ return (a.placement||0)-(b.placement||0); });
+  }
+  return DB.items.filter(i=>i.slot===slotId&&i.id!==ex&&stillInSlot(i));
+}
 function takenPlacements(slotId,ex){ return new Set(activeInSlot(slotId,ex).map(i=>i.placement)); }
 // Runs the moment an item is confirmed shipped or picked up — every other item still
 // physically in that same slot with a higher position number shifts down by one, so the
@@ -3724,7 +3975,41 @@ function shiftSlotDown(slotId, departedPlacement){
 // different apps can never scramble positions. WIM does NOT shift locally in that case -- that
 // would double-shift once the moved siblings synced up. Offline, it falls back to the local shift.
 function pickShift(it){
-  if(!it || !it.slot || it.placement==null) return;
+  if(!it) return;
+  // Per-copy: pull THIS book, not "the listing's slot". On a listing with copies in two slots the
+  // old call slid up whichever slot the item row happened to name, re-lettering the wrong
+  // neighbours and sending the picker to the wrong shelf.
+  if(copiesMode() && cloudSession && typeof cloudSyncPaused==="function" && !cloudSyncPaused()){
+    const mine=copiesForItem(it.id);
+    const copy=mine[0];
+    if(copy){
+      const who=(SESSION&&SESSION.user)?String(SESSION.user.id):null;
+      const ord=(it.fulfillment&&it.fulfillment.orderId)||null;
+      Cloud.copyPickSlot(copy.id,ord,who).then(function(r){
+        try{
+          if(r&&r.ok){
+            let rows=[]; try{ rows=JSON.parse(r.body||"[]"); }catch(e){}
+            // What comes back is the slot as it now stands. Drop every copy we held for that slot
+            // and take the server's version, so a position we guessed can never linger.
+            const slot=copy.slot;
+            if(Array.isArray(DB.copies)) DB.copies=DB.copies.filter(function(c){ return c.slot!==slot; });
+            (rows||[]).forEach(mergeCopyRow);
+            // The pulled copy itself is no longer on the shelf.
+            const gone=(DB.copies||[]).findIndex(function(c){ return c.id===copy.id; });
+            if(gone>=0) DB.copies.splice(gone,1);
+            applyCopyToItem(it,copy);
+            save();
+          }
+          try{ ensureShippingStages(); }catch(e){}
+          try{ autoAdvanceFulfillment(); }catch(e){}
+          try{ wimRefreshAll(); }catch(e){}
+        }catch(e){}
+      }).catch(function(){ /* offline: the next sync re-reads the slot from the server */ });
+      return;
+    }
+    // No copy on record for this item -- fall through to the old behaviour rather than doing nothing.
+  }
+  if(!it.slot || it.placement==null) return;
   if(cloudSession && typeof Cloud!=="undefined" && Cloud.pickItem && typeof cloudSyncPaused==="function" && !cloudSyncPaused()){
     var _slot=it.slot, _pl=it.placement;
     Cloud.pickItem(cloudSession.session_token, it.id).then(function(r){
@@ -3770,6 +4055,19 @@ function assignSkuForCommit(it){
   if(it.sku) return it.sku;
   const rs=autoSlot(it.id,it.section);
   if(rs){ it.slot=rs.slot; it.placement=rs.placement; it.sku=skuOf(rs.slot,rs.placement);
+    // Record the book on the shelf server-side. If that slot filled up between WIM reading it and
+    // writing, the server refuses with IQCAP and WIM tries the next slot with room rather than
+    // handing the person an error for something it can simply solve.
+    cloudPlaceCopy(it,rs.slot,rs.placement).then(function(res){
+      if(res&&res.ok===false&&res.capacity){
+        const alt=autoSlot(it.id,it.section);
+        if(alt&&alt.slot!==rs.slot){
+          it.slot=alt.slot; it.placement=alt.placement; it.sku=skuOf(alt.slot,alt.placement);
+          addHistory(it,"Slot "+rs.slot+" was full on the server — moved to "+it.sku);
+          cloudPlaceCopy(it,alt.slot,alt.placement); save(); try{ wimRefreshAll(); }catch(e){}
+        } else { addHistory(it,"Could not record the shelf spot: "+res.error); save(); }
+      }
+    });
     addHistory(it,"Warehouse SKU assigned at commit: "+it.sku);
     try{ anEvent("slot_place",{id:it.id,sku:it.sku},it); }catch(e){}
     return it.sku;
@@ -4099,6 +4397,11 @@ function renderTaskbar(){ tbWindows.innerHTML="";
   Object.entries(openWindows).forEach(([id,w])=>{ const b=document.createElement("div"); b.className="tb-item";
     b.innerHTML=`<div class="tb-logo"></div> ${w.title}`; b.onclick=()=>{ w.el.classList.remove("hidden"); focusWin(w.el); }; tbWindows.appendChild(b); }); }
 
+// Two arrows chasing each other round a circle -- the universal refresh mark, so the button
+// reads as sync at a glance instead of having to be labelled.
+const ICON_SYNC='<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M9.47 18.95 A7.4 7.4 0 0 1 10.08 4.85" fill="none" stroke="currentColor" stroke-width="2.9" stroke-linecap="butt"/><path d="M14.53 5.05 A7.4 7.4 0 0 1 13.92 19.15" fill="none" stroke="currentColor" stroke-width="2.9" stroke-linecap="butt"/><polygon points="14.91,3.56 11.02,8.33 9.15,1.37"/><polygon points="9.09,20.44 12.98,15.67 14.85,22.63"/></svg>';
+// A box with an arrow leaving it -- take what is on this screen out of the app.
+const ICON_EXPORT='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3 H21 V10"/><path d="M21 3 L11 13"/><path d="M19 14 V19.5 A1.5 1.5 0 0 1 17.5 21 H4.5 A1.5 1.5 0 0 1 3 19.5 V6.5 A1.5 1.5 0 0 1 4.5 5 H10"/></svg>';
 const ICON_CLOUD_ON='<svg width="17" height="13" viewBox="0 0 24 18" fill="none"><path d="M7 14.5C4.5 14.5 2.5 12.5 2.5 10C2.5 7.7 4.2 5.8 6.4 5.55C7.1 3.1 9.35 1.3 12 1.3C15.1 1.3 17.65 3.7 17.95 6.75C20.2 7.05 22 8.95 22 11.25C22 13.75 19.95 15.8 17.4 15.8H7.3C7.2 15.8 7.1 15.75 7 15.75" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_CLOUD_OFF='<svg width="17" height="13" viewBox="0 0 24 18" fill="none"><path d="M7 14.5C4.5 14.5 2.5 12.5 2.5 10C2.5 7.7 4.2 5.8 6.4 5.55C7.1 3.1 9.35 1.3 12 1.3C15.1 1.3 17.65 3.7 17.95 6.75C20.2 7.05 22 8.95 22 11.25C22 13.75 19.95 15.8 17.4 15.8H7.3C7.2 15.8 7.1 15.75 7 15.75" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><line x1="1.5" y1="17" x2="22.5" y2="1" stroke="#d7dadf" stroke-width="1.4" stroke-linecap="round"/></svg>';
 const I={
@@ -4572,7 +4875,7 @@ function showLauncher(){
   const win=document.createElement("div"); win.className="window launcher"; win.style.position="static";
   win.style.width="100%"; win.style.height="100%"; win.style.maxWidth="none"; win.style.border="none"; win.style.borderRadius="0"; win.style.boxShadow="none";
   const modeBadge = `<span id="mode-badge" style="display:inline-flex;align-items:center;gap:6px;background:#eef1f4;color:#7a8694;border:1px solid #cdd6df;border-radius:10px;padding:1px 10px;font-size:12px;margin-left:10px;cursor:pointer;" title="Click to connect/disconnect from eBay"><span id="mode-dot" style="width:9px;height:9px;border-radius:50%;background:#9aa3ad;display:inline-block;"></span><span id="mode-text">${isLive()?"Live Mode — Offline":"Warehouse Mode — eBay Offline"}</span></span>`;
-  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span><span id="cloud-badge" style="display:none;margin-left:8px;align-items:center;"></span><button id="cloud-sync-now" title="Sync with the cloud now" style="display:none;align-items:center;margin-left:7px;background:#ffffff;color:#1d2733;border:1px solid #c9d3de;border-radius:5px;font:600 11.5px inherit;padding:2px 10px;cursor:pointer;line-height:1.5;">Sync</button>${modeBadge}
+  win.innerHTML=`<div class="titlebar" style="cursor:default;"><span class="appicon"></span><span class="ttl">Warehouse Inventory Management&nbsp;&nbsp;v${APP_VERSION}&nbsp;&nbsp;&mdash;&nbsp; user ${SESSION.user.id} (${ROLE_LABEL[role()]||"User"})</span><span id="cloud-badge" style="display:none;margin-left:8px;align-items:center;"></span><button id="cloud-sync-now" title="Sync with the cloud now" style="display:none;align-items:center;justify-content:center;margin-left:7px;background:#ffffff;color:#1d2733;border:1px solid #c9d3de;border-radius:5px;padding:4px 7px;cursor:pointer;line-height:0;">${ICON_SYNC}</button>${modeBadge}
       <div class="winbtns" style="display:flex;gap:6px;align-items:center;"><span id="lc-float" title="${(DB.meta&&DB.meta.floatWindows===false)?'Apps open docked in this window — click to make them float in their own windows':'Apps open in their own movable windows — click to dock them in one window'}" style="cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;font-size:16px;margin-right:2px;line-height:1;${(DB.meta&&DB.meta.floatWindows===false)?'color:rgba(255,255,255,.55);':'color:#ffffff;'}">&#10696;</span><button class="btn sm" id="lc-switch" title="Switch mode" style="min-width:0;padding:2px 12px;">Switch to ${isLive()?"Warehouse":"Live"}</button><button class="btn sm close" title="Log out" style="min-width:0;padding:2px 12px;">Log out</button></div></div>
     <div class="body"><div id="sync-paused-banner"></div><div id="backup-reminder"></div><div class="panes"><div class="tree-pane" id="tree-pane"></div><div class="detail-pane" id="detail-pane"></div></div>
       <div class="launcher-foot"><span>WIM v${APP_VERSION} &middot; ${isLive()?"Live (eBay)":"Warehouse"} &middot; desktop edition</span><span style="flex:1;"></span><span id="foot-about" class="action" style="text-decoration:underline;">About</span></div></div>`;
@@ -5707,7 +6010,9 @@ function renderSlots(body){
   head.querySelector("#sd-del").onclick=()=>{ if(cnt>0){uiAlert("Cannot delete slot "+s.id+": it has active inventory.");return;}
     uiConfirm("Delete slot "+s.id+"?",()=>{ DB.slots=DB.slots.filter(x=>x.id!==s.id); try{ if(cloudSession && Cloud.deleteSlot){ Cloud.deleteSlot(cloudSession.session_token, s.id); } _slotsMadeThisSession.delete(s.id); }catch(e){} save(); mapState.selSlot=null; renderSlots(body); }); };
   activeInSlot(s.id).sort((a,b)=>a.placement-b.placement).forEach(it=>{ const li=document.createElement("div"); li.className="li";
-    li.innerHTML=`<b>${it.sku}</b> &mdash; ${esc(it.desc)} <span style="color:#777;">(Item # ${esc(it.upc)})</span>`; li.ondblclick=()=>openItemDetail(it,"edit"); det.appendChild(li); });
+    li.innerHTML=`<b>${it.sku}</b> &mdash; ${esc(it.desc)} <span style="color:#777;">(Item # ${esc(it.upc)})</span>`;
+    const target=it._item||it;
+    li.ondblclick=()=>{ if(target&&target.desc!=null) openItemDetail(target,"edit"); }; det.appendChild(li); });
 }
 
 /* ============================================================ CREATE CATEGORY (with slot picker) ============================================================ */
@@ -7115,7 +7420,7 @@ async function publishToEbay(it,onStep){
   if(!it.listing) it.listing={status:"none"};
   it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); it.listing.offerId=offerId; it.listing.ebayListingId=listingId; it.listing.publishMethod="api";
   it.listing.ebayItemId=it.listing.ebayItemId||listingId;
-  stampItemNumberFromListing(it);
+  stampItemNumberFromListing(it); cloudRelinkCopies(it);
   reportDesktopListedToIq(it);   // tell InventoryIQ so its phone Review & List queue drops this item
   anEvent("listed",{id:it.id},it);
   if(!it.listing.listedBy) it.listing.listedBy=(SESSION.user?SESSION.user.id:null); // for Recently Listed attribution
@@ -8842,7 +9147,7 @@ function openItemDetail(item,mode,nav,defaultTab){
       };
       const localTog=lwrap.querySelector("#l-localtoggle"); if(localTog) localTog.onclick=(e)=>{ e.preventDefault();
         if(it.listing.status==="listed"){ it.listing.status="delisted"; it.listing.delistedAt=new Date().toISOString(); addHistory(it,"Delisted (local status only, eBay not contacted)"); }
-        else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); stampItemNumberFromListing(it); addHistory(it,"Marked as Listed (local status only, eBay not contacted)"); }
+        else { if(!it.listing.title) it.listing.title=it.desc; it.listing.status="listed"; it.listing.listedAt=new Date().toISOString(); stampItemNumberFromListing(it); cloudRelinkCopies(it); addHistory(it,"Marked as Listed (local status only, eBay not contacted)"); }
         save(); refreshSearchWindows&&refreshSearchWindows(); renderListing(); };
       function renderEbayImgs(){ const host=lwrap.querySelector("#l-ebayimgs"); if(!host) return; const urls=(it.listing&&it.listing.ebayImageUrls)||[];
         host.innerHTML = urls.length ? `<div class="smallhint" style="margin-bottom:3px;">On eBay (${urls.length}):</div>`+urls.map(u=>`<div style="font-size:11px;color:#1f7244;word-break:break-all;">✓ ${esc(u)}</div>`).join("") : ""; }
@@ -9185,7 +9490,7 @@ function openItemDetail(item,mode,nav,defaultTab){
       recordAdds(created, SESSION.user.id, "Add");
       if(it._pendingListing && created[0]){ const L=it._pendingListing;
         created[0].listing=Object.assign({status:"listed",title:desc,price:"",qty:String(qty),descriptionId:null,ebayOfferId:null,ebaySku:null,listedAt:new Date().toISOString(),delistedAt:null}, L);
-        stampItemNumberFromListing(created[0]);
+        stampItemNumberFromListing(created[0]); cloudRelinkCopies(created[0]);
         if(L.ebaySku){ if(!DB.ebay) DB.ebay={}; if(!Array.isArray(DB.ebay.filedSkus)) DB.ebay.filedSkus=[]; if(!DB.ebay.filedSkus.includes(L.ebaySku)) DB.ebay.filedSkus.push(L.ebaySku); }
         addHistory(created[0],"Filed from eBay listing"+(L.ebaySku?(" (eBay SKU "+L.ebaySku+")"):"")); }
       if(sendToLive){ created.forEach(ni=>{ if(!ni.listing) ni.listing={status:"none"}; ni.listing.readyToList=true; addHistory(ni,"Sent to Live (Ready to List)"); }); }
@@ -9431,6 +9736,9 @@ function reactivateItem(it, closeCatalog){
   function reviveTo(slot,placement,manual){
     it.sold=false; setItemStatus(it,"active"); it.soldAt=null; it.soldBy=null; it.outType=null; it.onHand="1";
     it.manualSlot=!!manual; it.slot=slot||""; it.placement=placement||null; it.sku=(slot&&placement)?skuOf(slot,placement):"";
+    if(slot&&placement){ cloudPlaceCopy(it,slot,placement).then(function(res){
+        if(res&&res.ok===false&&res.error){ uiAlert("The shelf spot was not recorded: "+res.error); } }); }
+    else { cloudUnslotCopy(it); }
     addHistory(it,"Reactivated from catalog (SKU "+(it.sku||"unassigned")+")");
     recordAdds([it], SESSION.user.id, "Add");
     save(); refreshSearchWindows(); refreshInvoices();
@@ -9453,7 +9761,7 @@ function reactivateItem(it, closeCatalog){
         <button class="btn" id="rx-man">Manually Enter</button>
         <button class="btn" id="rx-cancel">Cancel</button></div></div>`;
   body.querySelector("#rx-gen").onclick=()=>{ const r=autoSlot(it.id,it.section); if(!r){ uiAlert("No slot is available for this item's Category. Add one in Warehouse Maintenance first."); return; } close(); reviveTo(r.slot,r.placement,false); };
-  body.querySelector("#rx-man").onclick=()=>{ it.sold=false; it.soldAt=null; it.soldBy=null; it.outType=null; if((parseFloat(it.onHand)||0)<1) it.onHand="1"; it.manualSlot=true; it.slot=""; it.placement=null; it.sku=""; addHistory(it,"Reactivated from catalog (manual slotting)"); recordAdds([it],SESSION.user.id,"Add"); save(); refreshSearchWindows(); refreshInvoices(); close(); if(closeCatalog) closeCatalog(); openItemDetail(it,"edit"); };
+  body.querySelector("#rx-man").onclick=()=>{ it.sold=false; it.soldAt=null; it.soldBy=null; it.outType=null; if((parseFloat(it.onHand)||0)<1) it.onHand="1"; it.manualSlot=true; it.slot=""; it.placement=null; it.sku=""; cloudUnslotCopy(it); addHistory(it,"Reactivated from catalog (manual slotting)"); recordAdds([it],SESSION.user.id,"Add"); save(); refreshSearchWindows(); refreshInvoices(); close(); if(closeCatalog) closeCatalog(); openItemDetail(it,"edit"); };
   body.querySelector("#rx-cancel").onclick=close;
 }
 function normSlot(v){ if(!v) return ""; v=v.toUpperCase().trim().replace(/\.+$/,""); const m=v.match(/^([A-Z]+)\.?(\d+)$/); return m?(m[1]+"."+m[2]):""; }
@@ -9850,7 +10158,7 @@ async function pullInventoryIqListed(){
       if(!it.listing||typeof it.listing!=="object") it.listing={ status:"none", title:"", price:"", qty:"1" };
       it.listing.status="listed";
       it.listing.ebayItemId=L.ebayItemId||it.listing.ebayItemId||null;
-      stampItemNumberFromListing(it);
+      stampItemNumberFromListing(it); cloudRelinkCopies(it);
       it.listing.listedAt=it.listing.listedAt||new Date().toISOString();
       it.listing.listedVia="inventoryiq";
       if(L.price!=null && !it.listing.price) it.listing.price=String(L.price);
@@ -11373,7 +11681,9 @@ function openBulkAdd(mode){
         caseCost:"0.00", casePack:"", base:"0.00", mixMatch:"None - 0", orderCode:"", posDesc:"", size:"1", sizeUnit:"Pound", posDept:DB.posDepts[0] };
         it.history=[{at:it.createdAt,desc:"Item created (SKU "+it.sku+", Bulk Add)",by:(SESSION.user?userLabel(SESSION.user.id):"system")}];
         vendorDrawUnit(rowVendor, it.unitCost);
-        DB.items.push(it); createdItems.push(it); batch.push(it); r._items.push(it); r.skus.push(it.sku); made++; });
+        DB.items.push(it); createdItems.push(it); batch.push(it); r._items.push(it); r.skus.push(it.sku); made++;
+        // Each copy is its own book on its own shelf spot, so each gets its own server record.
+        try{ cloudPlaceCopy(it, pl.slot, pl.placement); }catch(e){} });
       r.slot=alloc[0].slot; r.created=true;
     });
     if(batch.length) recordAdds(batch, SESSION.user.id, "Bulk Add");
@@ -13465,7 +13775,10 @@ async function pullRecentlySold(daysBack){
       // bypass the shipping process entirely once detected.
       f.isPickup = !!(startInstr && startInstr.fulfillmentInstructionsType==="PREPARE_FOR_PICKUP");
       f.soldPrice=li.total&&li.total.value||null;
-      f.shipCostPaid=(li.deliveryCost&&li.deliveryCost.value)||null;
+      // Deliberately not written. InventoryIQ owns fulfillment.shipCostPaid and fills it with the
+      // real SHIPPING_LABEL charge; WIM writing here would overwrite that. It was also reading the
+      // wrong path -- eBay puts the buyer's delivery charge at deliveryCost.shippingCost.value, not
+      // deliveryCost.value -- so this only ever wrote null and then clobbered a real figure.
       f.soldAt=order.creationDate||new Date().toISOString();
       setItemStatus(localItem,"sold");
       anEvent("sold",{id:localItem.id,orderId:order.orderId},localItem);
@@ -14158,7 +14471,7 @@ async function openTrueNetProfit(){
         const match=DB.items.find(x=>x.fulfillment&&x.fulfillment.orderId===orderId);
         const fees=(t.orderLineItems||[]).reduce((sum,li)=>sum+(li.marketplaceFees||[]).reduce((s,f)=>s+(parseFloat(f.amount&&f.amount.value)||0),0),0);
         const soldPrice=match?(parseFloat(match.fulfillment.soldPrice)||0):(parseFloat(t.amount&&t.amount.value)||0);
-        const shipPaid=match?(parseFloat(match.fulfillment.shipCostPaid)||0):0;
+        const shipPaid=match?buyerPaidShipping(match):0;
         const itemCost=match?(parseFloat(match.unitCost)||0):0;
         // Ship cost precedence: the REAL label bill from the fee pull, then a hand-entered cost,
         // then the category assumption. This screen previously ignored shipLabelCost entirely, so
@@ -14197,14 +14510,14 @@ function openVendorROI(){
       const row=mk(it.vendor);
       const f=it.fulfillment;
       row.units++;
-      row.revenue += (parseFloat(f.soldPrice)||0) + (parseFloat(f.shipCostPaid)||0);
+      row.revenue += (parseFloat(f.soldPrice)||0) + buyerPaidShipping(it);
       row.itemCost += parseFloat(it.unitCost)||0;
       row.shipCost += bestShipCost(it).v;
       row.refunds += parseFloat(f.refundedAmount)||0;
       // Real fees when the fee pull has them; your account's own effective rate as the estimate
       // when it hasn't. ROI "before eBay fees" misranks vendors — the fee is ~13% of the answer.
       if(f.feesPulledAt){ row.fees += parseFloat(f.ebayFees)||0; }
-      else { row.fees += ((parseFloat(f.soldPrice)||0)+(parseFloat(f.shipCostPaid)||0))*rate; row.feesEst=true; }
+      else { row.fees += ((parseFloat(f.soldPrice)||0)+buyerPaidShipping(it))*rate; row.feesEst=true; }
       if(it.createdAt && f.soldAt){
         const days=(new Date(f.soldAt)-new Date(it.createdAt))/86400000;
         if(days>=0){ row.daysSum+=days; row.daysCount++; }
@@ -14312,8 +14625,7 @@ function ebayCostFor(rec){
   const typed=parseFloat(rec.ebayActualCost);
   if(!isNaN(typed) && typed>0) return typed;
   const it=(DB.items||[]).find(x=>x.id===rec.itemId);
-  const c=it && it.fulfillment && parseFloat(it.fulfillment.shipLabelCost);
-  return (!isNaN(c) && c>0) ? c : null;
+  return it ? realShipCost(it) : null;
 }
 function comparisonWinner(r){
   const opts=[];
@@ -14736,7 +15048,9 @@ function openShippingInformation(it){
     const shipTo=f.shipTo||{};
     const ratesEl=body.querySelector("#si-rates"); ratesEl.innerHTML=`<div class="smallhint">Fetching real rates…</div>`;
     const rows=[];
-    if(f.shipCostPaid) rows.push({provider:"eBay.com",service:"Buyer paid this",amount:f.shipCostPaid,purchasable:false});
+    // This figure is the label charge InventoryIQ recorded against the order, not something the
+    // buyer paid -- it was labelled backwards here.
+    if(f.shipCostPaid) rows.push({provider:"eBay.com",service:"Label already charged",amount:f.shipCostPaid,purchasable:false});
     try{
       const shippoTok=await carrierGetSecret2("shippo","token");
       if(shippoTok){
@@ -15352,16 +15666,37 @@ function effectiveFeeRate(){
     const f=it.fulfillment;
     if(!f || !f.feesPulledAt) return;
     fees += parseFloat(f.ebayFees)||0;
-    rev  += (parseFloat(f.soldPrice)||0)+(parseFloat(f.shipCostPaid)||0);
+    rev  += (parseFloat(f.soldPrice)||0)+buyerPaidShipping(it);
   });
   return (rev>20 && fees>0) ? (fees/rev) : 0.1325;
 }
 // Best known shipping cost for an item: the REAL label bill (v3.3.78 fee pull) first, a manually
 // recorded cost second, the category assumption last.
+// What the BUYER paid us for postage. Every listing is free shipping, so this is zero, and it is
+// a function rather than a literal so that the day a paid-postage listing exists there is exactly
+// one place to change.
+//
+// This replaces reading fulfillment.shipCostPaid, which does NOT mean what its name suggests.
+// InventoryIQ fills that field from eBay's SHIPPING_LABEL charges -- it is the label WE bought,
+// the same figure as sales.ship_cost. WIM was adding it to revenue as though the buyer had paid
+// it, which cancelled out the very same amount being subtracted as a cost and quietly removed
+// postage from the profit calculation altogether. One label per sale, overstated.
+function buyerPaidShipping(it){ return 0; }
+// The postage we actually paid, where it is actually known -- no assumption, returns null when
+// there is no real figure. Three places record it and any of them is the truth:
+//   shipLabelCost  -- what WIM's own label purchase cost
+//   actualShipCost -- typed in by hand for a label bought outside eBay
+//   shipCostPaid   -- InventoryIQ's figure from eBay's SHIPPING_LABEL charges (same as sales.ship_cost)
+function realShipCost(it){
+  const f=(it&&it.fulfillment)||{};
+  const a=parseFloat(f.shipLabelCost);  if(!isNaN(a)&&a>0) return a;
+  const b=parseFloat(f.actualShipCost); if(!isNaN(b)&&b>0) return b;
+  const c=parseFloat(f.shipCostPaid);   if(!isNaN(c)&&c>0) return c;
+  return null;
+}
 function bestShipCost(it){
-  const f=it.fulfillment||{};
-  const real=parseFloat(f.shipLabelCost); if(!isNaN(real)&&real>0) return {v:real, real:true};
-  const man=parseFloat(f.actualShipCost); if(!isNaN(man)&&man>0) return {v:man, real:true};
+  const r=realShipCost(it);
+  if(r!=null) return {v:r, real:true};
   return {v:assumedShipCost(it.section), real:false};
 }
 
@@ -15369,9 +15704,11 @@ function bestShipCost(it){
 function itemProfit(it){
   const f=it.fulfillment||{};
   const sold   = parseFloat(f.soldPrice||0)||0;              // what the buyer paid for the item
-  const shipIn = parseFloat(f.shipCostPaid||0)||0;           // what the buyer paid you for postage
+  const shipIn = buyerPaidShipping(it);                      // free shipping: the buyer pays nothing
   const fees   = parseFloat(f.ebayFees||0)||0;               // what eBay took
-  const label  = parseFloat(f.shipLabelCost||0)||0;          // what postage actually cost you
+  // What postage actually cost. Reading shipLabelCost alone missed the sales where InventoryIQ
+  // recorded the charge instead, and those came out with no postage deducted at all.
+  const label  = realShipCost(it)||0;
   const cost   = parseFloat(it.unitCost||0)||0;              // what you paid for the item
   const refund = parseFloat(f.refundedAmount||0)||0;
   const revenue = sold + shipIn - refund;
@@ -19315,7 +19652,7 @@ function anPriorityAction(items,R){
   const rate=effectiveFeeRate();
   const missingFees=items.filter(it=>it.soldAt&&(!it.outType||it.outType==="Sell")&&it.fulfillment&&it.fulfillment.orderId&&!it.fulfillment.feesPulledAt);
   if(missingFees.length>=3){
-    const rev=missingFees.reduce((s,it)=>{ const f=it.fulfillment||{}; return s+(parseFloat(f.soldPrice)||0)+(parseFloat(f.shipCostPaid)||0); },0);
+    const rev=missingFees.reduce((s,it)=>{ const f=it.fulfillment||{}; return s+(parseFloat(f.soldPrice)||0)+buyerPaidShipping(it); },0);
     recs.push({ score:0.30*Math.min(1,rev*rate/100)+0.20*0.6+0.20*0.9+0.15*Math.min(1,missingFees.length/25)+0.10*1+0.05*0.5,
       title:"Pull eBay fees for "+missingFees.length+" sold items",
       why:missingFees.length+" real sales have an order ID but no pulled fees, so roughly "+anFmtVal(rev*rate,true)+" of eBay fees is currently estimated instead of known. One click on Shipping, Completed tab: Pull eBay Fees.",
@@ -19382,6 +19719,127 @@ const AN_NAV=[
   {section:"System", pages:[{k:"health",label:"Data & API Health",on:true}]}
 ];
 
+
+// ---- Export every dashboard, as it stands, to one PDF -------------------------------------
+// Each dashboard is rendered again into an off-screen container using the filters currently set,
+// and the finished markup is collected into a single print document, one dashboard per page with
+// its own header. The charts are inline SVG rather than pictures, so this is not a screenshot: it
+// comes out as sharp, selectable, printable vector at any zoom, which a screen capture of a
+// scrolling window could never be. Anything that cannot render is reported on its own page rather
+// than silently left out, so the export can always be trusted to be the whole set.
+let _anExportBusy=false;
+async function anExportAllDashboards(ctx){
+  if(_anExportBusy) return; _anExportBusy=true;
+  const btn=document.getElementById("an-export");
+  if(btn){ btn.disabled=true; btn.title="Building the export…"; }
+  try{
+    const R=anRange(ctx);
+    const host=document.createElement("div");
+    host.style.cssText="position:fixed;left:-99999px;top:0;width:1120px;height:auto;overflow:visible;";
+    document.body.appendChild(host);
+
+    let pages="", count=0;
+    AN_NAV.forEach(function(sec){
+      (sec.pages||[]).forEach(function(pg){
+        if(!pg.on) return;
+        const el=document.createElement("div");
+        el.className="an-main";
+        el.style.cssText="width:1120px;background:#fff;padding:0;overflow:visible;";
+        host.appendChild(el);
+        let inner="";
+        try{
+          (AN_PAGES[pg.k]||anRenderExec)(el, ctx, R);
+          inner=el.innerHTML;
+        }catch(e){
+          inner='<div class="an-empty">This dashboard could not be rendered for the export: '
+               +esc((e&&e.message)?e.message:String(e))+'</div>';
+        }
+        count++;
+        pages+='<div class="anpg">'
+          +'<div class="anhd"><div class="anttl">'+esc(pg.label)+'</div>'
+          +'<div class="ansub">'+esc(sec.section)+' &middot; '+esc(R.label)+'</div></div>'
+          +inner+'</div>';
+        el.remove();
+      });
+    });
+    host.remove();
+
+    // The dashboards' own stylesheet, so the export looks exactly like the screen.
+    let anCss="";
+    try{ const st=document.getElementById("an-style"); if(st) anCss=st.textContent||""; }catch(e){}
+
+    const when=new Date().toLocaleString("en-US",{year:"numeric",month:"long",day:"numeric",hour:"numeric",minute:"2-digit"});
+    const filt=[ctx.vendor?("Vendor: "+ctx.vendor):"", ctx.section?("Category: "+ctx.section):"",
+                ctx.condition?("Condition: "+ctx.condition):""].filter(Boolean).join(" · ") || "No filters applied";
+    const cover='<div class="anpg anfirst">'
+      +'<div class="ancover"><div class="anctitle">WIM Analytics</div>'
+      +'<div class="ancsub">'+esc(R.label)+'</div>'
+      +'<div class="ancmeta">'+count+' dashboards &middot; '+esc(filt)+'<br>Exported '+esc(when)+'</div></div></div>';
+
+    const css="<style>"
+      +anCss
+      +"@page{size:letter landscape;margin:0.4in;}"
+      +"*{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box;}"
+      +"body{margin:0;background:#fff;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;}"
+      +".anpg{page-break-before:always;padding:0 0 10px;}"
+      +".anpg.anfirst{page-break-before:avoid;}"
+      +".anhd{border-bottom:3px solid #1d2733;padding-bottom:6px;margin-bottom:12px;}"
+      +".anttl{font-size:21px;font-weight:800;color:#1d2733;letter-spacing:-.01em;}"
+      +".ansub{font-size:11.5px;color:#6a7480;margin-top:2px;}"
+      +".ancover{padding:150px 0 0;text-align:center;}"
+      +".anctitle{font-size:44px;font-weight:800;color:#1d2733;letter-spacing:-.02em;}"
+      +".ancsub{font-size:17px;color:#b8860b;font-weight:700;margin-top:6px;}"
+      +".ancmeta{font-size:12px;color:#6a7480;margin-top:18px;line-height:1.6;}"
+      // On paper there is no scrolling pane and no sidebar, so the screen's own framing is undone.
+      +".an-main{background:#fff!important;padding:0!important;overflow:visible!important;}"
+      +".an-card,.an-panel{max-height:none!important;overflow:visible!important;break-inside:avoid;page-break-inside:avoid;}"
+      +".an-title{font-size:0;margin:0;}"   // the page header already names the dashboard
+      +".an-sub{font-size:11.5px;color:#6a7480;margin-bottom:10px;}"
+      +".an-info{display:none!important;}"  // an info button cannot be clicked on paper
+      +".an-kpis{page-break-inside:avoid;}"
+      // On screen two charts sit side by side in a pane you can scroll; on paper that halves every
+      // chart and shrinks its axis labels to the point of being unreadable. One per row instead,
+      // full page width, which is also what makes a page hold one or two panels cleanly.
+      +"[style*=\"grid-template-columns:1fr 1fr\"]{display:block!important;}"
+      // The panel header pushes its title and hint to opposite edges, which looks deliberate in a
+      // narrow pane and broken across a full page.
+      +".an-ph{justify-content:flex-start!important;gap:10px;flex-wrap:wrap;}"
+      +".an-ph .smallhint{color:#6a7480;font-weight:400;}"
+      // A chart drawn the full width of a landscape page is about four inches tall, so only one
+      // fits and every page runs half empty. Capped so two panels sit on a page while the axis
+      // labels stay readable, which is the one-or-two-per-page the export is meant to produce.
+      +"svg{max-width:100%;height:auto;}"
+      +".an-card svg,.an-panel svg{max-width:7.3in;}"
+      +"table{page-break-inside:auto;} tr{page-break-inside:avoid;}"
+      +"</style>";
+
+    const html="<html><head><meta charset=\"utf-8\"><title>WIM Analytics</title>"+css+"</head><body>"+cover+pages+"</body></html>";
+    const fname="WIM Analytics "+String(R.label||"").replace(/[\\/:*?"<>|]/g,"-")+".pdf";
+
+    if(WIM_IS_DESKTOP){
+      try{
+        const path=await wimDesktop.invoke("wim_html_to_pdf",{ filename:fname, html:html });
+        if(path){ try{ wimToast("Analytics exported and opened.","success"); }catch(e){} }
+        return;
+      }catch(e){
+        try{ wimToast("Couldn't write the PDF directly — opening the print dialog instead."); }catch(_e){}
+      }
+    }
+    let ifr=document.getElementById("wim-print-frame"); if(ifr) ifr.remove();
+    ifr=document.createElement("iframe"); ifr.id="wim-print-frame";
+    ifr.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+    document.body.appendChild(ifr);
+    const doc=ifr.contentWindow.document; doc.open(); doc.write(html); doc.close();
+    setTimeout(function(){ try{ ifr.contentWindow.focus(); ifr.contentWindow.print(); }catch(e){ uiAlert("Print failed: "+(e&&e.message||e)); } },500);
+  }catch(e){
+    uiAlert("The export could not be built: "+((e&&e.message)?e.message:String(e)));
+  }finally{
+    _anExportBusy=false;
+    const b=document.getElementById("an-export");
+    if(b){ b.disabled=false; b.title="Export every dashboard to one PDF"; }
+  }
+}
+
 // ---- The application window. ---------------------------------------------------------------
 function openWimAnalytics(){
   if(!hasAccess("wim_analytics")){ uiAlert("WIM Analytics is admin only."); return; }
@@ -19444,10 +19902,12 @@ function openWimAnalytics(){
       +(ctx.preset==="custom"?'<input type="date" id="an-from" value="'+esc(ctx.from||"")+'"><input type="date" id="an-to" value="'+esc(ctx.to||"")+'">':"")
       +'<select id="an-vendor">'+vendorOpts+'</select><select id="an-cat">'+catOpts+'</select><select id="an-cond">'+condOpts+'</select>'
       +'<span style="font-size:11.5px;color:#6a7480;margin-left:auto;">'+esc(R.label)+'</span>'
+      +'<button id="an-export" title="Export every dashboard to one PDF" style="display:inline-flex;align-items:center;gap:6px;background:#fff;color:#1d2733;border:1px solid #cfd6dd;border-radius:5px;padding:4px 10px;font:600 11.5px inherit;cursor:pointer;line-height:1.4;">'+ICON_EXPORT+'<span>Export</span></button>'
       +'</div><div id="an-content"></div></div>';
     wrap.querySelectorAll("[data-an]").forEach(el=>el.onclick=()=>{ ctx.dash=el.getAttribute("data-an"); save(); render(); });
     const hook=(id,key)=>{ const el=wrap.querySelector(id); if(el) el.onchange=()=>{ ctx[key]=el.value; save(); render(); }; };
     hook("#an-preset","preset"); hook("#an-vendor","vendor"); hook("#an-cat","section"); hook("#an-cond","condition"); hook("#an-from","from"); hook("#an-to","to");
+    const exBtn=wrap.querySelector("#an-export"); if(exBtn) exBtn.onclick=()=>anExportAllDashboards(ctx);
     (AN_PAGES[ctx.dash]||anRenderExec)(wrap.querySelector("#an-content"), ctx, R);
   }
   render();
@@ -19633,15 +20093,16 @@ function anSaleRows(items,R){
     if(it.outType && it.outType!=="Sell") return;
     const f=it.fulfillment||{};
     const sold=parseFloat(f.soldPrice); if(isNaN(sold)) return;
-    const shipIn=parseFloat(f.shipCostPaid)||0;
+    const shipIn=buyerPaidShipping(it);
     const refund=parseFloat(f.refundedAmount)||0;
     const cost=parseFloat(it.unitCost)||0;
     const known=!!f.feesPulledAt;
     const gross=sold+shipIn;
     const fees=known?(parseFloat(f.ebayFees)||0):(gross-refund)*rate;
     const ship=bestShipCost(it);
-    const label=known&&parseFloat(f.shipLabelCost)>0?parseFloat(f.shipLabelCost):ship.v;
-    const labelReal=known&&parseFloat(f.shipLabelCost)>0?true:ship.real;
+    const _real=realShipCost(it);
+    const label=_real!=null?_real:ship.v;
+    const labelReal=_real!=null?true:ship.real;
     rows.push({it,gross,sold,shipIn,refund,cost,fees,label,known,labelReal,net:gross-refund-fees-label-cost});
   });
   return rows;
@@ -20584,6 +21045,14 @@ function anCostOf(it){ const c=parseFloat(it&&it.unitCost); return isNaN(c)?null
 function anAskOf(it){ const p=parseFloat((it&&it.listing&&it.listing.price)||(it&&it.retail)); return isNaN(p)?null:p; }
 // On the shelf right now: cataloged into a slot and not yet carried off it.
 function anInStorage(items){
+  if(copiesMode()){
+    // One entry per physical book. The filters that were applied to `items` still have to apply,
+    // so a copy whose listing was filtered out is dropped with it.
+    const keep={}; items.forEach(function(it){ keep[it.id]=1; });
+    return copiesOnShelf()
+      .filter(function(c){ return keep[c.item_id]||keep[c.row_id]; })
+      .map(copyAsUnit);
+  }
   return items.filter(it=>{
     if(!it.slot) return false;
     try{ if(typeof stillInSlot==="function" && !stillInSlot(it)) return false; }catch(e){}
@@ -20611,8 +21080,23 @@ function anMedianOf(arr){ const a=arr.filter(v=>v!=null&&!isNaN(v)).sort((x,y)=>
 // rather than starting the day a snapshot field was added. Items deleted outright are gone from
 // the record and cannot appear in it -- that is a limit of the data, not a rounding choice.
 function anStorageHistory(items,buckets){
-  const pre=items.map(it=>({ inAt:anStoredAtMs(it), outAt:anLeftStorageMs(it),
-                             cost:anCostOf(it), ask:anAskOf(it) })).filter(x=>x.inAt!=null);
+  let pre;
+  if(copiesMode()){
+    // Per book: on the shelf from its own stored date until its own pull. Far truer than the
+    // listing-level version, which could only ever describe one arrival and one departure.
+    const keep={}; items.forEach(function(it){ keep[it.id]=1; });
+    pre=(DB.copies||[]).filter(function(c){ return keep[c.item_id]||keep[c.row_id]; }).map(function(c){
+      const u=copyAsUnit(c);
+      const inAt=Date.parse(c.stored_at||"");
+      let outAt=Date.parse(c.pulled_at||c.removed_at||"");
+      if(isNaN(outAt)&&(c.deleted_at||(c.status&&c.status!=="on_shelf"))) outAt=Date.parse(c.updated_at||"");
+      return { inAt:isNaN(inAt)?null:inAt, outAt:isNaN(outAt)?null:outAt,
+               cost:anCostOf(u), ask:anAskOf(u) };
+    }).filter(function(x){ return x.inAt!=null; });
+  } else {
+    pre=items.map(it=>({ inAt:anStoredAtMs(it), outAt:anLeftStorageMs(it),
+                         cost:anCostOf(it), ask:anAskOf(it) })).filter(x=>x.inAt!=null);
+  }
   return buckets.map(b=>{
     const t=b.to.getTime(); let u=0,c=0,a=0,noCost=0;
     pre.forEach(x=>{
@@ -21258,7 +21742,7 @@ function anFulfillRows(items,R){
     if(!anInR(f.soldAt||it.soldAt,R)) return;
     rows.push({ it, f, soldAt:f.soldAt||it.soldAt, pickedAt:f.pickedAt, shippedAt:f.shippedAt,
       completedAt:f.completedAt, isPickup:!!f.isPickup,
-      label: (parseFloat(f.shipLabelCost)>0?parseFloat(f.shipLabelCost):null) });
+      label: realShipCost(it) });
   });
   return rows;
 }
