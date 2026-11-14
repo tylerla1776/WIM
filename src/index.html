@@ -525,7 +525,7 @@ async function setDesktopWindow(kind){
    before it is the pre-existing back catalogue that will never be inventoried into WIM. Change
    this one line to move the boundary. */
 const PULL_CUTOFF_MS = Date.parse("2026-08-01T00:00:00");
-const APP_VERSION="3.5.25", BUILD_DATE="2026-11-12", SCHEMA_VERSION=13, ADMIN_ID="64";
+const APP_VERSION="3.5.26", BUILD_DATE="2026-11-14", SCHEMA_VERSION=13, ADMIN_ID="64";
 // Local Profiles — genuinely separate local datasets on the same device (own inventory, own
 // vendors, own eBay connection, own everything), completely independent of cloud teams. The
 // default/original profile deliberately keeps using the exact same storage keys WIM has
@@ -631,6 +631,7 @@ function showAddItemDupePopup(match, onProceed){
   ]);
 }
 const CHANGELOG=[
+  ["3.5.26","SALES LEDGER EXPORT FILLS IN BF / SKU FOR WAREHOUSE SALES. Every warehouse sale now reads WIM in the BF / SKU column, so it stays identifiable after the ledger is combined with others. Sales that are not warehouse sales leave the column blank."],
   ["3.5.25","THE P&L SALES TABLE NOW BREAKS REFUNDS INTO THEIR THREE KINDS. The top of the statement reads Gross Sales, less Cancelled (refunded before it shipped), less Partial Refunds (part of the price refunded, buyer kept the book), less Complete Refunds (the full price refunded after it shipped), equals Net Sales. Each line shows how many orders it covers beside its dollar amount and its share of gross sales. The three refund lines always add up to the total refunded, and Net Sales is unchanged."],
   ["3.5.24","SALES LEDGER EXPORT: CANCELLED ORDERS NO LONGER SHOW PENDING, AND REFUNDS ARE NAMED PROPERLY. A cancelled order never shipped, so once its refund has gone out its shipping and eBay fee are a real zero; the export was printing Pending in those cells as if a charge were still on its way. The Location column now reads Cancelled (refunded before it shipped), Refunded (the full price refunded after it shipped) or Partial Refund (part of the price refunded, buyer kept it), and the P&L ledger uses the same words. The repeat-buyer analytics screen no longer uses a listing's asking price for a sale with no recorded price; those sales are left out. Note: a few cancelled orders carry a NEGATIVE eBay fee in the shared ledger, which makes them show a small profit; that is a data error at the source and is being corrected by InventoryIQ."],
   ["3.5.23","P&L NOW REPORTS NET SALES, AND EXPORT SALES LEDGER WORKS AGAIN. Refunds were listed inside Cost of Goods Sold, but they were never part of the Total COGS figure, so the lines in that table did not add up to its total, and every percentage was measured against sales that still included money handed back. The summary now opens with Total Sales, less Refunds, equals Net Sales; Cost of Goods Sold holds only item cost, shipping and eBay fees, and adds up to its total; margin and every percentage are measured against net sales. Net profit is unchanged. The Excel ledger now also drops the unit cost on a cancelled or returned sale once its refund has gone out, the same as the P&L, so the two agree. The headline card shows Net Sales, Units Sold no longer counts cancelled or returned orders, the category and character tables report net sales, and the Sales Ledger has a Refund column so each line reads Price less Refund less COGS equals Profit. Export Sales Ledger had stopped producing a file: it checked for the desktop app in a way that never succeeded, so it tried a browser download the app ignores. It now opens the save dialog and the workbook. If the P&L ever falls back to the print dialog, the message now says why, and the PDF file name is kept to plain characters."],
@@ -3189,7 +3190,8 @@ function exportSalesLedgerCsv(sel){
       +'<Cell ss:StyleID="'+S_TXT+'"/>'
       +'<Cell ss:StyleID="'+S_TXT+'"><Data ss:Type="String">'+xesc(loc)+'</Data></Cell>'
       +'<Cell ss:StyleID="'+S_TXT+'"><Data ss:Type="String">'+xesc(s.title||(it&&it.desc)||"")+'</Data></Cell>'
-      +'<Cell ss:StyleID="'+S_TXT+'"/>'
+      // BF / SKU: "WIM" marks a warehouse sale so it stands out once ledgers are combined; anything else stays blank.
+      +(s.channel==="wim"?('<Cell ss:StyleID="'+S_TXT+'"><Data ss:Type="String">WIM</Data></Cell>'):('<Cell ss:StyleID="'+S_TXT+'"/>'))
       +numCell(uc,S_MONEY)
       +pendCell(ship)
       +pendCell(fees)
